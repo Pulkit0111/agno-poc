@@ -61,6 +61,26 @@ pr-review https://github.com/owner/repo/pull/123 --model gpt-4o-mini
 pr-review-server               # equivalently: python -m bott.interfaces.server
 ```
 
+### Live webhook (local dev)
+
+GitHub webhooks need a public URL. `scripts/run_server.sh` stops any stale server,
+starts `pr-review-server`, opens a `cloudflared` tunnel, and prints the public webhook
+URL. GitHub Apps have one webhook URL and the tunnel changes each run, so
+`scripts/set_app_webhook.py` repoints the App at the current URL (authenticating as the
+App; it reuses `GITHUB_WEBHOOK_SECRET` so signatures still verify).
+
+```bash
+scripts/run_server.sh --set-webhook         # start server + tunnel, register the URL
+# or, manually:
+scripts/run_server.sh                        # prints the URL
+python scripts/set_app_webhook.py https://<tunnel>.trycloudflare.com/webhook/github
+```
+
+A `pull_request` opened/ready_for_review event then auto-reviews the PR, posts the review
+(if the repo is in `ALLOWED_POST_REPOS`), and mirrors it to `REVIEW_SLACK_CHANNEL`. If a
+delivery failed while nothing was listening, redeliver it from the App's **Advanced →
+Recent Deliveries** page (or the `/app/hook/deliveries` API).
+
 ## Configuration
 
 All settings come from the environment (see `.env.example`). Key vars: `OPENAI_API_KEY`,
