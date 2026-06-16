@@ -335,3 +335,32 @@ the POC intentionally omits Apply-fixes, Jira grounding, stack profiles, and the
 production substrate (Postgres, EC2/CI/CD, dashboards). Quality findings on the model axis:
 gpt-4.1-mini reviewed a real PR in 5 tool calls / 13k tokens / 14s / $0.0026 and correctly
 blocked a seeded SQL-injection PR (CHANGES_REQUESTED) — see Sessions 2–4 above.
+
+---
+
+## 2026-06-16 — Restructure + manager Team spine
+
+### Restructure (`review_poc/` + `app/` → `pr_reviewer/`)
+Moved the flat POC into an installable `src/pr_reviewer/` package with subpackages
+(`core`, `github`, `agent`, `rendering`, `persistence`, `observability`, `interfaces`).
+Added `pyproject.toml` (entry points `pr-review`, `pr-review-server`), `README`, and
+`.env.example`. Light hardening: verdict-gate thresholds and the SQLite path are now
+env-overridable (defaults unchanged). All tests pass; ruff clean.
+
+### Manager Team spine (use case #13 as the first member)
+Reframed the Slack app as a **manager → specialists** team using Agno `Team`:
+- **Manager** = `Team` leader (`coordinate` mode) carrying Bott's personality. It chats
+  directly for non-task messages and delegates real work to members.
+- **Code Review Agent** = first member. Its tools (`start_review`, `start_rereview`)
+  *enqueue* onto the existing durable worker rather than running inline, so Slack stays
+  responsive and the worker/progress-checklist/trace/re-review machinery is reused as-is.
+- **Entry-point model** (decided): the manager is the *conversational* front door only;
+  webhooks (GitHub/Sentry) and cron invoke specialists directly — no LLM routing tax on
+  deterministic triggers. Agents 2..N (Standup, Delivery synthesis, Engagement hygiene,
+  Incident triage) drop in as additional members, no change to the routing layer.
+
+Live smoke (gpt-4.1-mini): a chat turn replies without delegating; "review &lt;PR-URL&gt;"
+delegates -> `start_review` fires -> a `review` task is queued with the right ref. Member
+model inheritance from the team confirmed. New deterministic tests in
+`tests/test_orchestration.py` cover the enqueue tools + team wiring (LLM routing is
+exercised manually, not in CI).
