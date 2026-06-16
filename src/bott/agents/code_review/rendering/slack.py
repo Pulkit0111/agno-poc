@@ -16,7 +16,8 @@ from ..core.types import ToolCallTrace
 from ..core.verdict_gate import GateResult
 
 SEVERITY_RANK = {"issue": 0, "suggestion": 1}
-SEVERITY_EMOJI = {"issue": "⛔", "suggestion": "💡"}
+SEVERITY_EMOJI = {"issue": "🔴", "suggestion": "🟡"}
+VERDICT_PILL = {"approve": "🟢", "suggestions": "🟡", "issues": "🔴"}
 
 
 @dataclass
@@ -42,11 +43,7 @@ def _one_line(s: str) -> str:
 
 
 def _header_verb(v: str) -> str:
-    return {"approve": "Approved", "issues": "Issues found", "suggestions": "Suggestions"}[v]
-
-
-def _header_emoji(v: str) -> str:
-    return {"approve": "✅", "issues": "⛔", "suggestions": "💡"}[v]
+    return {"approve": "Approved", "issues": "Changes requested", "suggestions": "Suggestions"}[v]
 
 
 def _counts_line(comments) -> Optional[str]:
@@ -99,12 +96,17 @@ def render_slack_review(
     tool_calls = tool_calls or []
     blocks: list[dict] = []
 
-    blocks.append(
-        _section(
-            f"{_header_emoji(gate.final_verdict)} *{_header_verb(gate.final_verdict)}* · "
-            f"<{url}|PR #{number}> · `{owner}/{name}`"
-        )
-    )
+    v = gate.final_verdict
+    counts = _counts_line(output.line_comments)
+    # Card title (header block renders the verdict pill + verb).
+    blocks.append({
+        "type": "header",
+        "text": {"type": "plain_text", "text": f"{VERDICT_PILL[v]} {_header_verb(v)} — PR #{number}", "emoji": True},
+    })
+    ctx = f"`{owner}/{name}` · <{url}|view PR>"
+    if counts:
+        ctx += f" · {counts}"
+    blocks.append(_context(ctx))
     blocks.append(_section(_escape(output.summary)))
 
     if prior_verdict and prior_verdict != gate.final_verdict:
@@ -125,10 +127,6 @@ def render_slack_review(
                     f"_(verified against: {cited})_"
                 )
             )
-
-    counts = _counts_line(output.line_comments)
-    if counts:
-        blocks.append(_context(counts))
 
     sorted_findings = sorted(output.line_comments, key=lambda c: SEVERITY_RANK[c.severity])
     top = sorted_findings[:3]

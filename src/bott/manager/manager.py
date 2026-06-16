@@ -11,7 +11,7 @@ from __future__ import annotations
 from agno.team import Team, TeamMode
 
 from bott.agents.code_review.member import SlackContext, build_code_review_agent
-from bott.shared.config import DEFAULT_MODEL
+from bott.shared.config import manager_model
 from bott.shared.model import build_model
 
 from .personality import IDENTITY, NAME, VOICE
@@ -26,10 +26,11 @@ ROUTING_INSTRUCTIONS = [
 ]
 
 
-def build_manager(ctx: SlackContext, model_id: str = DEFAULT_MODEL) -> Team:
+def build_manager(ctx: SlackContext, model_id: str | None = None) -> Team:
     """Build the manager Team for one Slack message. The member inherits this model;
-    the leader's voice comes entirely from personality.VOICE."""
-    model = build_model(model_id)
+    the leader's voice comes entirely from personality.VOICE. Uses the (fast) MANAGER_MODEL
+    — the heavy review runs separately on REVIEW_MODEL in the worker."""
+    model = build_model(model_id or manager_model())
     return Team(
         name=NAME,
         model=model,

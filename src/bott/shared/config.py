@@ -165,3 +165,10 @@ def model_base_url() -> str | None:
 def model_api_key() -> str | None:
     """Key for the model endpoint: an explicit override, else the standard OpenAI key."""
     return os.getenv("REVIEW_MODEL_API_KEY") or os.getenv("OPENAI_API_KEY") or None
+
+
+def manager_model() -> str:
+    """Model for the conversational manager (chat + routing). A fast/cheap model is plenty
+    here — the heavy review runs separately on REVIEW_MODEL. Falls back to the review model
+    when MANAGER_MODEL isn't set, so behavior is unchanged unless you opt in."""
+    return os.getenv("MANAGER_MODEL") or DEFAULT_MODEL

@@ -78,7 +78,15 @@ if [ "$USE_CODEX" = "1" ]; then
     REVIEW_MODEL="${chosen:-$default}"
   fi
   export REVIEW_MODEL
-  echo "Using model: $REVIEW_MODEL"
+  echo "Review model: $REVIEW_MODEL"
+
+  # The manager (chat/routing) uses a fast model — default to a *mini from the list.
+  if [ -z "${MANAGER_MODEL:-}" ]; then
+    MANAGER_MODEL="$(printf '%s\n' "$MODELS" | grep -i 'mini' | head -1)"
+    MANAGER_MODEL="${MANAGER_MODEL:-$REVIEW_MODEL}"
+  fi
+  export MANAGER_MODEL
+  echo "Manager model: $MANAGER_MODEL"
 fi
 
 # --- stop any stale server on the webhook port ---------------------------------

@@ -25,9 +25,13 @@ def test_issues_render_is_json_serializable_and_has_finding():
                 tool_calls=[ToolCallTrace("read_file", {"path": "a.py"}),
                             ToolCallTrace("search_code", {"query": "token"})])
     json.dumps(r.blocks)  # must serialize
-    text = " ".join(b.get("text", {}).get("text", "") for b in r.blocks if b.get("type") == "section")
-    assert "Issues found" in text and "a.py:5" in text
-    assert "Issues found on PR #42" in r.fallback
+    header = " ".join(b["text"]["text"] for b in r.blocks if b.get("type") == "header")
+    section_text = " ".join(
+        b.get("text", {}).get("text", "") for b in r.blocks if b.get("type") == "section"
+    )
+    assert "Changes requested" in header
+    assert "a.py:5" in section_text
+    assert "Changes requested on PR #42" in r.fallback
 
 
 def test_approve_render_has_buttons():

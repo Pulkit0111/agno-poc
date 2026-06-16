@@ -84,3 +84,27 @@ def test_bot_author_skipped(client):
 def test_closed_action_ignored(client):
     p = {**OPENED, "action": "closed"}
     assert _post(client, p, delivery="d4").status_code == 202
+
+
+def _sync(sha):
+    return {"action": "synchronize",
+            "pull_request": {"number": 7, "draft": False, "title": "feat: x",
+                             "user": {"login": "alice", "type": "User"},
+                             "head": {"sha": sha}},
+            "repository": {"name": "repo", "owner": {"login": "acme"}}}
+
+
+def test_synchronize_enqueues(client):
+    assert _post(client, _sync("abc123"), delivery="s1").status_code == 202
+    import sqlite3
+    rows = list(sqlite3.connect(store.DB_FILE).execute("SELECT args FROM tasks"))
+    assert len(rows) == 1 and json.loads(rows[0][0])["source"] == "github"
+
+
+def test_same_commit_deduped(client):
+    _post(client, _sync("samesha"), delivery="s1")
+    # a second synchronize for the same head SHA (different delivery id) is skipped
+    assert _post(client, _sync("samesha"), delivery="s2").status_code == 202
+    import sqlite3
+    rows = list(sqlite3.connect(store.DB_FILE).execute("SELECT 1 FROM tasks"))
+    assert len(rows) == 1  # only the first enqueued

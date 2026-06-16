@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request, Response
 
 from bott.shared.config import github_webhook_secret, review_slack_channel
 from bott.shared.observability.logging_setup import get_logger
-from bott.shared.persistence.store import enqueue, seen_delivery
+from bott.shared.persistence.store import enqueue, seen_commit, seen_delivery
 
 router = APIRouter()
 log = get_logger("review.webhook")
@@ -55,7 +55,8 @@ async def github_webhook(request: Request) -> Response:
 
     payload = await request.json()
     action = payload.get("action")
-    if action not in ("opened", "ready_for_review"):
+    # opened / ready_for_review: first review. synchronize: new commits pushed to the PR.
+    if action not in ("opened", "ready_for_review", "synchronize"):
         return Response(status_code=202, content="ignored action")
 
     pr = payload.get("pull_request", {})
@@ -71,6 +72,12 @@ async def github_webhook(request: Request) -> Response:
     number = pr.get("number")
     if not (owner and name and number):
         return Response(status_code=202, content="incomplete payload")
+
+    # Commit-level dedup: rapid `synchronize` events can fire many times for one push,
+    # and the same head SHA shouldn't be reviewed twice.
+    head_sha = ((pr.get("head") or {}).get("sha")) or ""
+    if head_sha and seen_commit(owner, name, head_sha):
+        return Response(status_code=202, content="commit already reviewed")
 
     enqueue("review", {
         "source": "github",

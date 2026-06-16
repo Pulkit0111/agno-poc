@@ -53,6 +53,10 @@ def init_db(db_file: Optional[str] = None) -> None:
                 delivery_id TEXT PRIMARY KEY,
                 created REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS reviewed_commits (
+                repo_sha TEXT PRIMARY KEY,
+                created REAL NOT NULL
+            );
             """
         )
         # Migration: add attempts column to existing DBs.
@@ -71,6 +75,23 @@ def seen_delivery(delivery_id: str, db_file: Optional[str] = None) -> bool:
             c.execute(
                 "INSERT INTO github_deliveries(delivery_id, created) VALUES (?,?)",
                 (delivery_id, time.time()),
+            )
+            return False
+        except sqlite3.IntegrityError:
+            return True
+
+
+def seen_commit(owner: str, name: str, sha: str, db_file: Optional[str] = None) -> bool:
+    """Record an (owner/name, head-SHA) pair; return True if this exact commit was already
+    reviewed (dedup). Stops rapid repeated `synchronize` events re-reviewing one commit."""
+    if not (owner and name and sha):
+        return False
+    key = f"{owner}/{name}@{sha}".lower()
+    with _lock, _conn(db_file) as c:
+        try:
+            c.execute(
+                "INSERT INTO reviewed_commits(repo_sha, created) VALUES (?,?)",
+                (key, time.time()),
             )
             return False
         except sqlite3.IntegrityError:

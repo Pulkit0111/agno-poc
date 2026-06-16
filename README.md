@@ -122,5 +122,17 @@ instead; when that endpoint carries its own auth, no `OPENAI_API_KEY` is require
 
 ```bash
 pytest
-ruff check src tests
+ruff check src tests scripts
+```
+
+## Eval (review quality)
+
+`scripts/eval_reviews.py` runs the real pipeline against a manifest of known PRs
+(`scripts/eval_cases.json`) and scores the gate's verdict vs the expected one — so you can
+catch quality regressions when you change the prompt or model. It's **live** (clones +
+reviews each PR using the configured model endpoint, so it spends tokens) — run on demand,
+not in CI. Update the PR numbers in the manifest to current open harness PRs.
+
+```bash
+python scripts/eval_reviews.py            # uses scripts/eval_cases.json
 ```

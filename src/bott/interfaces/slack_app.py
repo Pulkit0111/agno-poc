@@ -108,16 +108,18 @@ def _tally_text(counts: dict) -> str:
 
 
 def _checklist_blocks(number: int, verb: str, current_key: str, counts: dict) -> list[dict]:
+    """A calm one-line progress indicator: monochrome step dots + a compact stage line.
+    ●=done  ◐=in progress  ○=pending."""
     cur = next((i for i, (k, _) in enumerate(_STAGES) if k == current_key), 0)
+    dots = "".join("●" if i < cur else ("◐" if i == cur else "○") for i in range(len(_STAGES)))
+    head = f"{dots}  {verb} PR #{number}"
     tally = _tally_text(counts)
-    lines = []
-    for i, (key, label) in enumerate(_STAGES):
-        icon = "✅" if i < cur else ("⏳" if i == cur else "⚪")
-        line = f"{icon}  {label}"
-        if key == "review" and i <= cur and tally:
-            line += f"  —  _{tally}_"
-        lines.append(line)
-    text = f":eyes: *{verb} PR #{number}…*\n" + "\n".join(lines)
+    if tally:
+        head += f"  ·  {tally}"
+    marks = []
+    for i, (key, _label) in enumerate(_STAGES):
+        marks.append(f"{key} ✓" if i < cur else (f"{key} …" if i == cur else key))
+    text = f"*{head}*\n_{'  '.join(marks)}_"
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
 
