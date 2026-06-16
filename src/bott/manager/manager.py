@@ -51,14 +51,3 @@ def run_manager(team: Team, text: str) -> str:
     """Run the manager on a user message and return its conversational reply."""
     out = team.run(text)
     return (out.content or "").strip()
-
-
-def stream_manager(team: Team, text: str):
-    """Yield the manager's reply as incremental text chunks (for live Slack streaming).
-    Only the leader's content deltas are yielded — tool/member events are skipped."""
-    for event in team.run(text, stream=True):
-        if event.__class__.__name__ != "RunContentEvent":
-            continue
-        chunk = getattr(event, "content", None)
-        if isinstance(chunk, str) and chunk:
-            yield chunk

@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
 
 # The python.org Python build ships without CA certs; slack_sdk uses urllib (not
 # httpx), so point its default SSL context at certifi's bundle before any Slack call.
@@ -30,7 +29,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bott.agents.code_review.github.app_auth import app_token_for
 from bott.agents.code_review.member import SlackContext
-from bott.manager import build_manager, stream_manager
+from bott.manager import build_manager, run_manager
 from bott.shared.config import allowed_post_repos, default_budget
 from bott.shared.observability.logging_setup import get_logger
 
@@ -315,19 +314,12 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
     """Run the manager (Team leader) on the message with the FULL thread as context, so it
     follows the whole conversation. It chats directly, or delegates to the Code Review
     specialist whose tool queues work onto the durable worker (which posts the verdict)."""
-    # 1) Instant acknowledgement — react to the user's message and drop a placeholder
-    #    BEFORE any slow work (transcript fetch, model time-to-first-token), so it feels
-    #    immediate like ChatGPT/Claude.
+    # Instant acknowledgement — react and drop a "typing…" placeholder BEFORE the slow work
+    # (transcript fetch + model). The 👀 reaction STAYS as a "handled" mark.
     if trigger_ts:
         _react(channel, trigger_ts, "eyes")
     status_ts = _post(channel, thread_ts,
                       [{"type": "section", "text": {"type": "mrkdwn", "text": "_typing…_"}}], "…")
-
-    def _render(body_text: str, *, done: bool) -> None:
-        shown = body_text + ("" if done else " ▌")  # cursor while streaming
-        _update(channel, status_ts,
-                [{"type": "section", "text": {"type": "mrkdwn", "text": shown or "_typing…_"}}],
-                body_text or "…")
 
     ctx = SlackContext(channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts)
     team = build_manager(ctx)
@@ -341,28 +333,16 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
     parts.append(f'The latest message is: "{text.strip()}"\nReply to it as Bott.')
     msg = "\n\n".join(parts)
 
-    # 2) Stream: paint the first text as soon as it arrives, then edit on a tight cadence
-    #    (dropped edits are harmless — _update swallows rate-limit errors).
-    acc = ""
-    last_edit = 0.0
-    MIN_INTERVAL = 0.5
+    # Compute the full reply, then replace the placeholder with it in one edit.
     try:
-        for chunk in stream_manager(team, msg):
-            acc += chunk
-            now = time.monotonic()
-            if now - last_edit >= MIN_INTERVAL:
-                _render(acc, done=False)
-                last_edit = now
+        reply = run_manager(team, msg)
     except Exception as e:  # noqa: BLE001 — never let a chat turn crash the worker/handler
         log.warning("manager error: %s", e)
-        acc = acc or "Sorry — I hit a snag just now. Mind trying again in a moment?"
+        reply = "Sorry — I hit a snag just now. Mind trying again in a moment?"
 
-    _render(acc.strip(), done=True)  # final text, cursor removed
-
-    # The eyes reaction was an ack. If a review/re-review was queued, leave it — the worker
-    # swaps it for the verdict emoji when done. For plain chat, clear it (we've replied).
-    if trigger_ts and not ctx.enqueued:
-        _react(channel, trigger_ts, "eyes", add=False)
+    _update(channel, status_ts,
+            [{"type": "section", "text": {"type": "mrkdwn", "text": reply or "…"}}],
+            reply or "…")
 
 
 # ── Slack event handlers ────────────────────────────────────────────────────────
