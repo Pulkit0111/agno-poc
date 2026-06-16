@@ -127,6 +127,7 @@ def handle_task(task: Task) -> None:
     channel, thread_ts, trigger_ts = a.get("channel"), a.get("thread_ts"), a.get("trigger_ts")
     source = a.get("source", "slack")  # "slack" or "github" (webhook auto-trigger)
 
+    log.info("task %s: %s source=%s", task.id, task.kind, source)
     if task.kind == "review":
         owner, name, number = a["owner"], a["name"], a["number"]
         prior_review = prior_text = prior_verdict = None
@@ -235,6 +236,9 @@ def handle_task(task: Task) -> None:
         return
 
     gate: GateResult = result.gate  # type: ignore[assignment]
+    log.info("review done %s/%s#%s verdict=%s tool_calls=%s cost=%s posted=%s",
+             owner, name, number, gate.final_verdict, len(result.run.tool_calls),
+             result.run.cost_usd, bool(result.posted))
     rendered = render_slack_review(
         result.run.output, gate,
         owner=owner, name=name, number=number, url=result.meta.url,
@@ -264,28 +268,61 @@ def handle_task(task: Task) -> None:
 
 
 # ── conversational core ─────────────────────────────────────────────────────────
+_user_names: dict[str, str] = {}
+
+
+def _display_name(user_id: str) -> str:
+    """Human name for a Slack user id (cached). Falls back to the id."""
+    if not user_id:
+        return "someone"
+    if user_id in _user_names:
+        return _user_names[user_id]
+    name = user_id
+    try:
+        info = app.client.users_info(user=user_id)["user"]
+        name = info.get("profile", {}).get("display_name") or info.get("real_name") or user_id
+    except Exception:
+        pass
+    _user_names[user_id] = name
+    return name
+
+
+def _thread_transcript(channel: str, thread_ts: str, limit: int = 30) -> str:
+    """The whole Slack thread, oldest→newest, as a labelled transcript so the manager
+    has the full conversation in context (every participant, not just the last message)."""
+    try:
+        msgs = app.client.conversations_replies(channel=channel, ts=thread_ts, limit=limit).get(
+            "messages", []
+        )
+    except Exception as e:  # noqa: BLE001 — context is best-effort; never block a reply
+        log.info("could not fetch thread %s/%s: %s", channel, thread_ts, e)
+        return ""
+    lines = []
+    for m in msgs:
+        if m.get("subtype"):
+            continue
+        speaker = "Bott" if (m.get("bot_id") or m.get("user") == _bot_user_id) else _display_name(m.get("user", ""))
+        body = _strip_mention(m.get("text", "")).strip()
+        if body:
+            lines.append(f"{speaker}: {body}")
+    return "\n".join(lines)
+
+
 def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_row) -> None:
-    """Run the manager (Team leader) on the message: it chats directly, or delegates to
-    the Code Review specialist, whose tool queues the work onto the durable worker. The
-    queued review/re-review still answers with the live checklist message; here we only
-    add the 'eyes' ack and post the manager's conversational reply."""
+    """Run the manager (Team leader) on the message with the FULL thread as context, so it
+    follows the whole conversation. It chats directly, or delegates to the Code Review
+    specialist whose tool queues work onto the durable worker (which posts the verdict)."""
     ctx = SlackContext(channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts)
     team = build_manager(ctx)
 
-    # Give the leader thread context so a follow-up routes to a re-review.
-    prior_note = ""
-    if prior_row:
-        try:
-            out = ReviewOutput.model_validate_json(prior_row["output_json"])
-            prior_note = (
-                f"\n\n[thread context: earlier in this thread the team reviewed "
-                f"{prior_row['owner']}/{prior_row['name']}#{prior_row['pr_number']}; "
-                f"verdict {prior_row['final_verdict']} — {out.summary}]"
-            )
-        except Exception:
-            pass
+    transcript = _thread_transcript(channel, thread_ts)
     seen = "yes" if prior_row else "no"
-    msg = f"{text.strip()}{prior_note}\n\n[a PR was already reviewed in this thread: {seen}]"
+    parts = []
+    if transcript:
+        parts.append("Conversation in this Slack thread so far (oldest first):\n" + transcript)
+    parts.append(f"[a PR was already reviewed in this thread: {seen}]")
+    parts.append(f'The latest message is: "{text.strip()}"\nReply to it as Bott.')
+    msg = "\n\n".join(parts)
 
     try:
         reply = run_manager(team, msg)
