@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 
 # The python.org Python build ships without CA certs; slack_sdk uses urllib (not
 # httpx), so point its default SSL context at certifi's bundle before any Slack call.
@@ -29,7 +30,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bott.agents.code_review.github.app_auth import app_token_for
 from bott.agents.code_review.member import SlackContext
-from bott.manager import build_manager, run_manager
+from bott.manager import build_manager, stream_manager
 from bott.shared.config import allowed_post_repos, default_budget
 from bott.shared.observability.logging_setup import get_logger
 
@@ -326,20 +327,35 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
     parts.append(f'The latest message is: "{text.strip()}"\nReply to it as Bott.')
     msg = "\n\n".join(parts)
 
+    # Post a placeholder immediately so the reply feels instant, then edit it as the model
+    # streams. Slack rate-limits chat.update, so coalesce live edits to ~once a second.
+    status_ts = _post(channel, thread_ts,
+                      [{"type": "section", "text": {"type": "mrkdwn", "text": "_…_"}}], "…")
+
+    def _render(body_text: str, *, done: bool) -> None:
+        shown = body_text + ("" if done else " ▌")  # cursor while streaming
+        _update(channel, status_ts,
+                [{"type": "section", "text": {"type": "mrkdwn", "text": shown or "_…_"}}],
+                body_text or "…")
+
+    acc = ""
+    last_edit = 0.0
     try:
-        reply = run_manager(team, msg)
+        for chunk in stream_manager(team, msg):
+            acc += chunk
+            now = time.monotonic()
+            if now - last_edit >= 1.0:
+                _render(acc, done=False)
+                last_edit = now
     except Exception as e:  # noqa: BLE001 — never let a chat turn crash the worker/handler
         log.warning("manager error: %s", e)
-        reply = "Sorry — I hit a snag just now. Mind trying again in a moment?"
+        acc = acc or "Sorry — I hit a snag just now. Mind trying again in a moment?"
+
+    _render(acc.strip(), done=True)  # final text, cursor removed
 
     # A specialist queued work -> ack with the eyes reaction; the verdict posts later.
     if ctx.enqueued and trigger_ts:
         _react(channel, trigger_ts, "eyes")
-
-    if reply:
-        _post(channel, thread_ts,
-              [{"type": "section", "text": {"type": "mrkdwn", "text": reply}}],
-              reply)
 
 
 # ── Slack event handlers ────────────────────────────────────────────────────────
