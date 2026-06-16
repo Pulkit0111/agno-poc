@@ -1,6 +1,6 @@
 """Markdown → Slack mrkdwn conversion (so model output renders in Slack)."""
 
-from bott.interfaces.mrkdwn import to_mrkdwn
+from bott.shared.mrkdwn import to_mrkdwn
 
 
 def test_bold_double_asterisks_to_single():

@@ -11,6 +11,8 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
+from bott.shared.mrkdwn import to_mrkdwn
+
 from ..core.models import ReviewOutput
 from ..core.types import ToolCallTrace
 from ..core.verdict_gate import GateResult
@@ -107,7 +109,7 @@ def render_slack_review(
     if counts:
         ctx += f" · {counts}"
     blocks.append(_context(ctx))
-    blocks.append(_section(_escape(output.summary)))
+    blocks.append(_section(to_mrkdwn(_escape(output.summary))))
 
     if prior_verdict and prior_verdict != gate.final_verdict:
         blocks.append(
@@ -118,12 +120,12 @@ def render_slack_review(
         )
         reasoning = (output.reasoning_summary or "").strip()
         if reasoning:
-            blocks.append(_context(f"_Why:_ {_escape(_one_line(reasoning))}"))
+            blocks.append(_context(f"_Why:_ {to_mrkdwn(_escape(_one_line(reasoning)))}"))
         for w in (output.withdrawn_findings or [])[:3]:
             cited = ", ".join(f"`{p}`" for p in w.evidence_paths)
             blocks.append(
                 _context(
-                    f"_Withdrew `{w.prior_path}:{w.prior_line}`:_ {_escape(_one_line(w.reason))} "
+                    f"_Withdrew `{w.prior_path}:{w.prior_line}`:_ {to_mrkdwn(_escape(_one_line(w.reason)))} "
                     f"_(verified against: {cited})_"
                 )
             )
@@ -132,7 +134,7 @@ def render_slack_review(
     top = sorted_findings[:3]
     if top:
         bullets = "\n".join(
-            f"{i + 1}. {SEVERITY_EMOJI[lc.severity]} `{lc.path}:{lc.line}` — {_one_line(lc.body)}"
+            f"{i + 1}. {SEVERITY_EMOJI[lc.severity]} `{lc.path}:{lc.line}` — {to_mrkdwn(_one_line(lc.body))}"
             for i, lc in enumerate(top)
         )
         blocks.append(_section(bullets))

@@ -29,9 +29,9 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bott.agents.code_review.github.app_auth import app_token_for
 from bott.agents.code_review.member import SlackContext
-from bott.interfaces.mrkdwn import to_mrkdwn
 from bott.manager import build_manager, run_manager
 from bott.shared.config import allowed_post_repos, default_budget
+from bott.shared.mrkdwn import to_mrkdwn
 from bott.shared.observability.logging_setup import get_logger
 
 log = get_logger("review.slack")
