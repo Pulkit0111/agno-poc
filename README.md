@@ -100,13 +100,23 @@ instead; when that endpoint carries its own auth, no `OPENAI_API_KEY` is require
 - **OpenAI (default):** set `OPENAI_API_KEY`.
 - **Azure OpenAI / OpenRouter / self-hosted gateway / local model (Ollama, LM Studio):**
   set `REVIEW_MODEL_BASE_URL` (+ `REVIEW_MODEL_API_KEY` if the endpoint needs one).
-- **ChatGPT/Codex subscription (no API key):** run a local proxy that authenticates with
-  your Codex OAuth login and exposes an OpenAI-compatible endpoint, then set
-  `REVIEW_MODEL_BASE_URL=http://127.0.0.1:<port>/v1`. This is the same mechanism a
-  "Sign in with ChatGPT" model picker uses. **Caveat:** that backend is undocumented and
-  unsupported, the proxy works by mimicking Codex's request shape to pass OpenAI's auth
-  check, and it likely violates OpenAI's ToS (risk of account flagging). The proxy is a
-  third-party tool you run; this repo only points `base_url` at it.
+- **ChatGPT/Codex subscription (no API key):** one command —
+
+  ```bash
+  npx @openai/codex login     # one-time, if ~/.codex/auth.json doesn't exist yet
+  scripts/run_server.sh --codex
+  ```
+
+  `--codex` starts a local proxy (`npx openai-oauth`, port 10531) that reuses your Codex
+  login and exposes an OpenAI-compatible endpoint, points Bott at it, then brings up the
+  server + tunnel. Override the proxy with `CODEX_PROXY_CMD` / `CODEX_PROXY_PORT`, and the
+  model with `REVIEW_MODEL` (defaults to `gpt-5.4`).
+
+  **Caveats:** the proxy is third-party code that reads password-equivalent tokens from
+  `~/.codex/auth.json`, and OpenAI's Codex backend is undocumented — the proxy mimics
+  Codex's request shape to pass the auth check, which likely violates OpenAI's ToS (risk
+  of account flagging). Fine for a single-user POC on your own subscription; review the
+  proxy before trusting it with your token.
 
 ## Test & lint
 
