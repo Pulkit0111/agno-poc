@@ -42,6 +42,11 @@ if [ "$USE_CODEX" = "1" ]; then
   if [ ! -f "$HOME/.codex/auth.json" ]; then
     echo "No ~/.codex/auth.json — run 'npx @openai/codex login' first."; exit 1
   fi
+  if lsof -nP -iTCP:"$CODEX_PROXY_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "Stopping process already on :$CODEX_PROXY_PORT ..."
+    lsof -nP -tiTCP:"$CODEX_PROXY_PORT" -sTCP:LISTEN | xargs kill 2>/dev/null || true
+    sleep 1
+  fi
   echo "Starting Codex proxy: $CODEX_PROXY_CMD  -> /tmp/bott-codex-proxy.log"
   # shellcheck disable=SC2086
   $CODEX_PROXY_CMD >/tmp/bott-codex-proxy.log 2>&1 &
@@ -55,8 +60,25 @@ if [ "$USE_CODEX" = "1" ]; then
     sleep 1
   done
   export REVIEW_MODEL_BASE_URL="http://127.0.0.1:$CODEX_PROXY_PORT/v1"
-  export REVIEW_MODEL="${REVIEW_MODEL:-gpt-5.4}"
-  echo "Codex proxy up on :$CODEX_PROXY_PORT — Bott will use your ChatGPT subscription (model=$REVIEW_MODEL)."
+  echo "Codex proxy up on :$CODEX_PROXY_PORT (using your ChatGPT subscription)."
+
+  # Let you pick a model the proxy actually serves (set REVIEW_MODEL to skip the prompt).
+  MODELS="$(curl -s "http://127.0.0.1:$CODEX_PROXY_PORT/v1/models" \
+    | "$PY" -c "import sys,json; print('\n'.join(m.get('id','') for m in (json.load(sys.stdin).get('data') or [])))" 2>/dev/null || true)"
+  if [ -n "$MODELS" ]; then
+    echo "Models available from the proxy:"; printf '%s\n' "$MODELS" | sed 's/^/   - /'
+  else
+    echo "(couldn't list models from the proxy; you can still type one)"
+  fi
+  if [ -z "${REVIEW_MODEL:-}" ]; then
+    default="$(printf '%s\n' "$MODELS" | grep -i '^gpt-5' | head -1)"
+    default="${default:-$(printf '%s\n' "$MODELS" | head -1)}"; default="${default:-gpt-5.4}"
+    printf "Enter the model to use [%s]: " "$default"
+    read -r chosen </dev/tty || true
+    REVIEW_MODEL="${chosen:-$default}"
+  fi
+  export REVIEW_MODEL
+  echo "Using model: $REVIEW_MODEL"
 fi
 
 # --- stop any stale server on the webhook port ---------------------------------
@@ -85,7 +107,7 @@ tunnel_pid=$!
 
 URL=""
 for _ in $(seq 1 30); do
-  URL="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/bott-tunnel.log | head -1 || true)"
+  URL="$(grep -aoE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/bott-tunnel.log | head -1 || true)"
   [ -n "$URL" ] && break
   sleep 1
 done
