@@ -11,35 +11,32 @@ from __future__ import annotations
 from agno.models.openai import OpenAIChat
 from agno.team import Team, TeamMode
 
-from ..config import DEFAULT_MODEL
-from .code_review_agent import SlackContext, build_code_review_agent
+from bott.agents.code_review.member import SlackContext, build_code_review_agent
+from bott.shared.config import DEFAULT_MODEL
 
-MANAGER_DESCRIPTION = (
-    "You are Bott — a friendly, sharp engineering teammate in Slack. You talk like a "
-    "colleague, not a command parser."
-)
+from .personality import IDENTITY, NAME, VOICE
 
-MANAGER_INSTRUCTIONS = [
-    "Reply in 1-2 warm, concise sentences. No corporate fluff, no bullet lists, no internal jargon.",
+# Routing rules only — the voice/persona lives in personality.py (single source of truth).
+ROUTING_INSTRUCTIONS = [
     "Your team can review GitHub pull requests. When someone wants a PR reviewed, or "
-    "follows up on a PR already reviewed in this thread, delegate to the Code Review Agent.",
-    "Pass the PR link or reference along verbatim — let the specialist handle parsing.",
+    "follows up on a PR already reviewed in this thread, delegate to the Code Review Agent "
+    "and pass the PR link or reference along verbatim.",
     "For anything else — greetings, questions about what you do, small talk, questions "
-    "about an earlier review — just answer helpfully yourself; don't delegate.",
-    "If someone clearly wants a review but gave no link, ask for the GitHub PR link in a friendly way.",
+    "about an earlier review — answer yourself; don't delegate.",
 ]
 
 
 def build_manager(ctx: SlackContext, model_id: str = DEFAULT_MODEL) -> Team:
-    """Build the manager Team for one Slack message. The member inherits this model."""
+    """Build the manager Team for one Slack message. The member inherits this model;
+    the leader's voice comes entirely from personality.VOICE."""
     model = OpenAIChat(id=model_id, retries=3, exponential_backoff=True)
     return Team(
-        name="Bott",
+        name=NAME,
         model=model,
         members=[build_code_review_agent(ctx)],
         mode=TeamMode.coordinate,
-        description=MANAGER_DESCRIPTION,
-        instructions=MANAGER_INSTRUCTIONS,
+        description=IDENTITY,
+        instructions=[VOICE, *ROUTING_INSTRUCTIONS],
         telemetry=False,
         markdown=False,
     )

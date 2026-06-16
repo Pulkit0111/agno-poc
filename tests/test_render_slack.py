@@ -1,9 +1,9 @@
 import json
 
-from pr_reviewer.core.models import LineComment, ReviewOutput
-from pr_reviewer.core.types import ToolCallTrace
-from pr_reviewer.core.verdict_gate import GateResult
-from pr_reviewer.rendering.slack import render_slack_review
+from bott.agents.code_review.core.models import LineComment, ReviewOutput
+from bott.agents.code_review.core.types import ToolCallTrace
+from bott.agents.code_review.core.verdict_gate import GateResult
+from bott.agents.code_review.rendering.slack import render_slack_review
 
 
 def _gate(final="issues", outcome="none_applied", downgrade=None, soft=None, orig=None):

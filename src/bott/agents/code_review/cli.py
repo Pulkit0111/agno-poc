@@ -1,6 +1,6 @@
 """Phase-1 dry-run harness.
 
-    python -m pr_reviewer.interfaces.cli <PR-URL | owner/repo/number> [flags]
+    pr-review <PR-URL | owner/repo/number> [flags]   (or: python -m bott.agents.code_review.cli)
 
 Runs the full review pipeline and PRINTS the rendered GitHub review + the 10-row
 gate decision table + token/cost. Posts nothing unless --post is given (phase 3),
@@ -16,8 +16,9 @@ import sys
 
 from dotenv import load_dotenv
 
-from ..config import DEFAULT_MODEL, Budget
-from ..core.pipeline import review_pr
+from bott.shared.config import DEFAULT_MODEL, Budget
+
+from .core.pipeline import review_pr
 
 _URL_RE = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)")
 _SLUG_RE = re.compile(r"^([^/]+)/([^/]+)/(\d+)$")

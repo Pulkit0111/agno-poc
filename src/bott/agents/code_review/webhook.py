@@ -15,8 +15,8 @@ import hmac
 
 from fastapi import APIRouter, Request, Response
 
-from pr_reviewer.config import github_webhook_secret, review_slack_channel
-from pr_reviewer.persistence.store import enqueue, seen_delivery
+from bott.shared.config import github_webhook_secret, review_slack_channel
+from bott.shared.persistence.store import enqueue, seen_delivery
 
 router = APIRouter()
 

@@ -1,30 +1,45 @@
-# pr_reviewer
+# Bott
 
-An [Agno](https://github.com/agno-agi/agno)-powered pull-request reviewer. It fetches a
-PR, shallow-clones the repo, lets an agent investigate with file/search/history tools,
-runs a 10-precondition **verdict gate** over the model's output, and renders a GitHub
-review and/or a Slack message. Drive it three ways:
+**Bott** is a conversational engineering teammate in Slack — an [Agno](https://github.com/agno-agi/agno)
+`Team` manager with a personality, backed by a team of specialist agents it delegates to.
+Talk to it like a colleague; it chats directly and hands real work to the right specialist.
+The first specialist is **Code Review**: it fetches a PR, shallow-clones the repo, lets an
+agent investigate with file/search/history tools, runs a 10-precondition **verdict gate**,
+and renders a GitHub review and/or a Slack message.
 
-- **CLI** — dry-run a review and print the verdict, gate table, and rendered output.
-- **Slack bot** — `@bot review <PR-URL>`; thread replies drive evidence-bound re-reviews.
-- **GitHub webhook** — auto-review on PR opened / ready-for-review.
+Three ways in (the manager is the *conversational* door; webhooks and cron hit specialists directly):
+
+- **Slack** — talk to Bott; it delegates PR reviews and (later) other tasks. Thread replies drive evidence-bound re-reviews.
+- **GitHub webhook** — auto-review on PR opened / ready-for-review (direct trigger).
+- **CLI** — dry-run a code review and print the verdict, gate table, and rendered output.
 
 ## Layout
 
 ```
-src/pr_reviewer/
-├── config.py            # env, model, budget caps, gate thresholds, DB path
-├── intake.py            # conversational intent classifier (Slack)
-├── core/                # pipeline, runner, verdict_gate, rereview, models, types
-├── github/              # client, app_auth (JWT), clone, fetch_essentials
-├── agent/               # prompt, tools (Agno Toolkit), diff_hunks, noise
-├── rendering/           # github.py, slack.py
-├── persistence/         # store.py (SQLite task queue + review traces)
-├── observability/       # logging_setup.py (secret-redacting logs)
-└── interfaces/          # cli.py, server.py, slack_app.py, webhook.py
-tests/                   # pytest suite (pure unit tests)
+src/bott/
+├── manager/               # the conversational manager (Agno Team leader)
+│   ├── manager.py         #   builds the Team, wires members + routing
+│   └── personality.py     #   Bott's voice — single source of truth
+├── agents/                # specialist agents the manager delegates to
+│   └── code_review/       #   first specialist (the PR reviewer)
+│       ├── member.py      #     Team-member adapter + enqueue tools
+│       ├── pr_ref.py      #     PR-reference parsing
+│       ├── cli.py         #     `pr-review` dry-run (direct trigger)
+│       ├── webhook.py     #     GitHub PR webhook (direct trigger)
+│       ├── core/          #     pipeline, runner, verdict_gate, rereview, models, types
+│       ├── github/        #     client, app_auth (JWT), clone, fetch_essentials
+│       ├── agent/         #     prompt, tools (Agno Toolkit), diff_hunks, noise
+│       └── rendering/     #     github.py, slack.py
+├── shared/                # used by the manager and every specialist
+│   ├── config.py          #   env, model, budget caps, gate thresholds, DB path
+│   ├── persistence/       #   store.py (SQLite task queue + review traces)
+│   └── observability/     #   logging_setup.py (secret-redacting logs)
+└── interfaces/            # slack_app.py (front door) + server.py (boots it all)
+tests/                     # pytest suite (deterministic unit tests)
 ```
 
+Future specialists (standup, delivery synthesis, engagement hygiene, incident triage)
+drop into `bott/agents/` as new members — no change to the manager's routing layer.
 The Next.js chat frontend lives separately in `agent-ui/`.
 
 ## Setup
@@ -42,8 +57,8 @@ cp .env.example .env           # then fill in OPENAI_API_KEY, Slack tokens, etc.
 pr-review owner/repo/123
 pr-review https://github.com/owner/repo/pull/123 --model gpt-4o-mini
 
-# Production server (Slack Socket Mode + GitHub webhook + shared worker):
-pr-review-server               # equivalently: python -m pr_reviewer.interfaces.server
+# Bott server (Slack Socket Mode + GitHub webhook + shared worker):
+pr-review-server               # equivalently: python -m bott.interfaces.server
 ```
 
 ## Configuration

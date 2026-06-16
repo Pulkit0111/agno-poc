@@ -364,3 +364,18 @@ delegates -> `start_review` fires -> a `review` task is queued with the right re
 model inheritance from the team confirmed. New deterministic tests in
 `tests/test_orchestration.py` cover the enqueue tools + team wiring (LLM routing is
 exercised manually, not in CI).
+
+### Umbrella `bott` package + personality
+Fixed a placement mistake: the manager had been nested under `pr_reviewer`, but it
+orchestrates *all* agents. Re-homed into an umbrella package:
+`bott/manager` (leader + personality), `bott/agents/code_review` (the former
+`pr_reviewer`, demoted to one specialist), `bott/shared` (config, task queue, logging),
+`bott/interfaces` (Slack front door + server). Future agents slot into `bott/agents/`
+with no change to the manager. Intra-specialist imports were preserved; only cross-cutting
+deps (config/persistence/observability) and the manager/member links were rewired.
+
+**Personality** is now a single source of truth (`bott/manager/personality.py`): warm but
+precise, mostly business with rare dry wit, speaks as one teammate and names a specialist
+only when it adds clarity. The manager draws its voice from there; the competing
+`INTAKE_PROMPT` persona was removed (the old `intake.py` is trimmed to PR-ref parsing in
+`pr_ref.py`). 74 tests pass; ruff clean; live smoke confirms voice + delegation post-move.

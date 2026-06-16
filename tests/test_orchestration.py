@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import tempfile
 
-import pr_reviewer.persistence.store as store
-from pr_reviewer.orchestration.code_review_agent import SlackContext, make_review_tools
+import bott.shared.persistence.store as store
+from bott.agents.code_review.member import SlackContext, make_review_tools
 
 
 def _fresh_store():
@@ -61,7 +61,7 @@ def test_start_rereview_enqueues_rereview_task():
 def test_manager_team_has_code_review_member_in_coordinate_mode():
     from agno.team import TeamMode
 
-    from pr_reviewer.orchestration.manager import build_manager
+    from bott.manager.manager import build_manager
 
     team = build_manager(SlackContext(channel=None, thread_ts=None))
 

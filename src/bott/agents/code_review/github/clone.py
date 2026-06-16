@@ -15,7 +15,7 @@ import tempfile
 import time
 from typing import Optional
 
-from ..observability.logging_setup import get_logger, redact
+from bott.shared.observability.logging_setup import get_logger, redact
 
 log = get_logger("review.clone")
 _CLONE_PREFIX = "bott-poc-review-"

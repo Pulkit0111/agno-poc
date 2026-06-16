@@ -13,8 +13,9 @@ from typing import Callable, Optional
 
 from agno.agent import Agent
 
-from ..intake import extract_pr_ref
-from ..persistence import store
+from bott.shared.persistence import store
+
+from .pr_ref import extract_pr_ref
 
 CODE_REVIEW_ROLE = (
     "Review GitHub pull requests: queue a review when given a PR, or a re-review when "

@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-import pr_reviewer.persistence.store as store
+import bott.shared.persistence.store as store
 
 SECRET = "testsecret123"
 
@@ -20,7 +20,7 @@ def client(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from pr_reviewer.interfaces.webhook import router
+    from bott.agents.code_review.webhook import router
     fa = FastAPI(); fa.include_router(router)
     yield TestClient(fa)
     store.DB_FILE = old

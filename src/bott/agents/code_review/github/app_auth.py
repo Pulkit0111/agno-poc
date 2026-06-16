@@ -15,7 +15,7 @@ from typing import Optional
 import httpx
 import jwt
 
-from ..config import github_app_id, github_app_private_key
+from bott.shared.config import github_app_id, github_app_private_key
 
 API = "https://api.github.com"
 _lock = threading.Lock()

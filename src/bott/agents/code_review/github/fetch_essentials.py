@@ -11,8 +11,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from bott.shared.config import DIFF_CAP, PER_FILE_PATCH_CAP
+
 from ..agent.noise import is_noise_file
-from ..config import DIFF_CAP, PER_FILE_PATCH_CAP
 from ..core.types import CiStatus, FileChange
 from .client import Comment, GitHubClient, PrMeta
 

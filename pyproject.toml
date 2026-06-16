@@ -30,8 +30,8 @@ dev = [
 ]
 
 [project.scripts]
-pr-review = "pr_reviewer.interfaces.cli:main"
-pr-review-server = "pr_reviewer.interfaces.server:main"
+pr-review = "bott.agents.code_review.cli:main"
+pr-review-server = "bott.interfaces.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -51,9 +51,9 @@ ignore = ["E501"]  # long lines exist in prompt/render strings; not worth churni
 [tool.ruff.lint.per-file-ignores]
 # slack_app must set SSL_CERT_FILE / load .env before importing slack_sdk (which uses
 # urllib, not httpx) — imports are deliberately placed after that setup.
-"src/pr_reviewer/interfaces/slack_app.py" = ["E402"]
+"src/bott/interfaces/slack_app.py" = ["E402"]
 # Pre-existing single-letter loop vars in ported code; harmless, not worth churning.
-"src/pr_reviewer/agent/prompt.py" = ["E741"]
-"src/pr_reviewer/core/verdict_gate.py" = ["E741"]
+"src/bott/agents/code_review/agent/prompt.py" = ["E741"]
+"src/bott/agents/code_review/core/verdict_gate.py" = ["E741"]
 # Compact test fixtures use inline statements.
 "tests/test_webhook.py" = ["E702"]

@@ -4,7 +4,7 @@ Socket Mode (no public URL). `@bott-poc review <PR-URL>` queues a review; the wo
 runs the Phase-1 engine and posts the verdict in-thread. Replies in a review thread
 (or the Re-review button) drive an evidence-bound re-review.
 
-Run:  python -m pr_reviewer.interfaces.slack_app
+Run:  python -m bott.interfaces.slack_app
 """
 
 from __future__ import annotations
@@ -27,17 +27,19 @@ load_dotenv()
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from pr_reviewer.config import allowed_post_repos, default_budget
-from pr_reviewer.github.app_auth import app_token_for
-from pr_reviewer.observability.logging_setup import get_logger
-from pr_reviewer.orchestration import SlackContext, build_manager, run_manager
+from bott.agents.code_review.github.app_auth import app_token_for
+from bott.agents.code_review.member import SlackContext
+from bott.manager import build_manager, run_manager
+from bott.shared.config import allowed_post_repos, default_budget
+from bott.shared.observability.logging_setup import get_logger
 
 log = get_logger("review.slack")
-from pr_reviewer.core.models import ReviewOutput
-from pr_reviewer.core.pipeline import review_pr
-from pr_reviewer.core.rereview import build_prior_review, build_prior_review_text
-from pr_reviewer.core.verdict_gate import GateResult
-from pr_reviewer.persistence.store import (
+from bott.agents.code_review.core.models import ReviewOutput
+from bott.agents.code_review.core.pipeline import review_pr
+from bott.agents.code_review.core.rereview import build_prior_review, build_prior_review_text
+from bott.agents.code_review.core.verdict_gate import GateResult
+from bott.agents.code_review.rendering.slack import render_slack_review
+from bott.shared.persistence.store import (
     Task,
     Worker,
     enqueue,
@@ -46,7 +48,6 @@ from pr_reviewer.persistence.store import (
     recover_orphans,
     save_trace,
 )
-from pr_reviewer.rendering.slack import render_slack_review
 
 # Per-review budget from env (lean defaults so a run fits low OpenAI TPM tiers).
 REVIEW_BUDGET = default_budget()

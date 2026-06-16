@@ -16,7 +16,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from ..config import gate_thresholds
+from bott.shared.config import gate_thresholds
+
 from .models import ReviewOutput
 from .types import CiStatus, ToolCallTrace
 

@@ -2,7 +2,7 @@ import tempfile
 
 import pytest
 
-import pr_reviewer.persistence.store as store
+import bott.shared.persistence.store as store
 
 
 @pytest.fixture()

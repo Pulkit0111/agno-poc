@@ -13,9 +13,10 @@ from typing import Callable, Optional
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 
+from bott.shared.config import DEFAULT_MODEL, Budget, calculate_cost
+
 from ..agent.prompt import PROMPT_VERSION, build_system_prompt
 from ..agent.tools import ReviewTools
-from ..config import DEFAULT_MODEL, Budget, calculate_cost
 from ..github.fetch_essentials import PrEssentials
 from .models import ReviewOutput
 from .types import ToolCallTrace
