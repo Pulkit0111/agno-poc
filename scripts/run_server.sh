@@ -62,18 +62,13 @@ if [ "$USE_CODEX" = "1" ]; then
   export REVIEW_MODEL_BASE_URL="http://127.0.0.1:$CODEX_PROXY_PORT/v1"
   echo "Codex proxy up on :$CODEX_PROXY_PORT (using your ChatGPT subscription)."
 
-  # Reviewer runs on the Codex subscription (strong model); the manager runs a cheap/fast
-  # model on the OpenAI API — so chat stays snappy and off the subscription. No prompt;
-  # override either via env (REVIEW_MODEL / MANAGER_MODEL).
+  # Both roles run on your Codex subscription — no API key needed. Reviewer on a strong
+  # model, manager on a fast *mini (chat stays snappy). Override either via env.
   export REVIEW_MODEL="${REVIEW_MODEL:-gpt-5.5}"
-  export MANAGER_MODEL="${MANAGER_MODEL:-gpt-4.1-mini}"
-  # Manager talks to the OpenAI API (MANAGER_MODEL_BASE_URL stays unset) and needs a key.
-  echo "Review model  (Codex):  $REVIEW_MODEL"
-  echo "Manager model (OpenAI): $MANAGER_MODEL"
-  if [ -z "${OPENAI_API_KEY:-}" ] && ! grep -qE '^OPENAI_API_KEY=.+' .env 2>/dev/null; then
-    echo "  note: the manager uses the OpenAI API — set OPENAI_API_KEY in .env, or set"
-    echo "        MANAGER_MODEL_BASE_URL to run the manager on another endpoint."
-  fi
+  export MANAGER_MODEL="${MANAGER_MODEL:-gpt-5.4-mini}"
+  export MANAGER_MODEL_BASE_URL="${MANAGER_MODEL_BASE_URL:-http://127.0.0.1:$CODEX_PROXY_PORT/v1}"
+  echo "Review model  (Codex): $REVIEW_MODEL"
+  echo "Manager model (Codex): $MANAGER_MODEL"
 fi
 
 # --- stop any stale server on the webhook port ---------------------------------
@@ -113,7 +108,8 @@ echo "Tunnel: $URL  (public /healthz -> $code)"
 
 HOOK="$URL/webhook/github"
 if [ "$SET_WEBHOOK" = "1" ]; then
-  "$PY" scripts/set_app_webhook.py "$HOOK"
+  "$PY" scripts/set_app_webhook.py "$HOOK" \
+    || echo "  webhook registration failed — server stays up; re-run: $PY scripts/set_app_webhook.py $HOOK"
 else
   echo "Register it on the GitHub App:  $PY scripts/set_app_webhook.py $HOOK"
 fi
