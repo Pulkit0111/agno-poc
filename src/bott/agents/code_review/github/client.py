@@ -13,8 +13,9 @@ from typing import Any, Optional
 
 import httpx
 
+from bott.shared.observability.logging_setup import get_logger
+
 from ..core.types import CiCheck, CiStatus
-from ..observability.logging_setup import get_logger
 
 API = "https://api.github.com"
 log = get_logger("review.github")

@@ -4,7 +4,7 @@ Boots with fail-fast config validation, structured logging (secret-redacted), a
 stale-clone sweep, and graceful shutdown. Slack Socket Mode runs in the main thread;
 the FastAPI webhook runs in a daemon thread; the review worker runs in its own thread.
 
-Run:  pr-review-server   (or: python -m pr_reviewer.interfaces.server)
+Run:  pr-review-server   (or: python -m bott.interfaces.server)
 """
 
 from __future__ import annotations
@@ -18,12 +18,12 @@ import uvicorn
 from fastapi import FastAPI
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from pr_reviewer.config import github_app_configured, validate_required
-from pr_reviewer.github.clone import sweep_stale_clones
-from pr_reviewer.observability.logging_setup import get_logger, setup_logging
+from bott.agents.code_review.github.clone import sweep_stale_clones
+from bott.agents.code_review.webhook import router as webhook_router
+from bott.shared.config import github_app_configured, validate_required
+from bott.shared.observability.logging_setup import get_logger, setup_logging
 
 from . import slack_app as sa  # sets SSL_CERT_FILE + loads .env on import
-from .webhook import router as webhook_router
 
 log = get_logger("review.server")
 

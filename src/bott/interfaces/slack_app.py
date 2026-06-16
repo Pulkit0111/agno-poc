@@ -4,7 +4,7 @@ Socket Mode (no public URL). `@bott-poc review <PR-URL>` queues a review; the wo
 runs the Phase-1 engine and posts the verdict in-thread. Replies in a review thread
 (or the Re-review button) drive an evidence-bound re-review.
 
-Run:  python -m pr_reviewer.interfaces.slack_app
+Run:  python -m bott.interfaces.slack_app
 """
 
 from __future__ import annotations
@@ -27,17 +27,19 @@ load_dotenv()
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from pr_reviewer.config import allowed_post_repos, default_budget
-from pr_reviewer.github.app_auth import app_token_for
-from pr_reviewer.intake import extract_pr_ref, interpret
-from pr_reviewer.observability.logging_setup import get_logger
+from bott.agents.code_review.github.app_auth import app_token_for
+from bott.agents.code_review.member import SlackContext
+from bott.manager import build_manager, run_manager
+from bott.shared.config import allowed_post_repos, default_budget
+from bott.shared.observability.logging_setup import get_logger
 
 log = get_logger("review.slack")
-from pr_reviewer.core.models import ReviewOutput
-from pr_reviewer.core.pipeline import review_pr
-from pr_reviewer.core.rereview import build_prior_review, build_prior_review_text
-from pr_reviewer.core.verdict_gate import GateResult
-from pr_reviewer.persistence.store import (
+from bott.agents.code_review.core.models import ReviewOutput
+from bott.agents.code_review.core.pipeline import review_pr
+from bott.agents.code_review.core.rereview import build_prior_review, build_prior_review_text
+from bott.agents.code_review.core.verdict_gate import GateResult
+from bott.agents.code_review.rendering.slack import render_slack_review
+from bott.shared.persistence.store import (
     Task,
     Worker,
     enqueue,
@@ -46,7 +48,6 @@ from pr_reviewer.persistence.store import (
     recover_orphans,
     save_trace,
 )
-from pr_reviewer.rendering.slack import render_slack_review
 
 # Per-review budget from env (lean defaults so a run fits low OpenAI TPM tiers).
 REVIEW_BUDGET = default_budget()
@@ -258,46 +259,42 @@ def handle_task(task: Task) -> None:
 
 # ── conversational core ─────────────────────────────────────────────────────────
 def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_row) -> None:
-    """Interpret a message conversationally, reply naturally, and act if needed."""
-    context = None
+    """Run the manager (Team leader) on the message: it chats directly, or delegates to
+    the Code Review specialist, whose tool queues the work onto the durable worker. The
+    queued review/re-review still answers with the live checklist message; here we only
+    add the 'eyes' ack and post the manager's conversational reply."""
+    ctx = SlackContext(channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts)
+    team = build_manager(ctx)
+
+    # Give the leader thread context so a follow-up routes to a re-review.
+    prior_note = ""
     if prior_row:
         try:
             out = ReviewOutput.model_validate_json(prior_row["output_json"])
-            context = (
-                f"Earlier in this thread you reviewed "
+            prior_note = (
+                f"\n\n[thread context: earlier in this thread the team reviewed "
                 f"{prior_row['owner']}/{prior_row['name']}#{prior_row['pr_number']}; "
-                f"your verdict was {prior_row['final_verdict']} — {out.summary}"
+                f"verdict {prior_row['final_verdict']} — {out.summary}]"
             )
         except Exception:
             pass
+    seen = "yes" if prior_row else "no"
+    msg = f"{text.strip()}{prior_note}\n\n[a PR was already reviewed in this thread: {seen}]"
 
-    intake = interpret(text, in_review_thread=prior_row is not None, context=context)
+    try:
+        reply = run_manager(team, msg)
+    except Exception as e:  # noqa: BLE001 — never let a chat turn crash the worker/handler
+        log.warning("manager error: %s", e)
+        reply = "Sorry — I hit a snag just now. Mind trying again in a moment?"
 
-    # A review/re-review answers with the checklist message itself — no chatty ack
-    # (exactly like Bott). Only pure chat gets a standalone conversational reply.
-    if intake.action == "review":
-        pr = extract_pr_ref(intake.pr_url or "") or extract_pr_ref(text)
-        if pr:
-            owner, name, number = pr
-            _react(channel, trigger_ts, "eyes")
-            enqueue("review", {
-                "owner": owner, "name": name, "number": number,
-                "channel": channel, "thread_ts": thread_ts, "trigger_ts": trigger_ts,
-            })
-            return
-    elif intake.action == "rereview" and prior_row is not None:
+    # A specialist queued work -> ack with the eyes reaction; the verdict posts later.
+    if ctx.enqueued and trigger_ts:
         _react(channel, trigger_ts, "eyes")
-        enqueue("rereview", {
-            "channel": channel, "thread_ts": thread_ts, "trigger_ts": trigger_ts,
-            "reply_text": text,
-        })
-        return
 
-    # chat, or a review request with no resolvable PR link -> one conversational reply.
-    if intake.reply:
+    if reply:
         _post(channel, thread_ts,
-              [{"type": "section", "text": {"type": "mrkdwn", "text": intake.reply}}],
-              intake.reply)
+              [{"type": "section", "text": {"type": "mrkdwn", "text": reply}}],
+              reply)
 
 
 # ── Slack event handlers ────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-from pr_reviewer.agent.diff_hunks import anchorable_lines, is_anchor_in_diff
+from bott.agents.code_review.agent.diff_hunks import anchorable_lines, is_anchor_in_diff
 
 PATCH = "@@ -1,3 +1,4 @@\n ctx1\n+added2\n+added3\n-removed\n ctx4"
 

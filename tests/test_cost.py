@@ -1,4 +1,4 @@
-from pr_reviewer.config import calculate_cost
+from bott.shared.config import calculate_cost
 
 
 def test_gpt4o_mini_cost():

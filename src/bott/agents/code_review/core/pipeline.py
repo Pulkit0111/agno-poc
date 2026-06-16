@@ -10,8 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from bott.shared.config import DEFAULT_MODEL, Budget, github_token
+
 from ..agent.diff_hunks import is_anchor_in_diff
-from ..config import DEFAULT_MODEL, Budget, github_token
 from ..github.client import GitHubClient, PrMeta
 from ..github.clone import shallow_clone
 from ..github.fetch_essentials import PrEssentials, fetch_pr_essentials

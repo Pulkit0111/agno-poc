@@ -1,4 +1,4 @@
-from pr_reviewer.observability.logging_setup import redact
+from bott.shared.observability.logging_setup import redact
 
 
 def test_redacts_clone_url_token():

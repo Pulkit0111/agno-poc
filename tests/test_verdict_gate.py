@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import re
 
-from pr_reviewer.core.models import LineComment, ReviewOutput, WithdrawnFinding
-from pr_reviewer.core.types import CiCheck, CiStatus, ToolCallTrace
-from pr_reviewer.core.verdict_gate import (
+from bott.agents.code_review.core.models import LineComment, ReviewOutput, WithdrawnFinding
+from bott.agents.code_review.core.types import CiCheck, CiStatus, ToolCallTrace
+from bott.agents.code_review.core.verdict_gate import (
     GateFile,
     GateRunCtx,
     PriorIssueFinding,

@@ -1,4 +1,4 @@
-from pr_reviewer.intake import extract_pr_ref
+from bott.agents.code_review.pr_ref import extract_pr_ref
 
 
 def test_extract_url():
