@@ -172,3 +172,15 @@ def manager_model() -> str:
     here — the heavy review runs separately on REVIEW_MODEL. Falls back to the review model
     when MANAGER_MODEL isn't set, so behavior is unchanged unless you opt in."""
     return os.getenv("MANAGER_MODEL") or DEFAULT_MODEL
+
+
+def manager_base_url() -> str | None:
+    """Endpoint for the manager model. Independent of the reviewer's, so the manager can run
+    a cheap model on the OpenAI API (default: unset → api.openai.com) while the reviewer uses
+    a Codex-subscription proxy."""
+    return os.getenv("MANAGER_MODEL_BASE_URL") or None
+
+
+def manager_api_key() -> str | None:
+    """Key for the manager endpoint: an explicit override, else the standard OpenAI key."""
+    return os.getenv("MANAGER_MODEL_API_KEY") or os.getenv("OPENAI_API_KEY") or None

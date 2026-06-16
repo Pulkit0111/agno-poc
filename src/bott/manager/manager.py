@@ -11,7 +11,7 @@ from __future__ import annotations
 from agno.team import Team, TeamMode
 
 from bott.agents.code_review.member import SlackContext, build_code_review_agent
-from bott.shared.config import manager_model
+from bott.shared.config import manager_api_key, manager_base_url, manager_model
 from bott.shared.model import build_model
 
 from .personality import IDENTITY, NAME, VOICE
@@ -30,7 +30,11 @@ def build_manager(ctx: SlackContext, model_id: str | None = None) -> Team:
     """Build the manager Team for one Slack message. The member inherits this model;
     the leader's voice comes entirely from personality.VOICE. Uses the (fast) MANAGER_MODEL
     — the heavy review runs separately on REVIEW_MODEL in the worker."""
-    model = build_model(model_id or manager_model())
+    model = build_model(
+        model_id or manager_model(),
+        base_url=manager_base_url(),
+        api_key=manager_api_key(),
+    )
     return Team(
         name=NAME,
         model=model,

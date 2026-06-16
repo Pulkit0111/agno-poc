@@ -12,7 +12,7 @@ from typing import Callable, Optional
 
 from agno.agent import Agent
 
-from bott.shared.config import DEFAULT_MODEL, Budget, calculate_cost
+from bott.shared.config import DEFAULT_MODEL, Budget, calculate_cost, model_api_key, model_base_url
 from bott.shared.model import build_model
 
 from ..agent.prompt import PROMPT_VERSION, build_system_prompt
@@ -70,7 +70,10 @@ def run_review_agent(
     agent = Agent(
         # Survive per-minute TPM limits (low account tier): the agentic loop sends a
         # large growing context, so transient 429s are expected.
-        model=build_model(model_id, retries=5, delay_between_retries=3),
+        model=build_model(
+            model_id, base_url=model_base_url(), api_key=model_api_key(),
+            retries=5, delay_between_retries=3,
+        ),
         tools=[ReviewTools(clone_path, essentials)],
         system_message=system_prompt,
         output_schema=ReviewOutput,

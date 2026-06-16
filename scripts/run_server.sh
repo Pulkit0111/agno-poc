@@ -62,31 +62,18 @@ if [ "$USE_CODEX" = "1" ]; then
   export REVIEW_MODEL_BASE_URL="http://127.0.0.1:$CODEX_PROXY_PORT/v1"
   echo "Codex proxy up on :$CODEX_PROXY_PORT (using your ChatGPT subscription)."
 
-  # Let you pick a model the proxy actually serves (set REVIEW_MODEL to skip the prompt).
-  MODELS="$(curl -s "http://127.0.0.1:$CODEX_PROXY_PORT/v1/models" \
-    | "$PY" -c "import sys,json; print('\n'.join(m.get('id','') for m in (json.load(sys.stdin).get('data') or [])))" 2>/dev/null || true)"
-  if [ -n "$MODELS" ]; then
-    echo "Models available from the proxy:"; printf '%s\n' "$MODELS" | sed 's/^/   - /'
-  else
-    echo "(couldn't list models from the proxy; you can still type one)"
+  # Reviewer runs on the Codex subscription (strong model); the manager runs a cheap/fast
+  # model on the OpenAI API — so chat stays snappy and off the subscription. No prompt;
+  # override either via env (REVIEW_MODEL / MANAGER_MODEL).
+  export REVIEW_MODEL="${REVIEW_MODEL:-gpt-5.5}"
+  export MANAGER_MODEL="${MANAGER_MODEL:-gpt-4.1-mini}"
+  # Manager talks to the OpenAI API (MANAGER_MODEL_BASE_URL stays unset) and needs a key.
+  echo "Review model  (Codex):  $REVIEW_MODEL"
+  echo "Manager model (OpenAI): $MANAGER_MODEL"
+  if [ -z "${OPENAI_API_KEY:-}" ] && ! grep -qE '^OPENAI_API_KEY=.+' .env 2>/dev/null; then
+    echo "  note: the manager uses the OpenAI API — set OPENAI_API_KEY in .env, or set"
+    echo "        MANAGER_MODEL_BASE_URL to run the manager on another endpoint."
   fi
-  if [ -z "${REVIEW_MODEL:-}" ]; then
-    default="$(printf '%s\n' "$MODELS" | grep -i '^gpt-5' | head -1)"
-    default="${default:-$(printf '%s\n' "$MODELS" | head -1)}"; default="${default:-gpt-5.4}"
-    printf "Enter the model to use [%s]: " "$default"
-    read -r chosen </dev/tty || true
-    REVIEW_MODEL="${chosen:-$default}"
-  fi
-  export REVIEW_MODEL
-  echo "Review model: $REVIEW_MODEL"
-
-  # The manager (chat/routing) uses a fast model — default to a *mini from the list.
-  if [ -z "${MANAGER_MODEL:-}" ]; then
-    MANAGER_MODEL="$(printf '%s\n' "$MODELS" | grep -i 'mini' | head -1)"
-    MANAGER_MODEL="${MANAGER_MODEL:-$REVIEW_MODEL}"
-  fi
-  export MANAGER_MODEL
-  echo "Manager model: $MANAGER_MODEL"
 fi
 
 # --- stop any stale server on the webhook port ---------------------------------
