@@ -315,6 +315,20 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
     """Run the manager (Team leader) on the message with the FULL thread as context, so it
     follows the whole conversation. It chats directly, or delegates to the Code Review
     specialist whose tool queues work onto the durable worker (which posts the verdict)."""
+    # 1) Instant acknowledgement — react to the user's message and drop a placeholder
+    #    BEFORE any slow work (transcript fetch, model time-to-first-token), so it feels
+    #    immediate like ChatGPT/Claude.
+    if trigger_ts:
+        _react(channel, trigger_ts, "eyes")
+    status_ts = _post(channel, thread_ts,
+                      [{"type": "section", "text": {"type": "mrkdwn", "text": "_typing…_"}}], "…")
+
+    def _render(body_text: str, *, done: bool) -> None:
+        shown = body_text + ("" if done else " ▌")  # cursor while streaming
+        _update(channel, status_ts,
+                [{"type": "section", "text": {"type": "mrkdwn", "text": shown or "_typing…_"}}],
+                body_text or "…")
+
     ctx = SlackContext(channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts)
     team = build_manager(ctx)
 
@@ -327,24 +341,16 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
     parts.append(f'The latest message is: "{text.strip()}"\nReply to it as Bott.')
     msg = "\n\n".join(parts)
 
-    # Post a placeholder immediately so the reply feels instant, then edit it as the model
-    # streams. Slack rate-limits chat.update, so coalesce live edits to ~once a second.
-    status_ts = _post(channel, thread_ts,
-                      [{"type": "section", "text": {"type": "mrkdwn", "text": "_…_"}}], "…")
-
-    def _render(body_text: str, *, done: bool) -> None:
-        shown = body_text + ("" if done else " ▌")  # cursor while streaming
-        _update(channel, status_ts,
-                [{"type": "section", "text": {"type": "mrkdwn", "text": shown or "_…_"}}],
-                body_text or "…")
-
+    # 2) Stream: paint the first text as soon as it arrives, then edit on a tight cadence
+    #    (dropped edits are harmless — _update swallows rate-limit errors).
     acc = ""
     last_edit = 0.0
+    MIN_INTERVAL = 0.5
     try:
         for chunk in stream_manager(team, msg):
             acc += chunk
             now = time.monotonic()
-            if now - last_edit >= 1.0:
+            if now - last_edit >= MIN_INTERVAL:
                 _render(acc, done=False)
                 last_edit = now
     except Exception as e:  # noqa: BLE001 — never let a chat turn crash the worker/handler
@@ -353,9 +359,10 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
 
     _render(acc.strip(), done=True)  # final text, cursor removed
 
-    # A specialist queued work -> ack with the eyes reaction; the verdict posts later.
-    if ctx.enqueued and trigger_ts:
-        _react(channel, trigger_ts, "eyes")
+    # The eyes reaction was an ack. If a review/re-review was queued, leave it — the worker
+    # swaps it for the verdict emoji when done. For plain chat, clear it (we've replied).
+    if trigger_ts and not ctx.enqueued:
+        _react(channel, trigger_ts, "eyes", add=False)
 
 
 # ── Slack event handlers ────────────────────────────────────────────────────────
