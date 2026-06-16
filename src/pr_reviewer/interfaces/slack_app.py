@@ -1,0 +1,380 @@
+"""Bott-POC Slack app (Phase 2) — primary interface for the review engine.
+
+Socket Mode (no public URL). `@bott-poc review <PR-URL>` queues a review; the worker
+runs the Phase-1 engine and posts the verdict in-thread. Replies in a review thread
+(or the Re-review button) drive an evidence-bound re-review.
+
+Run:  python -m pr_reviewer.interfaces.slack_app
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+
+# The python.org Python build ships without CA certs; slack_sdk uses urllib (not
+# httpx), so point its default SSL context at certifi's bundle before any Slack call.
+import certifi
+
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+os.environ.setdefault("SSL_CERT_DIR", os.path.dirname(certifi.where()))
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode import SocketModeHandler
+
+from pr_reviewer.config import allowed_post_repos, default_budget
+from pr_reviewer.github.app_auth import app_token_for
+from pr_reviewer.intake import extract_pr_ref, interpret
+from pr_reviewer.observability.logging_setup import get_logger
+
+log = get_logger("review.slack")
+from pr_reviewer.core.models import ReviewOutput
+from pr_reviewer.core.pipeline import review_pr
+from pr_reviewer.core.rereview import build_prior_review, build_prior_review_text
+from pr_reviewer.core.verdict_gate import GateResult
+from pr_reviewer.persistence.store import (
+    Task,
+    Worker,
+    enqueue,
+    init_db,
+    latest_trace_for_thread,
+    recover_orphans,
+    save_trace,
+)
+from pr_reviewer.rendering.slack import render_slack_review
+
+# Per-review budget from env (lean defaults so a run fits low OpenAI TPM tiers).
+REVIEW_BUDGET = default_budget()
+
+_VERDICT_EMOJI = {"approve": "white_check_mark", "suggestions": "bulb", "issues": "no_entry"}
+
+app = App(token=os.environ["SLACK_BOT_TOKEN"])
+_bot_user_id: str | None = None
+
+
+def _react(channel: str, ts: str, name: str, add: bool = True) -> None:
+    try:
+        if add:
+            app.client.reactions_add(channel=channel, timestamp=ts, name=name)
+        else:
+            app.client.reactions_remove(channel=channel, timestamp=ts, name=name)
+    except Exception:
+        pass  # reactions are cosmetic; never fail the review over them
+
+
+def _post(channel: str, thread_ts: str, blocks: list[dict], fallback: str) -> str:
+    return app.client.chat_postMessage(
+        channel=channel, thread_ts=thread_ts, blocks=blocks, text=fallback
+    )["ts"]
+
+
+def _update(channel: str, ts: str, blocks: list[dict], fallback: str) -> None:
+    try:
+        app.client.chat_update(channel=channel, ts=ts, blocks=blocks, text=fallback)
+    except Exception:
+        pass  # a dropped progress edit must never fail the review
+
+
+# High-level stages shown as a Bott-style checklist (not per-tool spam).
+_STAGES = [
+    ("fetch", "Fetch PR details"),
+    ("clone", "Clone the repo"),
+    ("review", "Review the code"),
+    ("verdict", "Decide the verdict"),
+]
+_TALLY = [
+    ("read_file", "read", "reads"),
+    ("search_code", "search", "searches"),
+    ("find_references", "ref lookup", "ref lookups"),
+    ("get_file_history", "history check", "history checks"),
+]
+
+
+def _tally_text(counts: dict) -> str:
+    parts = []
+    for name, sing, plur in _TALLY:
+        n = counts.get(name, 0)
+        if n:
+            parts.append(f"{n} {sing if n == 1 else plur}")
+    if counts.get("read_review_rules"):
+        parts.append("review rules")
+    return " · ".join(parts)
+
+
+def _checklist_blocks(number: int, verb: str, current_key: str, counts: dict) -> list[dict]:
+    cur = next((i for i, (k, _) in enumerate(_STAGES) if k == current_key), 0)
+    tally = _tally_text(counts)
+    lines = []
+    for i, (key, label) in enumerate(_STAGES):
+        icon = "✅" if i < cur else ("⏳" if i == cur else "⚪")
+        line = f"{icon}  {label}"
+        if key == "review" and i <= cur and tally:
+            line += f"  —  _{tally}_"
+        lines.append(line)
+    text = f":eyes: *{verb} PR #{number}…*\n" + "\n".join(lines)
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+
+
+# ── worker handler ────────────────────────────────────────────────────────────
+def handle_task(task: Task) -> None:
+    a = task.args
+    channel, thread_ts, trigger_ts = a.get("channel"), a.get("thread_ts"), a.get("trigger_ts")
+    source = a.get("source", "slack")  # "slack" or "github" (webhook auto-trigger)
+
+    if task.kind == "review":
+        owner, name, number = a["owner"], a["name"], a["number"]
+        prior_review = prior_text = prior_verdict = None
+    else:  # rereview (Slack-thread only)
+        prior = latest_trace_for_thread(channel, thread_ts) if channel else None
+        if not prior:
+            if channel:
+                _post(channel, thread_ts, [
+                    {"type": "section", "text": {"type": "mrkdwn",
+                     "text": "I don't have a prior review in this thread to re-review."}}
+                ], "No prior review in this thread.")
+            return
+        owner, name, number = prior["owner"], prior["name"], prior["pr_number"]
+        prior_output = ReviewOutput.model_validate_json(prior["output_json"])
+        prior_verdict = prior["final_verdict"]
+        prior_review = build_prior_review(prior_output, prior_verdict)
+        prior_text = build_prior_review_text(prior_output, prior_verdict, a.get("reply_text", ""))
+
+    # Live progress is shown in Slack only when we have a channel (Slack-triggered, or
+    # a webhook review with REVIEW_SLACK_CHANNEL configured). Webhook reviews with no
+    # channel post only to GitHub.
+    verb = "Re-reviewing" if task.kind == "rereview" else "Reviewing"
+    counts: dict[str, int] = {}
+    state = {"key": "fetch"}
+
+    # Auto (webhook) reviews post a parent announcement in the channel; the review
+    # itself lives as a threaded reply under it (matches Bott). Slack-triggered
+    # reviews reply in the existing thread.
+    review_thread_ts = thread_ts
+    if source == "github" and channel:
+        title = a.get("title") or ""
+        author = a.get("author") or "unknown"
+        ann = (f":mag: *Auto-reviewing* "
+               f"<https://github.com/{owner}/{name}/pull/{number}|{owner}/{name}#{number}>")
+        if title:
+            ann += f": {title}"
+        ann += f" — by `{author}`"
+        review_thread_ts = _post(
+            channel, None, [{"type": "section", "text": {"type": "mrkdwn", "text": ann}}],
+            f"Auto-reviewing {owner}/{name}#{number}",
+        )
+
+    status_ts = (
+        _post(channel, review_thread_ts, _checklist_blocks(number, verb, "fetch", counts),
+              f"{verb} PR #{number}…")
+        if channel else None
+    )
+
+    def on_progress(stage_key: str) -> None:
+        state["key"] = stage_key
+        if status_ts:
+            _update(channel, status_ts, _checklist_blocks(number, verb, stage_key, counts),
+                    f"{verb} PR #{number}")
+
+    def on_tool(tool_name: str, args: dict) -> None:
+        counts[tool_name] = counts.get(tool_name, 0) + 1
+        if status_ts:
+            _update(channel, status_ts, _checklist_blocks(number, verb, state["key"], counts),
+                    f"{verb} PR #{number}")
+
+    # Webhook (github) source: authenticate as the App and post the review to the PR
+    # (allowlist-guarded). Slack-triggered reviews stay Slack-only.
+    gh_token = None
+    do_post = False
+    if source == "github":
+        gh_token = app_token_for(owner, name)
+        do_post = bool(a.get("post_github")) and f"{owner}/{name}".lower() in allowed_post_repos()
+
+    def _fail(text_md: str, fallback: str) -> None:
+        if trigger_ts:
+            _react(channel, trigger_ts, "eyes", add=False)
+            _react(channel, trigger_ts, "warning")
+        if status_ts:
+            _update(channel, status_ts,
+                    [{"type": "section", "text": {"type": "mrkdwn", "text": text_md}}], fallback)
+
+    try:
+        result = review_pr(
+            owner, name, number,
+            budget=REVIEW_BUDGET, token=gh_token, post=do_post,
+            prior_review=prior_review, prior_review_text=prior_text,
+            on_progress=on_progress, on_tool=on_tool,
+        )
+    except Exception as e:  # fetch/clone/transport failure (e.g. GitHub rate limit)
+        log.warning("review error %s/%s#%s: %s", owner, name, number, e)
+        m = str(e).lower()
+        friendly = ("GitHub's API rate limit is temporarily exhausted on my end. Give it a few "
+                    "minutes and tag me again."
+                    if ("rate limit" in m or "403" in m or "429" in m)
+                    else "Something went wrong setting up the review. Please try again in a moment.")
+        _fail(f":warning: I couldn't start reviewing PR #{number} just now.\n{friendly}",
+              f"Couldn't start reviewing PR #{number}")
+        return
+
+    if result.run.output is None:
+        log.warning("review incomplete %s/%s#%s termination=%s error=%s", owner, name, number, result.run.termination, result.run.error)
+        friendly = _friendly_failure(result.run.termination, result.run.error)
+        _fail(f":warning: I couldn't finish reviewing <{result.meta.url}|PR #{number}> just now.\n{friendly}",
+              f"Couldn't finish reviewing PR #{number}")
+        return
+
+    gate: GateResult = result.gate  # type: ignore[assignment]
+    rendered = render_slack_review(
+        result.run.output, gate,
+        owner=owner, name=name, number=number, url=result.meta.url,
+        tool_calls=result.run.tool_calls, prior_verdict=prior_verdict,
+    )
+    blocks = list(rendered.blocks)
+    if result.posted:
+        url = result.posted.get("html_url", result.meta.url)
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn",
+                       "text": f":white_check_mark: Posted to the PR on GitHub — <{url}|view review>"}]})
+
+    if status_ts:
+        _update(channel, status_ts, blocks, rendered.fallback)  # morph status into review
+
+    if trigger_ts:
+        _react(channel, trigger_ts, "eyes", add=False)
+        _react(channel, trigger_ts, _VERDICT_EMOJI.get(gate.final_verdict, "white_check_mark"))
+
+    if channel:  # persist for re-review continuity (keyed by the Slack thread)
+        save_trace(
+            channel=channel, thread_ts=review_thread_ts or status_ts or "",
+            owner=owner, name=name, pr_number=number,
+            original_verdict=gate.original_verdict, final_verdict=gate.final_verdict,
+            output_json=result.run.output.model_dump_json(),
+            gate_json=json.dumps({"outcome": gate.outcome, "downgrade_reason": gate.downgrade_reason}),
+        )
+
+
+# ── conversational core ─────────────────────────────────────────────────────────
+def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_row) -> None:
+    """Interpret a message conversationally, reply naturally, and act if needed."""
+    context = None
+    if prior_row:
+        try:
+            out = ReviewOutput.model_validate_json(prior_row["output_json"])
+            context = (
+                f"Earlier in this thread you reviewed "
+                f"{prior_row['owner']}/{prior_row['name']}#{prior_row['pr_number']}; "
+                f"your verdict was {prior_row['final_verdict']} — {out.summary}"
+            )
+        except Exception:
+            pass
+
+    intake = interpret(text, in_review_thread=prior_row is not None, context=context)
+
+    # A review/re-review answers with the checklist message itself — no chatty ack
+    # (exactly like Bott). Only pure chat gets a standalone conversational reply.
+    if intake.action == "review":
+        pr = extract_pr_ref(intake.pr_url or "") or extract_pr_ref(text)
+        if pr:
+            owner, name, number = pr
+            _react(channel, trigger_ts, "eyes")
+            enqueue("review", {
+                "owner": owner, "name": name, "number": number,
+                "channel": channel, "thread_ts": thread_ts, "trigger_ts": trigger_ts,
+            })
+            return
+    elif intake.action == "rereview" and prior_row is not None:
+        _react(channel, trigger_ts, "eyes")
+        enqueue("rereview", {
+            "channel": channel, "thread_ts": thread_ts, "trigger_ts": trigger_ts,
+            "reply_text": text,
+        })
+        return
+
+    # chat, or a review request with no resolvable PR link -> one conversational reply.
+    if intake.reply:
+        _post(channel, thread_ts,
+              [{"type": "section", "text": {"type": "mrkdwn", "text": intake.reply}}],
+              intake.reply)
+
+
+# ── Slack event handlers ────────────────────────────────────────────────────────
+@app.event("app_mention")
+def on_mention(event, say):
+    channel = event["channel"]
+    thread_ts = event.get("thread_ts") or event["ts"]
+    prior = latest_trace_for_thread(channel, thread_ts)
+    _converse(channel, thread_ts, event["ts"], _strip_mention(event.get("text", "")), prior)
+
+
+@app.event("message")
+def on_message(event, logger):
+    # Converse on human thread replies, but only in threads we're already part of
+    # (a prior review exists) — avoids replying to every message in the channel.
+    if event.get("subtype") or event.get("bot_id"):
+        return
+    if _bot_user_id and event.get("user") == _bot_user_id:
+        return
+    thread_ts = event.get("thread_ts")
+    if not thread_ts:
+        return
+    text = event.get("text", "")
+    if _bot_user_id and f"<@{_bot_user_id}>" in text:
+        return  # @mention is handled by on_mention (avoid double-processing)
+    channel = event["channel"]
+    prior = latest_trace_for_thread(channel, thread_ts)
+    if not prior:
+        return
+    _converse(channel, thread_ts, event["ts"], text, prior)
+
+
+@app.action("rereview_pr")
+def on_rereview_button(ack, body):
+    ack()
+    channel = body["channel"]["id"]
+    msg = body.get("message", {})
+    thread_ts = msg.get("thread_ts") or msg.get("ts")
+    enqueue("rereview", {
+        "channel": channel, "thread_ts": thread_ts, "trigger_ts": None,
+        "reply_text": "(manual re-review requested)",
+    })
+
+
+def _friendly_failure(termination: str, error: str | None) -> str:
+    """Human-facing failure text — never leaks internal enums/stack traces."""
+    err = (error or "").lower()
+    if "rate limit" in err or "429" in err or "tokens per min" in err:
+        return ("I hit the model's per-minute rate limit partway through. "
+                "Give it a minute and tag me again — I'll retry automatically next time.")
+    mapping = {
+        "model_error": ("I ran into a temporary problem reaching the model — often a rate "
+                        "limit. Please give it a minute and try again."),
+        "budget": ("This PR was large enough that I ran out of review budget before I could "
+                   "finish. Try again, or point me at specific files to focus on."),
+        "no_submission": ("I couldn't wrap up a verdict this time — the PR may be large for "
+                          "the current model settings. Mind tagging me again?"),
+    }
+    return mapping.get(termination, "Something went wrong on my end. Please try again in a moment.")
+
+
+def _strip_mention(text: str) -> str:
+    return re.sub(r"<@[^>]+>", "", text).strip()
+
+
+def main() -> None:
+    global _bot_user_id
+    init_db()
+    n = recover_orphans()
+    if n:
+        log.info("Recovered %s orphaned task(s) from a prior restart.", n)
+    _bot_user_id = app.client.auth_test()["user_id"]
+    worker = Worker(handle_task)
+    worker.start()
+    log.info("Bott-POC review bot up (bot user %s). Worker running.", _bot_user_id)
+    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+
+
+if __name__ == "__main__":
+    main()

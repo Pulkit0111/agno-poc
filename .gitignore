@@ -1,0 +1,27 @@
+# Secrets — never commit
+.env
+.secrets/
+*.pem
+
+# Runtime state
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# agent-ui (Phase 4 scaffold) — separate Next.js repo, excluded for now
+agent-ui/
+
+# Local tooling / harness state
+.claude/
+.superpowers/

@@ -1,0 +1,5 @@
+# pr_reviewer — dependencies are declared in pyproject.toml.
+# Install the app (editable) with dev tools:
+#     pip install -e ".[dev]"
+# This file remains for `uv pip install -r requirements.txt` workflows.
+-e .

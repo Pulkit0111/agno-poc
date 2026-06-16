@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pr-reviewer"
+version = "0.1.0"
+description = "Agno-powered PR review application — CLI, Slack bot, and GitHub webhook."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "agno==2.6.13",
+    "openai==2.41.1",
+    "slack-bolt==1.28.0",
+    "slack-sdk==3.42.0",
+    "fastapi==0.136.3",
+    "uvicorn==0.49.0",
+    "httpx==0.28.1",
+    "pydantic==2.13.4",
+    "pyjwt==2.13.0",
+    "cryptography==49.0.0",
+    "python-dotenv==1.2.2",
+    "certifi==2026.5.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+pr-review = "pr_reviewer.interfaces.cli:main"
+pr-review-server = "pr_reviewer.interfaces.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Match the existing codebase style (already PEP8-ish); start lenient, tighten later.
+select = ["E", "F", "I"]
+ignore = ["E501"]  # long lines exist in prompt/render strings; not worth churning now
+
+[tool.ruff.lint.per-file-ignores]
+# slack_app must set SSL_CERT_FILE / load .env before importing slack_sdk (which uses
+# urllib, not httpx) — imports are deliberately placed after that setup.
+"src/pr_reviewer/interfaces/slack_app.py" = ["E402"]
+# Pre-existing single-letter loop vars in ported code; harmless, not worth churning.
+"src/pr_reviewer/agent/prompt.py" = ["E741"]
+"src/pr_reviewer/core/verdict_gate.py" = ["E741"]
+# Compact test fixtures use inline statements.
+"tests/test_webhook.py" = ["E702"]
