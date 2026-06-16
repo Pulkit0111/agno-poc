@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from agno.agent import Agent
-from agno.models.openai import OpenAIChat
 
 from bott.shared.config import DEFAULT_MODEL, Budget, calculate_cost
+from bott.shared.model import build_model
 
 from ..agent.prompt import PROMPT_VERSION, build_system_prompt
 from ..agent.tools import ReviewTools
@@ -68,14 +68,9 @@ def run_review_agent(
         return function_call(**arguments)
 
     agent = Agent(
-        model=OpenAIChat(
-            id=model_id,
-            # Survive OpenAI per-minute TPM limits (low account tier): the agentic
-            # loop sends large growing context, so transient 429s are expected.
-            retries=5,
-            delay_between_retries=3,
-            exponential_backoff=True,
-        ),
+        # Survive per-minute TPM limits (low account tier): the agentic loop sends a
+        # large growing context, so transient 429s are expected.
+        model=build_model(model_id, retries=5, delay_between_retries=3),
         tools=[ReviewTools(clone_path, essentials)],
         system_message=system_prompt,
         output_schema=ReviewOutput,

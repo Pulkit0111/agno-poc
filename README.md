@@ -91,6 +91,23 @@ All settings come from the environment (see `.env.example`). Key vars: `OPENAI_A
 `GITHUB_*` (App auth + webhook), `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN`,
 `ALLOWED_POST_REPOS`, and `REVIEW_DB_PATH`.
 
+## Model provider
+
+The model is built in one place (`bott/shared/model.py`), so the app isn't tied to OpenAI
++ an API key. Set `REVIEW_MODEL_BASE_URL` to talk to any OpenAI-compatible endpoint
+instead; when that endpoint carries its own auth, no `OPENAI_API_KEY` is required.
+
+- **OpenAI (default):** set `OPENAI_API_KEY`.
+- **Azure OpenAI / OpenRouter / self-hosted gateway / local model (Ollama, LM Studio):**
+  set `REVIEW_MODEL_BASE_URL` (+ `REVIEW_MODEL_API_KEY` if the endpoint needs one).
+- **ChatGPT/Codex subscription (no API key):** run a local proxy that authenticates with
+  your Codex OAuth login and exposes an OpenAI-compatible endpoint, then set
+  `REVIEW_MODEL_BASE_URL=http://127.0.0.1:<port>/v1`. This is the same mechanism a
+  "Sign in with ChatGPT" model picker uses. **Caveat:** that backend is undocumented and
+  unsupported, the proxy works by mimicking Codex's request shape to pass OpenAI's auth
+  check, and it likely violates OpenAI's ToS (risk of account flagging). The proxy is a
+  third-party tool you run; this repo only points `base_url` at it.
+
 ## Test & lint
 
 ```bash

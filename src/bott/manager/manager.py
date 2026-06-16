@@ -8,11 +8,11 @@ members with distinct roles, no change to this routing layer.
 
 from __future__ import annotations
 
-from agno.models.openai import OpenAIChat
 from agno.team import Team, TeamMode
 
 from bott.agents.code_review.member import SlackContext, build_code_review_agent
 from bott.shared.config import DEFAULT_MODEL
+from bott.shared.model import build_model
 
 from .personality import IDENTITY, NAME, VOICE
 
@@ -29,7 +29,7 @@ ROUTING_INSTRUCTIONS = [
 def build_manager(ctx: SlackContext, model_id: str = DEFAULT_MODEL) -> Team:
     """Build the manager Team for one Slack message. The member inherits this model;
     the leader's voice comes entirely from personality.VOICE."""
-    model = OpenAIChat(id=model_id, retries=3, exponential_backoff=True)
+    model = build_model(model_id)
     return Team(
         name=NAME,
         model=model,

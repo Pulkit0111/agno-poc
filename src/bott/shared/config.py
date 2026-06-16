@@ -138,8 +138,13 @@ def validate_required() -> list[str]:
     """Problems with required config (empty list = OK). Checked at startup so we
     fail fast with clear messages instead of crashing mid-request."""
     problems: list[str] = []
-    if not openai_api_key():
-        problems.append("OPENAI_API_KEY is not set — the review model needs it.")
+    # Model auth: a key (OpenAI or an explicit override) OR a custom base_url
+    # (e.g. a local OpenAI-compatible proxy that carries its own auth).
+    if not model_api_key() and not model_base_url():
+        problems.append(
+            "No model auth — set OPENAI_API_KEY (or REVIEW_MODEL_API_KEY), or point "
+            "REVIEW_MODEL_BASE_URL at an OpenAI-compatible endpoint that carries its own auth."
+        )
     if not os.getenv("SLACK_BOT_TOKEN"):
         problems.append("SLACK_BOT_TOKEN is not set — Slack is the primary interface.")
     if not os.getenv("SLACK_APP_TOKEN"):
@@ -149,3 +154,14 @@ def validate_required() -> list[str]:
 
 def openai_api_key() -> str | None:
     return os.getenv("OPENAI_API_KEY")
+
+
+def model_base_url() -> str | None:
+    """Custom OpenAI-compatible endpoint (Azure/OpenRouter/local model/Codex-subscription
+    proxy). When set, the app talks here instead of api.openai.com."""
+    return os.getenv("REVIEW_MODEL_BASE_URL") or None
+
+
+def model_api_key() -> str | None:
+    """Key for the model endpoint: an explicit override, else the standard OpenAI key."""
+    return os.getenv("REVIEW_MODEL_API_KEY") or os.getenv("OPENAI_API_KEY") or None
