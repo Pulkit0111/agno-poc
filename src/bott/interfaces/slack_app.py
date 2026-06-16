@@ -29,6 +29,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bott.agents.code_review.github.app_auth import app_token_for
 from bott.agents.code_review.member import SlackContext
+from bott.interfaces.mrkdwn import to_mrkdwn
 from bott.manager import build_manager, run_manager
 from bott.shared.config import allowed_post_repos, default_budget
 from bott.shared.observability.logging_setup import get_logger
@@ -340,9 +341,9 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
         log.warning("manager error: %s", e)
         reply = "Sorry — I hit a snag just now. Mind trying again in a moment?"
 
+    shown = to_mrkdwn(reply) or "…"  # model emits CommonMark; Slack needs mrkdwn
     _update(channel, status_ts,
-            [{"type": "section", "text": {"type": "mrkdwn", "text": reply or "…"}}],
-            reply or "…")
+            [{"type": "section", "text": {"type": "mrkdwn", "text": shown}}], reply or "…")
 
 
 # ── Slack event handlers ────────────────────────────────────────────────────────
