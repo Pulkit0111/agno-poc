@@ -70,11 +70,14 @@ URL. GitHub Apps have one webhook URL and the tunnel changes each run, so
 App; it reuses `GITHUB_WEBHOOK_SECRET` so signatures still verify).
 
 ```bash
-scripts/run_server.sh --set-webhook         # start server + tunnel, register the URL
-# or, manually:
-scripts/run_server.sh                        # prints the URL
+scripts/run_server.sh                        # server + tunnel, waits for health, registers webhook
+scripts/run_server.sh --no-webhook           # same, but skip registering (print the URL instead)
 python scripts/set_app_webhook.py https://<tunnel>.trycloudflare.com/webhook/github
 ```
+
+For a setup you don't have to re-point each run, use a **named** cloudflared tunnel with a
+stable hostname routed to `http://localhost:$WEBHOOK_PORT` and register the App webhook to
+that hostname once.
 
 A `pull_request` opened/ready_for_review event then auto-reviews the PR, posts the review
 (if the repo is in `ALLOWED_POST_REPOS`), and mirrors it to `REVIEW_SLACK_CHANNEL`. If a
