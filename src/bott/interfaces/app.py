@@ -12,6 +12,14 @@ from __future__ import annotations
 
 import os
 
+# macOS / python.org Python ships without CA certs; aiohttp (used by the Agno Slack
+# interface) verifies against the system store and fails with CERTIFICATE_VERIFY_FAILED.
+# Point SSL at certifi's bundle BEFORE any TLS client/context is created.
+import certifi
+
+os.environ["SSL_CERT_FILE"] = certifi.where()
+os.environ["SSL_CERT_DIR"] = os.path.dirname(certifi.where())
+
 from dotenv import load_dotenv
 
 load_dotenv()
