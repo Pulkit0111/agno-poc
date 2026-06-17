@@ -54,6 +54,9 @@ def build_bott_agent(db=None) -> Agent:
         instructions=[VOICE, *SKILL_INSTRUCTIONS],
         tools=tools,
         add_history_to_context=True,
+        # Per-user memory (keyed by user_id) — powers concierge recall; isolation is
+        # enforced by always passing user_id on every run (see scripts/isolation_test.py).
+        enable_user_memories=True,
         telemetry=False,
         markdown=False,
     )

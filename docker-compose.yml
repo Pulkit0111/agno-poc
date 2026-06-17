@@ -1,0 +1,20 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: bott-postgres
+    environment:
+      POSTGRES_DB: bott
+      POSTGRES_USER: bott
+      POSTGRES_PASSWORD: bott
+    ports:
+      - "5532:5432"
+    volumes:
+      - bott_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bott -d bott"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  bott_pgdata:
