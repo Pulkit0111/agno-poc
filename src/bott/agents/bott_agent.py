@@ -12,6 +12,7 @@ import os
 
 from agno.agent import Agent
 
+from bott.agents.code_review.member import review_tools
 from bott.manager.manager import effective_manager_model
 from bott.manager.personality import IDENTITY, VOICE
 from bott.shared.config import manager_api_key, manager_base_url, memra_configured
@@ -22,6 +23,9 @@ SKILL_INSTRUCTIONS = [
     "You are one agent with several skills. Use your Memra tools (read-only) to ground "
     "answers about engagements, people, delivery status, risks, and action items — always "
     "prefer cited context over guessing.",
+    "When someone asks you to review a GitHub PR (or follows up on one), call start_review "
+    "/ start_rereview — the engine runs the review and posts the verdict; you just queue it "
+    "and reply in one short sentence.",
     "When you need to act in Slack beyond replying (post to another channel, etc.), use "
     "your Slack tools.",
     "Keep replies warm, concise, and specific. Never invent facts; if context is missing, "
@@ -37,6 +41,7 @@ def build_bott_agent(db=None) -> Agent:
     )
 
     tools: list = []
+    tools.extend(review_tools())  # PR review (queue → durable worker runs + posts)
     if memra_configured():
         tools.extend(make_memra_tools(MemraClient()))
     slack_token = os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")

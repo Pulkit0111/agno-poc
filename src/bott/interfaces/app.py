@@ -47,6 +47,12 @@ agent_os = AgentOS(
 )
 app = agent_os.get_app()
 
+# PR-review GitHub webhook (auto-review on PR opened/ready) — enqueues to the durable
+# worker started in main(). Import-safe (no env needed at import).
+from bott.agents.code_review.webhook import router as _webhook_router  # noqa: E402
+
+app.include_router(_webhook_router)
+
 
 def main() -> None:
     # Start the model backend BEFORE serving. (AgentOS owns the FastAPI lifespan, so
@@ -56,6 +62,17 @@ def main() -> None:
     proxy = start_model_backend()
     if not _interfaces:
         log.warning("Slack interface NOT mounted — set SLACK_SIGNING_SECRET + SLACK_TOKEN.")
+
+    # PR-review worker: runs the review engine for queued tasks (Slack mentions +
+    # GitHub webhook) and posts verdicts. Reuses the existing handler + Slack client.
+    from bott.interfaces import slack_app as _sa
+
+    _sa.init_db()
+    _sa.recover_orphans()
+    worker = _sa.Worker(_sa.handle_task)
+    worker.start()
+    log.info("PR-review worker started.")
+
     try:
         agent_os.serve(
             app=app,
@@ -63,6 +80,7 @@ def main() -> None:
             port=int(os.getenv("BOTT_PORT", "7777")),
         )
     finally:
+        worker.stop()
         if proxy is not None:
             proxy.stop()
 
