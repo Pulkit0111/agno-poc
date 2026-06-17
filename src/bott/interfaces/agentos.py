@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from agno.db.sqlite import SqliteDb
 from agno.os import AgentOS
 
