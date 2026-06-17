@@ -205,16 +205,17 @@ def handle_task(task: Task) -> None:
     # Authenticate as the App for BOTH sources — the engine needs a token to read/clone
     # private repos (without it, the GitHub API 404s). app_token_for raises when the App
     # isn't installed on the repo (e.g. an arbitrary public repo someone pastes); fall
-    # back to the PAT / unauthenticated path in that case. Posting stays webhook-only
-    # (allowlist-guarded); Slack-triggered reviews remain Slack-only.
-    do_post = False
+    # back to the PAT / unauthenticated path in that case.
     try:
         gh_token = app_token_for(owner, name)
     except Exception as e:  # noqa: BLE001 — App not installed on this repo, etc.
         log.info("no App token for %s/%s (%s); falling back to PAT/unauthenticated", owner, name, e)
         gh_token = None
-    if source == "github":
-        do_post = bool(a.get("post_github")) and f"{owner}/{name}".lower() in allowed_post_repos()
+    # Post the review to the PR on GitHub when the repo is allow-listed — SAME behavior
+    # for webhook auto-reviews and Slack @mention reviews. The allowlist is the guardrail
+    # (an arbitrary pasted PR on a non-allowlisted repo stays Slack-only). Webhook tasks
+    # carry post_github explicitly; mention tasks default to True.
+    do_post = bool(a.get("post_github", True)) and f"{owner}/{name}".lower() in allowed_post_repos()
 
     def _fail(text_md: str, fallback: str) -> None:
         if trigger_ts:
