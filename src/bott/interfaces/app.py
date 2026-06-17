@@ -29,11 +29,24 @@ _db = build_db()
 _agent = build_bott_agent(_db)
 
 # Slack interface is env-gated so the app constructs without Slack creds (for tests/CI).
+# The Agno interface looks for SLACK_TOKEN; we pass our SLACK_BOT_TOKEN explicitly.
 _interfaces: list = []
-if os.getenv("SLACK_SIGNING_SECRET") and (os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")):
-    from agno.os.interfaces.slack import Slack
+_slack_signing = os.getenv("SLACK_SIGNING_SECRET")
+_slack_token = os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")
+if _slack_signing and _slack_token:
+    try:
+        from agno.os.interfaces.slack import Slack
 
-    _interfaces.append(Slack(agent=_agent, resolve_user_identity=True))
+        _interfaces.append(
+            Slack(
+                agent=_agent,
+                token=_slack_token,
+                signing_secret=_slack_signing,
+                resolve_user_identity=True,
+            )
+        )
+    except Exception as e:  # noqa: BLE001 — never let a Slack mount failure crash the app
+        log.error("Slack interface failed to mount (%s); continuing without it.", e)
 
 agent_os = AgentOS(
     id="bott-os",
