@@ -25,3 +25,5 @@ agent-ui/
 # Local tooling / harness state
 .claude/
 .superpowers/
+# Local design/plan docs (not tracked)
+docs/
