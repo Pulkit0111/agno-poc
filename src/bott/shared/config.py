@@ -61,6 +61,23 @@ def db_path() -> str:
     return os.getenv("REVIEW_DB_PATH", "review_poc.db")
 
 
+def agentos_db_path() -> str:
+    """Path to the shared Agno SqliteDb that backs AgentOS sessions/metrics and (now)
+    Slack sessions. Separate from the worker's task/trace DB (review_poc.db)."""
+    return os.getenv("AGENTOS_DB_PATH", "agentos.db")
+
+
+def agentos_jwt_secret() -> str | None:
+    """Shared HS256 secret the Next.js BFF signs with and AgentOS verifies. Required to
+    enable API auth; when unset, the API runs open (local dev only)."""
+    return os.getenv("AGENT_OS_JWT_SECRET") or None
+
+
+def allowed_email_domain() -> str:
+    """Workspace domain allowed to access the dashboard/API."""
+    return os.getenv("ALLOWED_EMAIL_DOMAIN", "axelerant.com")
+
+
 # USD per 1M tokens (port of Bott's model-cost table; Agno doesn't populate
 # `metrics.cost` for every model, so we compute it ourselves for the cost axis).
 MODEL_COSTS: dict[str, dict[str, float]] = {

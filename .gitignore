@@ -27,3 +27,5 @@ agent-ui/
 .superpowers/
 # Local design/plan docs (not tracked)
 docs/
+agentos.db
+agentos.db-*

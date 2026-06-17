@@ -32,6 +32,7 @@ dev = [
 [project.scripts]
 pr-review = "bott.agents.code_review.cli:main"
 pr-review-server = "bott.interfaces.server:main"
+agentos-server = "bott.interfaces.agentos:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

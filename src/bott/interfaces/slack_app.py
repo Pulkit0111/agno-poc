@@ -28,8 +28,8 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bott.agents.code_review.github.app_auth import app_token_for
-from bott.agents.code_review.member import SlackContext
-from bott.manager import build_manager, run_manager
+from bott.agents.code_review.member import ReviewTarget, reset_review_target, set_review_target
+from bott.manager import get_manager, run_manager
 from bott.shared.config import allowed_post_repos, default_budget
 from bott.shared.mrkdwn import to_mrkdwn
 from bott.shared.observability.logging_setup import get_logger
@@ -322,8 +322,7 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
     status_ts = _post(channel, thread_ts,
                       [{"type": "section", "text": {"type": "mrkdwn", "text": "_typing…_"}}], "…")
 
-    ctx = SlackContext(channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts)
-    team = build_manager(ctx)
+    team = get_manager()
 
     transcript = _thread_transcript(channel, thread_ts)
     seen = "yes" if prior_row else "no"
@@ -334,12 +333,19 @@ def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_ro
     parts.append(f'The latest message is: "{text.strip()}"\nReply to it as Bott.')
     msg = "\n\n".join(parts)
 
-    # Compute the full reply, then replace the placeholder with it in one edit.
+    # Bind this run to a persistent Agno session (one per Slack thread) and tell the
+    # review tools where to report back. Compute the full reply, then replace the
+    # placeholder with it in one edit.
+    session_id = f"slack:{channel}:{thread_ts}"
+    target: ReviewTarget = {"channel": channel, "thread_ts": thread_ts, "trigger_ts": trigger_ts}
+    token = set_review_target(target)
     try:
-        reply = run_manager(team, msg)
+        reply = run_manager(team, msg, session_id=session_id, user_id=f"slack:{channel}")
     except Exception as e:  # noqa: BLE001 — never let a chat turn crash the worker/handler
         log.warning("manager error: %s", e)
         reply = "Sorry — I hit a snag just now. Mind trying again in a moment?"
+    finally:
+        reset_review_target(token)
 
     shown = to_mrkdwn(reply) or "…"  # model emits CommonMark; Slack needs mrkdwn
     _update(channel, status_ts,
