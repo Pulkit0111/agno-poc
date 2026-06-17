@@ -43,6 +43,7 @@ agent_os = AgentOS(
     db=_db,
     interfaces=_interfaces,
     scheduler=True,
+    scheduler_base_url=os.getenv("BOTT_SCHEDULER_URL", f"http://127.0.0.1:{os.getenv('BOTT_PORT', '7777')}"),
     telemetry=False,
 )
 app = agent_os.get_app()

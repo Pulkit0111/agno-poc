@@ -26,6 +26,9 @@ SKILL_INSTRUCTIONS = [
     "When someone asks you to review a GitHub PR (or follows up on one), call start_review "
     "/ start_rereview — the engine runs the review and posts the verdict; you just queue it "
     "and reply in one short sentence.",
+    "For personal/concierge questions (a person's action items, their tasks, what they own), "
+    "answer ONLY for the person you're currently talking to — use their identity to scope "
+    "Memra/get_person lookups, and never surface another person's items.",
     "When you need to act in Slack beyond replying (post to another channel, etc.), use "
     "your Slack tools.",
     "Keep replies warm, concise, and specific. Never invent facts; if context is missing, "
