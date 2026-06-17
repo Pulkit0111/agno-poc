@@ -117,6 +117,22 @@ def memra_configured() -> bool:
     return bool(memra_client_id() and memra_client_secret())
 
 
+# --- Model backend (pluggable: Codex subscription for dev, sanctioned key for prod) ---
+def model_backend() -> str:
+    """'codex' (default; single-user POC via the auto-started Codex proxy) or 'openai'
+    (sanctioned api.openai.com key, for multi-user production)."""
+    return os.getenv("MODEL_BACKEND", "codex").strip().lower()
+
+
+def codex_proxy_port() -> int:
+    return int(os.getenv("CODEX_PROXY_PORT", "10531"))
+
+
+def codex_proxy_cmd() -> str:
+    """Override the proxy command if needed; default is built by the manager."""
+    return os.getenv("CODEX_PROXY_CMD", "")
+
+
 # USD per 1M tokens (port of Bott's model-cost table; Agno doesn't populate
 # `metrics.cost` for every model, so we compute it ourselves for the cost axis).
 MODEL_COSTS: dict[str, dict[str, float]] = {
