@@ -17,6 +17,7 @@ import contextvars
 from typing import Callable, Optional, TypedDict
 
 from agno.agent import Agent
+from agno.run.base import RunContext
 
 from bott.shared.config import SETTING_REVIEWER_MODEL
 from bott.shared.persistence import store
@@ -63,18 +64,19 @@ def reset_review_target(token: contextvars.Token) -> None:
     _review_target.reset(token)
 
 
-def _resolve_target(dependencies: Optional[dict]) -> ReviewTarget:
-    """Where the review verdict should post. The Agno Slack interface injects the
-    channel/thread as run dependencies; fall back to the contextvar (other paths)."""
-    dep = dependencies or {}
-    channel = dep.get("Slack channel_id")
-    thread = dep.get("Slack thread_ts")
+def _resolve_target(run_context: Optional[RunContext]) -> ReviewTarget:
+    """Where the review verdict should post. The Agno Slack interface injects the Slack
+    channel/thread as run dependencies (Agno injects run_context into tools that ask for
+    it); fall back to the contextvar (other trigger paths)."""
+    deps = (getattr(run_context, "dependencies", None) or {}) if run_context else {}
+    channel = deps.get("Slack channel_id")
+    thread = deps.get("Slack thread_ts")
     if channel:
         return {"channel": channel, "thread_ts": thread, "trigger_ts": thread}
     return _review_target.get() or {}
 
 
-def start_review(pr_url: str, dependencies: Optional[dict] = None) -> str:
+def start_review(pr_url: str, run_context: Optional[RunContext] = None) -> str:
     """Queue a code review of a GitHub pull request.
 
     Args:
@@ -84,7 +86,7 @@ def start_review(pr_url: str, dependencies: Optional[dict] = None) -> str:
     if not ref:
         return "I couldn't find a PR reference in that — ask the user for the GitHub PR link."
     owner, repo, number = ref
-    target = _resolve_target(dependencies)
+    target = _resolve_target(run_context)
     store.enqueue(
         "review",
         {
@@ -97,13 +99,13 @@ def start_review(pr_url: str, dependencies: Optional[dict] = None) -> str:
     return f"Queued a review of {owner}/{repo}#{number}."
 
 
-def start_rereview(reply_text: str = "", dependencies: Optional[dict] = None) -> str:
+def start_rereview(reply_text: str = "", run_context: Optional[RunContext] = None) -> str:
     """Queue a re-review (another pass) of the PR already reviewed in this thread.
 
     Args:
         reply_text: The user's follow-up message, so the next pass has their feedback.
     """
-    target = _resolve_target(dependencies)
+    target = _resolve_target(run_context)
     if not target.get("thread_ts"):
         return "Re-reviews only work in a Slack thread that already has a review."
     store.enqueue(

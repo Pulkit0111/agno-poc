@@ -24,8 +24,9 @@ SKILL_INSTRUCTIONS = [
     "answers about engagements, people, delivery status, risks, and action items — always "
     "prefer cited context over guessing.",
     "When someone asks you to review a GitHub PR (or follows up on one), call start_review "
-    "/ start_rereview — the engine runs the review and posts the verdict; you just queue it "
-    "and reply in one short sentence.",
+    "/ start_rereview, then reply with ONLY the eyes emoji :eyes: and nothing else — do not "
+    "write a sentence, do not repeat yourself. The review engine posts live progress and the "
+    "final verdict in this thread.",
     "For personal/concierge questions (a person's action items, their tasks, what they own), "
     "answer ONLY for the person you're currently talking to — use their identity to scope "
     "Memra/get_person lookups, and never surface another person's items.",
