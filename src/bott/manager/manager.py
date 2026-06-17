@@ -19,14 +19,21 @@ from agno.team import Team, TeamMode
 
 from bott.agents.code_review.member import build_code_review_agent
 from bott.shared.config import (
+    SETTING_MANAGER_MODEL,
     agentos_db_path,
     manager_api_key,
     manager_base_url,
     manager_model,
 )
 from bott.shared.model import build_model
+from bott.shared.persistence import store
 
 from .personality import IDENTITY, NAME, VOICE
+
+
+def effective_manager_model() -> str:
+    """The manager model id to use: dashboard-selected setting if present, else env."""
+    return store.get_setting(SETTING_MANAGER_MODEL) or manager_model()
 
 # Routing rules only — the voice/persona lives in personality.py (single source of truth).
 ROUTING_INSTRUCTIONS = [
@@ -43,7 +50,7 @@ def build_manager(db: SqliteDb | None = None, model_id: str | None = None) -> Te
     leader's voice comes entirely from personality.VOICE. Uses the (fast) MANAGER_MODEL —
     the heavy review runs separately on REVIEW_MODEL in the worker."""
     model = build_model(
-        model_id or manager_model(),
+        model_id or effective_manager_model(),
         base_url=manager_base_url(),
         api_key=manager_api_key(),
     )
@@ -65,6 +72,14 @@ def build_manager(db: SqliteDb | None = None, model_id: str | None = None) -> Te
 def get_manager() -> Team:
     """Process-wide singleton manager team, bound to the shared AgentOS SqliteDb."""
     return build_manager(db=SqliteDb(db_file=agentos_db_path()))
+
+
+def apply_manager_model(team: Team, model_id: str) -> None:
+    """Swap the manager team's model in place so a dashboard selection takes effect on
+    the next run without rebuilding the team or restarting the process."""
+    team.model = build_model(
+        model_id, base_url=manager_base_url(), api_key=manager_api_key()
+    )
 
 
 def run_manager(

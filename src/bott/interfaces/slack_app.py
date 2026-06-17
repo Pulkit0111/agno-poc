@@ -30,7 +30,12 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from bott.agents.code_review.github.app_auth import app_token_for
 from bott.agents.code_review.member import ReviewTarget, reset_review_target, set_review_target
 from bott.manager import get_manager, run_manager
-from bott.shared.config import allowed_post_repos, default_budget
+from bott.shared.config import (
+    DEFAULT_MODEL,
+    SETTING_REVIEWER_MODEL,
+    allowed_post_repos,
+    default_budget,
+)
 from bott.shared.mrkdwn import to_mrkdwn
 from bott.shared.observability.logging_setup import get_logger
 
@@ -44,6 +49,7 @@ from bott.shared.persistence.store import (
     Task,
     Worker,
     enqueue,
+    get_setting,
     init_db,
     latest_trace_for_thread,
     recover_orphans,
@@ -213,10 +219,13 @@ def handle_task(task: Task) -> None:
             _update(channel, status_ts,
                     [{"type": "section", "text": {"type": "mrkdwn", "text": text_md}}], fallback)
 
+    # Reviewer model: task-stamped selection (from the dashboard) → shared setting → env.
+    review_model = a.get("model_id") or get_setting(SETTING_REVIEWER_MODEL) or DEFAULT_MODEL
     try:
         result = review_pr(
             owner, name, number,
             budget=REVIEW_BUDGET, token=gh_token, post=do_post,
+            model_id=review_model,
             prior_review=prior_review, prior_review_text=prior_text,
             on_progress=on_progress, on_tool=on_tool,
         )

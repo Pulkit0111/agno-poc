@@ -35,6 +35,7 @@ def test_start_review_enqueues_review_task():
     assert task.args == {
         "owner": "octo", "name": "repo", "number": 42,
         "channel": "C1", "thread_ts": "t1", "trigger_ts": "x1",
+        "model_id": None,
     }
 
 

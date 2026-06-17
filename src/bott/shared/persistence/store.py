@@ -66,6 +66,34 @@ def init_db(db_file: Optional[str] = None) -> None:
             pass  # already present
 
 
+def _ensure_settings(c: sqlite3.Connection) -> None:
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    )
+
+
+def get_setting(key: str, default: Optional[str] = None, db_file: Optional[str] = None) -> Optional[str]:
+    """Read a shared setting (e.g. selected model). Cross-process: both the dashboard
+    and the Slack worker read/write the same row. Tolerant if the table doesn't exist."""
+    try:
+        with _conn(db_file) as c:
+            _ensure_settings(c)
+            row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else default
+    except sqlite3.Error:
+        return default
+
+
+def set_setting(key: str, value: str, db_file: Optional[str] = None) -> None:
+    with _lock, _conn(db_file) as c:
+        _ensure_settings(c)
+        c.execute(
+            "INSERT INTO settings(key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+
+
 def seen_delivery(delivery_id: str, db_file: Optional[str] = None) -> bool:
     """Record a GitHub webhook delivery id; return True if already seen (dedup)."""
     if not delivery_id:

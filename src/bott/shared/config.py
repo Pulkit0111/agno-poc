@@ -15,6 +15,20 @@ PER_FILE_PATCH_CAP = 4_000
 # gpt-4.1-mini: 1M-token context (vs gpt-4o-mini's 128k) + faster. Override via env.
 DEFAULT_MODEL = os.getenv("REVIEW_MODEL", "gpt-4.1-mini")
 
+# Setting keys for the shared settings KV (dashboard-selected models).
+SETTING_MANAGER_MODEL = "manager_model"
+SETTING_REVIEWER_MODEL = "reviewer_model"
+
+# Fallback model list for the dashboard picker when the Codex proxy can't be queried.
+# These are the models the Codex-subscription proxy typically exposes.
+FALLBACK_CODEX_MODELS = [
+    "gpt-5.5",
+    "gpt-5.5-codex",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5-codex",
+]
+
 
 @dataclass
 class Budget:

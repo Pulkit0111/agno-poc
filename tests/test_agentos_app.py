@@ -6,10 +6,9 @@ from fastapi.testclient import TestClient
 def _reload_app(tmp_path, monkeypatch, *, secret=None):
     monkeypatch.setenv("AGENTOS_DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    if secret is None:
-        monkeypatch.delenv("AGENT_OS_JWT_SECRET", raising=False)
-    else:
-        monkeypatch.setenv("AGENT_OS_JWT_SECRET", secret)
+    # Empty (not unset): load_dotenv() in agentos.py would otherwise pull a real secret
+    # from the repo .env and gate the API. Empty → agentos_jwt_secret() returns None.
+    monkeypatch.setenv("AGENT_OS_JWT_SECRET", secret or "")
     from bott.interfaces import agentos
     importlib.reload(agentos)
     return agentos

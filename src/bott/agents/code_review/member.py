@@ -18,6 +18,7 @@ from typing import Callable, Optional, TypedDict
 
 from agno.agent import Agent
 
+from bott.shared.config import SETTING_REVIEWER_MODEL
 from bott.shared.persistence import store
 
 from .pr_ref import extract_pr_ref
@@ -79,6 +80,7 @@ def start_review(pr_url: str) -> str:
             "owner": owner, "name": repo, "number": number,
             "channel": target.get("channel"), "thread_ts": target.get("thread_ts"),
             "trigger_ts": target.get("trigger_ts"),
+            "model_id": store.get_setting(SETTING_REVIEWER_MODEL),
         },
     )
     return f"Queued a review of {owner}/{repo}#{number}."
@@ -98,6 +100,7 @@ def start_rereview(reply_text: str = "") -> str:
         {
             "channel": target.get("channel"), "thread_ts": target.get("thread_ts"),
             "trigger_ts": target.get("trigger_ts"), "reply_text": reply_text,
+            "model_id": store.get_setting(SETTING_REVIEWER_MODEL),
         },
     )
     return "Queued another pass."
