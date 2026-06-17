@@ -33,6 +33,7 @@ dev = [
 pr-review = "bott.agents.code_review.cli:main"
 pr-review-server = "bott.interfaces.server:main"
 agentos-server = "bott.interfaces.agentos:main"
+bott-app = "bott.interfaces.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -54,6 +55,7 @@ ignore = ["E501"]  # long lines exist in prompt/render strings; not worth churni
 # urllib, not httpx) — imports are deliberately placed after that setup.
 "src/bott/interfaces/slack_app.py" = ["E402"]
 "src/bott/interfaces/agentos.py" = ["E402"]
+"src/bott/interfaces/app.py" = ["E402"]
 # Pre-existing single-letter loop vars in ported code; harmless, not worth churning.
 "src/bott/agents/code_review/agent/prompt.py" = ["E741"]
 "src/bott/agents/code_review/core/verdict_gate.py" = ["E741"]
