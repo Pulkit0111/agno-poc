@@ -92,6 +92,31 @@ def allowed_email_domain() -> str:
     return os.getenv("ALLOWED_EMAIL_DOMAIN", "axelerant.com")
 
 
+# --- Memra (read-only context layer over MCP) ----------------------------------
+def memra_client_id() -> str | None:
+    return os.getenv("MEMRA_CLIENT_ID") or None
+
+
+def memra_client_secret() -> str | None:
+    return os.getenv("MEMRA_CLIENT_SECRET") or None
+
+
+def memra_token_endpoint() -> str:
+    return os.getenv("MEMRA_TOKEN_ENDPOINT", "https://memra.team/oauth/token")
+
+
+def memra_mcp_endpoint() -> str:
+    return os.getenv("MEMRA_MCP_ENDPOINT", "https://memra.team/api/mcp")
+
+
+def memra_scope() -> str:
+    return os.getenv("MEMRA_SCOPE", "mcp:retrieve:internal")
+
+
+def memra_configured() -> bool:
+    return bool(memra_client_id() and memra_client_secret())
+
+
 # USD per 1M tokens (port of Bott's model-cost table; Agno doesn't populate
 # `metrics.cost` for every model, so we compute it ourselves for the cost axis).
 MODEL_COSTS: dict[str, dict[str, float]] = {
