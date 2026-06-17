@@ -24,9 +24,8 @@ SKILL_INSTRUCTIONS = [
     "answers about engagements, people, delivery status, risks, and action items — always "
     "prefer cited context over guessing.",
     "When someone asks you to review a GitHub PR (or follows up on one), call start_review "
-    "/ start_rereview, then reply with ONLY the eyes emoji :eyes: and nothing else — do not "
-    "write a sentence, do not repeat yourself. The review engine posts live progress and the "
-    "final verdict in this thread.",
+    "/ start_rereview and then STOP — reply with an empty message, no text at all. The review "
+    "engine acknowledges with a reaction and posts live progress + the verdict in this thread.",
     "For personal/concierge questions (a person's action items, their tasks, what they own), "
     "answer ONLY for the person you're currently talking to — use their identity to scope "
     "Memra/get_person lookups, and never surface another person's items.",
@@ -63,10 +62,11 @@ def build_bott_agent(db=None) -> Agent:
         instructions=[VOICE, *SKILL_INSTRUCTIONS],
         tools=tools,
         add_history_to_context=True,
-        # Reliable per-user memory (keyed by user_id) for concierge recall. The per-turn
-        # memory work is invisible with streaming off (no "Thinking/Updating memory" card).
-        # Isolation enforced by always passing user_id per run (scripts/isolation_test.py).
-        enable_user_memories=True,
+        # Agentic memory (keyed by user_id): the agent stores/recalls memory only when it
+        # decides to — so a trivial "Hi" runs no memory step and shows NO thinking pill,
+        # while a message that uses tools/memory still shows the trace. Isolation enforced
+        # by always passing user_id per run (scripts/isolation_test.py).
+        enable_agentic_memory=True,
         telemetry=False,
         markdown=False,
     )

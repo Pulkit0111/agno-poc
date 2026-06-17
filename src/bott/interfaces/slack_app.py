@@ -136,6 +136,11 @@ def handle_task(task: Task) -> None:
     channel, thread_ts, trigger_ts = a.get("channel"), a.get("thread_ts"), a.get("trigger_ts")
     source = a.get("source", "slack")  # "slack" or "github" (webhook auto-trigger)
 
+    # Acknowledge the user's request with an 👀 reaction (replaced by the verdict emoji
+    # when the review finishes). The conversational agent stays silent for reviews.
+    if channel and trigger_ts:
+        _react(channel, trigger_ts, "eyes")
+
     log.info("task %s: %s source=%s", task.id, task.kind, source)
     if task.kind == "review":
         owner, name, number = a["owner"], a["name"], a["number"]
