@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import signal
 import subprocess
 import threading
 import time
@@ -51,15 +52,29 @@ class CodexProxyManager:
         except httpx.HTTPError:
             return False
 
-    def start(self, wait_seconds: int = 90) -> None:
+    def _kill_port(self) -> None:
+        """Kill any stale process holding the proxy port (so a respawn can bind)."""
+        try:
+            out = subprocess.run(
+                ["lsof", "-ti", f"tcp:{self.port}"], capture_output=True, text=True, timeout=5
+            ).stdout.split()
+            for pid in out:
+                try:
+                    os.kill(int(pid), signal.SIGKILL)
+                except (ProcessLookupError, ValueError):
+                    pass
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
+
+    def _spawn_and_wait(self, wait_seconds: int) -> None:
         if self.is_ready():
-            log.info("Codex proxy already up on :%s — reusing.", self.port)
             return
         if not os.path.exists(CODEX_AUTH):
             raise RuntimeError(
                 f"No {CODEX_AUTH} — run `npx @openai/codex login` once before starting "
                 "(the Codex backend needs your ChatGPT subscription login)."
             )
+        self._kill_port()
         log.info("Starting Codex proxy: %s  -> %s", self._cmd, PROXY_LOG)
         logf = open(PROXY_LOG, "ab")  # noqa: SIM115 — handed to the child for its lifetime
         self._proc = subprocess.Popen(shlex.split(self._cmd), stdout=logf, stderr=logf)
@@ -69,22 +84,36 @@ class CodexProxyManager:
                 raise RuntimeError(f"Codex proxy exited during startup — see {PROXY_LOG}.")
             if self.is_ready():
                 log.info("Codex proxy ready on :%s (using your ChatGPT subscription).", self.port)
-                self._arm_watchdog()
                 return
             time.sleep(1.0)
         raise RuntimeError(f"Codex proxy not ready within {wait_seconds}s — see {PROXY_LOG}.")
 
-    def _arm_watchdog(self) -> None:
+    def start(self, wait_seconds: int = 90) -> None:
+        if self.is_ready():
+            log.info("Codex proxy already up on :%s — reusing.", self.port)
+        else:
+            self._spawn_and_wait(wait_seconds)
+        self._arm_supervisor()
+
+    def _arm_supervisor(self) -> None:
+        """Health-check loop: if the proxy is unreachable (crashed OR hung), respawn it.
+        Retries indefinitely with backoff — never gives up while the app is running."""
+        if self._watch is not None and self._watch.is_alive():
+            return
         def loop() -> None:
+            backoff = 2.0
             while not self._stop.wait(5.0):
-                if self._proc is not None and self._proc.poll() is not None and not self._stop.is_set():
-                    log.warning("Codex proxy died — restarting.")
-                    try:
-                        self._proc = None
-                        self.start()
-                    except Exception as e:  # noqa: BLE001
-                        log.error("Codex proxy restart failed: %s", e)
-                    return  # start() re-arms a fresh watchdog
+                if self.is_ready():
+                    backoff = 2.0
+                    continue
+                log.warning("Codex proxy unreachable — respawning.")
+                try:
+                    self._spawn_and_wait(60)
+                    log.info("Codex proxy recovered.")
+                except Exception as e:  # noqa: BLE001 — keep trying on the next tick
+                    log.error("Codex proxy respawn failed: %s (retrying in %ss)", e, backoff)
+                    self._stop.wait(backoff)
+                    backoff = min(backoff * 2, 30.0)
         self._watch = threading.Thread(target=loop, daemon=True)
         self._watch.start()
 
