@@ -51,6 +51,9 @@ if _slack_signing and _slack_token:
                 token=_slack_token,
                 signing_secret=_slack_signing,
                 resolve_user_identity=True,
+                # Single clean reply per message: no streaming "Thinking…" task-card
+                # trace, no interim+final duplication. Snappier for simple messages.
+                streaming=False,
             )
         )
     except Exception as e:  # noqa: BLE001 — never let a Slack mount failure crash the app
