@@ -47,29 +47,24 @@ agent_os = AgentOS(
 )
 app = agent_os.get_app()
 
-_proxy = None
-
-
-@app.on_event("startup")
-def _on_startup() -> None:
-    global _proxy
-    _proxy = start_model_backend()  # codex: auto-start the proxy; openai: no-op
-    if not _interfaces:
-        log.warning("Slack interface NOT mounted — set SLACK_SIGNING_SECRET + SLACK_TOKEN.")
-
-
-@app.on_event("shutdown")
-def _on_shutdown() -> None:
-    if _proxy is not None:
-        _proxy.stop()
-
 
 def main() -> None:
-    agent_os.serve(
-        app="bott.interfaces.app:app",
-        host=os.getenv("BOTT_HOST", "localhost"),
-        port=int(os.getenv("BOTT_PORT", "7777")),
-    )
+    # Start the model backend BEFORE serving. (AgentOS owns the FastAPI lifespan, so
+    # startup hooks on the app are ignored — we manage the proxy around serve() here.)
+    # In codex mode the agent's model base_url already points at the proxy (via .env);
+    # this just brings the proxy process up. In openai mode this is a no-op.
+    proxy = start_model_backend()
+    if not _interfaces:
+        log.warning("Slack interface NOT mounted — set SLACK_SIGNING_SECRET + SLACK_TOKEN.")
+    try:
+        agent_os.serve(
+            app=app,
+            host=os.getenv("BOTT_HOST", "localhost"),
+            port=int(os.getenv("BOTT_PORT", "7777")),
+        )
+    finally:
+        if proxy is not None:
+            proxy.stop()
 
 
 if __name__ == "__main__":
