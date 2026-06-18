@@ -51,6 +51,9 @@ if _slack_signing and _slack_token:
                 token=_slack_token,
                 signing_secret=_slack_signing,
                 resolve_user_identity=True,
+                # Chat lives under /slack/chat so the App Home gateway can own /slack/events
+                # (handling app_home_opened) and forward chat events here unchanged.
+                prefix="/slack/chat",
                 # streaming=True shows the tool-use trace for tool tasks (PR review,
                 # Memra lookups) — what we want for visibility. Plain chat shows a small
                 # (empty) thinking indicator; that's an Agno-interface behavior.
@@ -78,6 +81,14 @@ app = agent_os.get_app()
 from bott.agents.code_review.webhook import router as _webhook_router  # noqa: E402
 
 app.include_router(_webhook_router)
+
+# Slack App Home control panel (set up the delivery/DSM schedules from Slack). Owns
+# /slack/events (app_home_opened + forwards chat to /slack/chat/events) and
+# /slack/interactivity (the Add / Run now / Remove buttons + modals). Env-gated like chat.
+if _slack_signing and _slack_token:
+    from bott.interfaces.slack_home import build_slack_home_router  # noqa: E402
+
+    app.include_router(build_slack_home_router(_db, _slack_token, _slack_signing))
 
 
 def main() -> None:

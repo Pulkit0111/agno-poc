@@ -9,6 +9,7 @@ just a cron + a prompt + the scope.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from agno.scheduler.manager import ScheduleManager
@@ -20,23 +21,48 @@ def _mgr(db: Any) -> ScheduleManager:
     return ScheduleManager(db)
 
 
+def _display(**fields: Any) -> str:
+    """Small JSON blob stored in a schedule's `description` so the Slack Home tab can
+    render a clean label/channel without re-parsing the agent prompt or the cron."""
+    return json.dumps({k: v for k, v in fields.items() if v is not None})
+
+
 def create_delivery_synthesis(
-    db: Any, *, engagement_id: str, channel: str, cron: str, timezone: str = "UTC"
+    db: Any,
+    *,
+    engagement_id: str,
+    channel: str,
+    cron: str,
+    timezone: str = "UTC",
+    account_name: str | None = None,
+    band: str | None = None,
 ):
     """Per-engagement delivery digest: Memra → synthesize → post to a Slack channel.
     Scoped to the engagement (so its running context is isolated by session_id)."""
     message = (
-        f"Generate the delivery-synthesis digest for engagement '{engagement_id}'. "
-        "Use your Memra tools (engagements_at_risk, and context_map at the 'engagement' "
-        f"level for entity_id '{engagement_id}') to pull delivery status, risk band, and "
-        "Jira signals; write a concise digest (status, top risks, next steps) with citations; "
-        f"then post it to Slack channel {channel} using your Slack tools."
+        f"Generate the delivery-synthesis digest for the engagement whose id is '{engagement_id}'. "
+        "First gather facts with your Memra tools: call engagements_at_risk (for risk + sentiment) "
+        f"and context_map at the 'engagement' level for entity_id '{engagement_id}' (for delivery "
+        "status and Jira signals).\n\n"
+        "Then write the digest the way a teammate would — plain, warm, and skimmable:\n"
+        "- Refer to the engagement by its human ACCOUNT NAME (the 'account' field from "
+        "engagements_at_risk). Do NOT print the engagement id or any UUID anywhere in the message.\n"
+        "- Say it in plain English: 'high risk' or 'client sentiment is trending down', NOT raw "
+        "fields like 'risk_score 0.6' or 'overall_sentiment -0.3'. No raw field names or numbers "
+        "unless a number genuinely helps a human (e.g. a deadline or a count).\n"
+        "- Keep the shape tight: a one-line headline, then *Status*, *Top risks*, *Next steps*, "
+        "each just a sentence or two.\n"
+        "- Stay grounded, but reference sources in plain words ('per this week's sentiment "
+        "snapshot') rather than pasting record ids or [1][2] footnotes.\n\n"
+        f"Finally, post the digest to Slack channel {channel} using your Slack tools."
     )
     return _mgr(db).create(
         name=f"delivery-synthesis:{engagement_id}",
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
+        description=_display(kind="delivery", label=account_name or engagement_id,
+                             channel=channel, band=band),
         payload={
             "message": message,
             "user_id": f"engagement:{engagement_id}",
@@ -56,6 +82,7 @@ def create_recurring_task(
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
+        description=_display(kind="concierge", label=user_id),
         payload={
             "message": instruction,
             "user_id": user_id,
@@ -81,6 +108,7 @@ def create_dsm_precall(
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
+        description=_display(kind="dsm", phase="pre", label=team_id, channel=channel),
         payload={
             "message": message,
             "user_id": f"team:{team_id}",
@@ -107,6 +135,7 @@ def create_dsm_postcall(
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
+        description=_display(kind="dsm", phase="post", label=team_id, channel=channel),
         payload={
             "message": message,
             "user_id": f"team:{team_id}",
