@@ -67,6 +67,15 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             pass
         service.trigger_now(schedule_id)
 
+    def fill_delivery_modal(view_id: str) -> None:
+        """Fetch the Memra engagement shortlist and swap it into the already-open modal.
+        Done after open (keyed by view_id, not the short-lived trigger_id)."""
+        try:
+            client.views_update(view_id=view_id,
+                                view=blocks.build_delivery_modal(engagement_shortlist()))
+        except Exception as e:  # noqa: BLE001
+            log.error("fill delivery modal failed: %s", e)
+
     async def forward_to_chat(body: bytes, headers) -> Response:
         port = os.getenv("BOTT_PORT", "7777")
         url = f"http://127.0.0.1:{port}{chat_prefix}/events"
@@ -108,8 +117,15 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             trigger_id = payload.get("trigger_id")
             if cmd == "add_delivery":
                 try:
-                    client.views_open(trigger_id=trigger_id,
-                                      view=blocks.build_delivery_modal(engagement_shortlist()))
+                    # Open instantly with a placeholder (no Memra in the 3s trigger window),
+                    # then fill the engagement list via views.update keyed by view_id.
+                    resp = client.views_open(
+                        trigger_id=trigger_id,
+                        view=blocks.build_delivery_modal([], loading=True),
+                    )
+                    view_id = (resp.get("view") or {}).get("id")
+                    if view_id:
+                        background_tasks.add_task(fill_delivery_modal, view_id)
                 except Exception as e:  # noqa: BLE001
                     log.error("open delivery modal: %s", e)
             elif cmd == "add_dsm":

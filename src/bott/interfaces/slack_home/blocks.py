@@ -101,13 +101,23 @@ def _input(block_id: str, label: str, element: dict, *, optional: bool = False) 
     }
 
 
-def build_delivery_modal(engagements: list[dict], default_channel: str | None = None) -> dict:
-    """Add-delivery form. `engagements` is the curated shortlist [{id, account, band}]."""
-    eng_options = [
-        (f"{band_icon(e.get('band'))} {e['account']} ({e.get('band', 'unknown')})",
-         f"{e['id']}|{e['account'][:28]}|{e.get('band', '')}")
-        for e in engagements
-    ] or [("(no engagements found)", "none|none|")]
+def build_delivery_modal(engagements: list[dict], default_channel: str | None = None,
+                         loading: bool = False) -> dict:
+    """Add-delivery form. `engagements` is the curated shortlist [{id, account, band}].
+
+    `loading=True` (with no engagements yet) renders a placeholder so the modal can be
+    opened instantly within Slack's 3s trigger window, then filled via views.update once
+    the Memra shortlist is fetched."""
+    if engagements:
+        eng_options = [
+            (f"{band_icon(e.get('band'))} {e['account']} ({e.get('band', 'unknown')})",
+             f"{e['id']}|{e['account'][:28]}|{e.get('band', '')}")
+            for e in engagements
+        ]
+    elif loading:
+        eng_options = [("⏳ Loading engagements…", "none|loading|")]
+    else:
+        eng_options = [("(no engagements found)", "none|none|")]
 
     channel_el: dict[str, Any] = {"type": "channels_select", "action_id": "v",
                                   "placeholder": {"type": "plain_text", "text": "Pick a channel"}}

@@ -97,18 +97,33 @@ class CodexProxyManager:
 
     def _arm_supervisor(self) -> None:
         """Health-check loop: if the proxy is unreachable (crashed OR hung), respawn it.
-        Retries indefinitely with backoff — never gives up while the app is running."""
+        Retries indefinitely with backoff — never gives up while the app is running.
+
+        Requires several CONSECUTIVE missed health checks before respawning, so a single
+        transient blip (a one-off `fetch failed`, a slow tick) doesn't needlessly kill a
+        working proxy and trigger a respawn storm."""
         if self._watch is not None and self._watch.is_alive():
             return
+
+        fail_threshold = 3  # ~15s of consecutive failure (3 × 5s) before we act
+
         def loop() -> None:
             backoff = 2.0
+            misses = 0
             while not self._stop.wait(5.0):
                 if self.is_ready():
                     backoff = 2.0
+                    misses = 0
                     continue
-                log.warning("Codex proxy unreachable — respawning.")
+                misses += 1
+                if misses < fail_threshold:
+                    log.warning("Codex proxy health check missed (%d/%d) — not respawning yet.",
+                                misses, fail_threshold)
+                    continue
+                log.warning("Codex proxy unreachable (%d consecutive misses) — respawning.", misses)
                 try:
                     self._spawn_and_wait(60)
+                    misses = 0
                     log.info("Codex proxy recovered.")
                 except Exception as e:  # noqa: BLE001 — keep trying on the next tick
                     log.error("Codex proxy respawn failed: %s (retrying in %ss)", e, backoff)

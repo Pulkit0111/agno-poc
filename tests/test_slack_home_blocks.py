@@ -76,6 +76,16 @@ def test_delivery_modal_structure_and_engagement_options():
     assert view["blocks"][1]["element"]["initial_channel"] == "C123"
 
 
+def test_delivery_modal_loading_placeholder_opens_without_engagements():
+    # Opened instantly (no Memra) so the 3s trigger window isn't blown; the option is a
+    # non-submittable placeholder (value resolves to engagement id "none").
+    view = blocks.build_delivery_modal([], loading=True)
+    opts = view["blocks"][0]["element"]["options"]
+    assert len(opts) == 1
+    assert opts[0]["value"].split("|")[0] == "none"
+    assert "Loading" in opts[0]["text"]["text"]
+
+
 def test_dsm_modal_structure():
     view = blocks.build_dsm_modal()
     assert view["callback_id"] == "create_dsm"
