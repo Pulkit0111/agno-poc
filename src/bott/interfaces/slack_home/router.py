@@ -22,6 +22,7 @@ from slack_sdk import WebClient
 
 from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import standup
+from bott.shared.persistence.store import enqueue
 from bott.skills.dsm import today_key
 
 from . import blocks, service
@@ -152,6 +153,15 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                 ids = [i for i in (action.get("value") or "").split(",") if i]
                 service.remove(db, ids)
                 background_tasks.add_task(publish_home, user_id)
+            elif cmd == "rereview_pr":
+                # The "Re-review" button on a posted review — re-run against the prior
+                # trace for this thread (the worker looks it up by channel + thread_ts).
+                ch = (payload.get("channel") or {}).get("id")
+                msg = payload.get("message") or {}
+                thread_ts = msg.get("thread_ts") or msg.get("ts")
+                if ch and thread_ts:
+                    enqueue("rereview", {"channel": ch, "thread_ts": thread_ts,
+                                         "trigger_ts": None, "reply_text": "(manual re-review requested)"})
             return {"ok": True}
 
         if ptype == "view_submission":

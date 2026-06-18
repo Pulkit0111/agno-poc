@@ -13,13 +13,24 @@ import os
 from agno.agent import Agent
 
 from bott.agents.code_review.member import review_tools
-from bott.manager.manager import effective_manager_model
-from bott.manager.personality import IDENTITY, VOICE
-from bott.shared.config import manager_api_key, manager_base_url, memra_configured
+from bott.agents.personality import IDENTITY, VOICE
+from bott.shared.config import (
+    SETTING_MANAGER_MODEL,
+    manager_api_key,
+    manager_base_url,
+    manager_model,
+    memra_configured,
+)
 from bott.shared.context import MemraClient, make_memra_tools
 from bott.shared.model import build_model
+from bott.shared.persistence import store
 from bott.skills.advisories import security_tools
 from bott.skills.dsm import dsm_tools
+
+
+def effective_manager_model() -> str:
+    """The conversational model id: the persisted setting if present, else the env default."""
+    return store.get_setting(SETTING_MANAGER_MODEL) or manager_model()
 
 SKILL_INSTRUCTIONS = [
     "You are one agent with several skills. Use your Memra tools (read-only) to ground "

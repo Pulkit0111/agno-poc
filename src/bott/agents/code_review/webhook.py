@@ -1,11 +1,10 @@
-"""GitHub App webhook listener (Phase 3) — port of github-webhook.ts.
+"""GitHub App webhook listener.
 
 Verifies the HMAC signature, handles `pull_request` opened/ready_for_review, dedups
 on the delivery id, skips drafts/bots, and enqueues a review task (source=github).
-The shared worker (in the Slack app process) picks it up, posts the review to the PR,
-and mirrors it to Slack.
+The durable worker picks it up, posts the review to the PR, and mirrors it to Slack.
 
-Mounted into the same process as the Slack app via interfaces/server.py.
+Mounted into the AgentOS app by ``interfaces/app.py``.
 """
 
 from __future__ import annotations

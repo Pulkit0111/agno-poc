@@ -27,8 +27,3 @@ def test_start_review_without_target_queues_no_channel():
 
 def test_start_rereview_requires_thread():
     assert "only work in a Slack thread" in member.start_rereview("fix it")
-
-
-def test_build_code_review_agent_has_id():
-    agent = member.build_code_review_agent()
-    assert agent.id == "code-review"

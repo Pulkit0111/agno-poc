@@ -1,9 +1,7 @@
 """Parse a GitHub PR reference out of free text.
 
 Pulls (owner, repo, number) from a PR URL or an 'owner/repo#number' slug. Used by the
-Code Review member's tools so the manager can pass a link along verbatim and let the
-specialist resolve it. (The conversational intent classification this module once held
-now lives in the manager + bott.manager.personality.)
+Bott agent's review tools (member.py) to resolve a PR link the user pasted.
 """
 
 from __future__ import annotations

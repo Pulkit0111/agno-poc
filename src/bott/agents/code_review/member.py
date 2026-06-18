@@ -16,28 +16,12 @@ from __future__ import annotations
 import contextvars
 from typing import Callable, Optional, TypedDict
 
-from agno.agent import Agent
 from agno.run.base import RunContext
 
 from bott.shared.config import SETTING_REVIEWER_MODEL
 from bott.shared.persistence import store
 
 from .pr_ref import extract_pr_ref
-
-CODE_REVIEW_ROLE = (
-    "Review GitHub pull requests: queue a review when given a PR, or a re-review when "
-    "the user follows up on a PR already reviewed in this thread."
-)
-
-CODE_REVIEW_INSTRUCTIONS = [
-    "You queue PR reviews; you do not write the review yourself — the engine does that.",
-    "To review a PR, call start_review with the GitHub PR URL (or 'owner/repo#number') "
-    "exactly as the user gave it; the tool parses the reference.",
-    "If the user is following up on a PR already reviewed earlier in this thread "
-    "(feedback, 'take another look', 'I fixed X'), call start_rereview with their message.",
-    "After queuing, reply in one short, warm sentence — the full verdict is posted "
-    "separately when the review finishes.",
-]
 
 
 class ReviewTarget(TypedDict, total=False):
@@ -122,16 +106,3 @@ def start_rereview(reply_text: str = "", run_context: Optional[RunContext] = Non
 def review_tools() -> list[Callable]:
     """The enqueue tools as plain callables (Agno wraps them); directly unit-testable."""
     return [start_review, start_rereview]
-
-
-def build_code_review_agent(model=None) -> Agent:
-    """The Code Review member. `model=None` lets it inherit the manager Team's model."""
-    return Agent(
-        id="code-review",
-        name="Code Review Agent",
-        role=CODE_REVIEW_ROLE,
-        model=model,
-        tools=review_tools(),
-        instructions=CODE_REVIEW_INSTRUCTIONS,
-        telemetry=False,
-    )

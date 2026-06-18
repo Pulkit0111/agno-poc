@@ -1,17 +1,16 @@
-"""Bott-POC Slack app (Phase 2) — primary interface for the review engine.
+"""Durable PR-review worker + Slack posting for the Bott AgentOS app.
 
-Socket Mode (no public URL). `@bott-poc review <PR-URL>` queues a review; the worker
-runs the Phase-1 engine and posts the verdict in-thread. Replies in a review thread
-(or the Re-review button) drive an evidence-bound re-review.
-
-Run:  python -m bott.interfaces.slack_app
+A queued review (from an @mention via the agent's review tools, or a GitHub webhook) is
+picked up by the background Worker here: it runs the review engine, shows live progress,
+posts the verdict to the thread (and to GitHub when allow-listed), and persists a trace for
+re-reviews. Imported by ``interfaces/app.py`` — not a standalone server. Uses a slack_bolt
+``App`` purely for its Slack web client (posting/reactions).
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 
 # The python.org Python build ships without CA certs; slack_sdk uses urllib (not
 # httpx), so point its default SSL context at certifi's bundle before any Slack call.
@@ -25,18 +24,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bott.agents.code_review.github.app_auth import app_token_for
-from bott.agents.code_review.member import ReviewTarget, reset_review_target, set_review_target
-from bott.manager import get_manager, run_manager
 from bott.shared.config import (
     DEFAULT_MODEL,
     SETTING_REVIEWER_MODEL,
     allowed_post_repos,
     default_budget,
 )
-from bott.shared.mrkdwn import to_mrkdwn
 from bott.shared.observability.logging_setup import get_logger
 
 log = get_logger("review.slack")
@@ -47,12 +42,8 @@ from bott.agents.code_review.core.verdict_gate import GateResult
 from bott.agents.code_review.rendering.slack import render_slack_review
 from bott.shared.persistence.store import (
     Task,
-    Worker,
-    enqueue,
     get_setting,
-    init_db,
     latest_trace_for_thread,
-    recover_orphans,
     save_trace,
 )
 
@@ -285,130 +276,6 @@ def handle_task(task: Task) -> None:
         )
 
 
-# ── conversational core ─────────────────────────────────────────────────────────
-_user_names: dict[str, str] = {}
-
-
-def _display_name(user_id: str) -> str:
-    """Human name for a Slack user id (cached). Falls back to the id."""
-    if not user_id:
-        return "someone"
-    if user_id in _user_names:
-        return _user_names[user_id]
-    name = user_id
-    try:
-        info = app.client.users_info(user=user_id)["user"]
-        name = info.get("profile", {}).get("display_name") or info.get("real_name") or user_id
-    except Exception:
-        pass
-    _user_names[user_id] = name
-    return name
-
-
-def _thread_transcript(channel: str, thread_ts: str, limit: int = 30) -> str:
-    """The whole Slack thread, oldest→newest, as a labelled transcript so the manager
-    has the full conversation in context (every participant, not just the last message)."""
-    try:
-        msgs = app.client.conversations_replies(channel=channel, ts=thread_ts, limit=limit).get(
-            "messages", []
-        )
-    except Exception as e:  # noqa: BLE001 — context is best-effort; never block a reply
-        log.info("could not fetch thread %s/%s: %s", channel, thread_ts, e)
-        return ""
-    lines = []
-    for m in msgs:
-        if m.get("subtype"):
-            continue
-        speaker = "Bott" if (m.get("bot_id") or m.get("user") == _bot_user_id) else _display_name(m.get("user", ""))
-        body = _strip_mention(m.get("text", "")).strip()
-        if body:
-            lines.append(f"{speaker}: {body}")
-    return "\n".join(lines)
-
-
-def _converse(channel: str, thread_ts: str, trigger_ts: str, text: str, prior_row) -> None:
-    """Run the manager (Team leader) on the message with the FULL thread as context, so it
-    follows the whole conversation. It chats directly, or delegates to the Code Review
-    specialist whose tool queues work onto the durable worker (which posts the verdict)."""
-    # Instant acknowledgement — react and drop a "typing…" placeholder BEFORE the slow work
-    # (transcript fetch + model). The 👀 reaction STAYS as a "handled" mark.
-    if trigger_ts:
-        _react(channel, trigger_ts, "eyes")
-    status_ts = _post(channel, thread_ts,
-                      [{"type": "section", "text": {"type": "mrkdwn", "text": "_typing…_"}}], "…")
-
-    team = get_manager()
-
-    transcript = _thread_transcript(channel, thread_ts)
-    seen = "yes" if prior_row else "no"
-    parts = []
-    if transcript:
-        parts.append("Conversation in this Slack thread so far (oldest first):\n" + transcript)
-    parts.append(f"[a PR was already reviewed in this thread: {seen}]")
-    parts.append(f'The latest message is: "{text.strip()}"\nReply to it as Bott.')
-    msg = "\n\n".join(parts)
-
-    # Bind this run to a persistent Agno session (one per Slack thread) and tell the
-    # review tools where to report back. Compute the full reply, then replace the
-    # placeholder with it in one edit.
-    session_id = f"slack:{channel}:{thread_ts}"
-    target: ReviewTarget = {"channel": channel, "thread_ts": thread_ts, "trigger_ts": trigger_ts}
-    token = set_review_target(target)
-    try:
-        reply = run_manager(team, msg, session_id=session_id, user_id=f"slack:{channel}")
-    except Exception as e:  # noqa: BLE001 — never let a chat turn crash the worker/handler
-        log.warning("manager error: %s", e)
-        reply = "Sorry — I hit a snag just now. Mind trying again in a moment?"
-    finally:
-        reset_review_target(token)
-
-    shown = to_mrkdwn(reply) or "…"  # model emits CommonMark; Slack needs mrkdwn
-    _update(channel, status_ts,
-            [{"type": "section", "text": {"type": "mrkdwn", "text": shown}}], reply or "…")
-
-
-# ── Slack event handlers ────────────────────────────────────────────────────────
-@app.event("app_mention")
-def on_mention(event, say):
-    channel = event["channel"]
-    thread_ts = event.get("thread_ts") or event["ts"]
-    prior = latest_trace_for_thread(channel, thread_ts)
-    _converse(channel, thread_ts, event["ts"], _strip_mention(event.get("text", "")), prior)
-
-
-@app.event("message")
-def on_message(event, logger):
-    # Converse on human thread replies, but only in threads we're already part of
-    # (a prior review exists) — avoids replying to every message in the channel.
-    if event.get("subtype") or event.get("bot_id"):
-        return
-    if _bot_user_id and event.get("user") == _bot_user_id:
-        return
-    thread_ts = event.get("thread_ts")
-    if not thread_ts:
-        return
-    text = event.get("text", "")
-    if _bot_user_id and f"<@{_bot_user_id}>" in text:
-        return  # @mention is handled by on_mention (avoid double-processing)
-    channel = event["channel"]
-    prior = latest_trace_for_thread(channel, thread_ts)
-    if not prior:
-        return
-    _converse(channel, thread_ts, event["ts"], text, prior)
-
-
-@app.action("rereview_pr")
-def on_rereview_button(ack, body):
-    ack()
-    channel = body["channel"]["id"]
-    msg = body.get("message", {})
-    thread_ts = msg.get("thread_ts") or msg.get("ts")
-    enqueue("rereview", {
-        "channel": channel, "thread_ts": thread_ts, "trigger_ts": None,
-        "reply_text": "(manual re-review requested)",
-    })
-
-
 def _friendly_failure(termination: str, error: str | None) -> str:
     """Human-facing failure text — never leaks internal enums/stack traces."""
     err = (error or "").lower()
@@ -424,24 +291,3 @@ def _friendly_failure(termination: str, error: str | None) -> str:
                           "the current model settings. Mind tagging me again?"),
     }
     return mapping.get(termination, "Something went wrong on my end. Please try again in a moment.")
-
-
-def _strip_mention(text: str) -> str:
-    return re.sub(r"<@[^>]+>", "", text).strip()
-
-
-def main() -> None:
-    global _bot_user_id
-    init_db()
-    n = recover_orphans()
-    if n:
-        log.info("Recovered %s orphaned task(s) from a prior restart.", n)
-    _bot_user_id = app.client.auth_test()["user_id"]
-    worker = Worker(handle_task)
-    worker.start()
-    log.info("Bott-POC review bot up (bot user %s). Worker running.", _bot_user_id)
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
-
-
-if __name__ == "__main__":
-    main()

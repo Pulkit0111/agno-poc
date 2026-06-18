@@ -31,10 +31,8 @@ dev = [
 ]
 
 [project.scripts]
-pr-review = "bott.agents.code_review.cli:main"
-pr-review-server = "bott.interfaces.server:main"
-agentos-server = "bott.interfaces.agentos:main"
-bott-app = "bott.interfaces.app:main"
+bott-app = "bott.interfaces.app:main"          # the whole POC: agent + Slack + scheduler + webhook
+pr-review = "bott.agents.code_review.cli:main"  # CLI dry-run of a single PR review (posts nothing)
 
 [tool.setuptools.packages.find]
 where = ["src"]

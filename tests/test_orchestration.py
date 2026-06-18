@@ -1,6 +1,5 @@
-"""Spine tests: the Code Review member's tools enqueue real work, and the manager
-Team is wired with the right member + mode. These are deterministic (no LLM/network):
-the leader's routing is LLM-driven and exercised manually, not in CI."""
+"""Spine tests: the Code Review tools enqueue real work onto the durable queue.
+Deterministic (no LLM/network)."""
 
 from __future__ import annotations
 
@@ -77,15 +76,3 @@ def test_start_review_without_target_queues_without_channel():
 def test_review_tools_returns_both_callables():
     tools = member.review_tools()
     assert {t.__name__ for t in tools} == {"start_review", "start_rereview"}
-
-
-def test_manager_team_has_code_review_member_in_coordinate_mode():
-    from agno.team import TeamMode
-
-    from bott.manager.manager import build_manager
-
-    team = build_manager()
-
-    member_names = [m.name for m in team.members]
-    assert "Code Review Agent" in member_names
-    assert team.mode == TeamMode.coordinate

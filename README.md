@@ -13,24 +13,28 @@ isolation at the session/user level — no router, no team, no separate apps.
 
 ## What it does
 
-Four use cases, all served by the one agent:
+Five use cases, all served by the one agent:
 
 - **PR Reviews** — `@mention` a GitHub PR (or follow up in-thread for a re-review), or let
   the GitHub webhook auto-review on PR open / ready-for-review. The agent enqueues the
   work; a durable worker fetches the PR, shallow-clones the repo, investigates with
   file/search/history tools, runs a 10-precondition **verdict gate**, and posts a rendered
   review to GitHub (when the repo is allow-listed) and mirrors it to Slack.
-- **DSM (daily standup)** — a scheduled **pre-call** flow builds a discussion-only agenda
-  from async updates, and a **post-call** flow consolidates notes against the running
-  picture. Scoped per team.
-- **Delivery Synthesis** — a scheduled per-engagement digest (status, top risks, next
-  steps) grounded in Memra context and posted to the engagement's channel.
-- **Personal Concierge** — per-user action-item tracking and per-user recurring scheduled
-  tasks. Each user only ever sees their own items.
+- **DSM (daily standup)** — form-driven and threaded: at the open time a channel message
+  with an **"Add my update"** button collects async updates; a **pre-read** summary posts
+  in the thread before the call; after the call a **summary** (from Memra meeting notes)
+  posts in the same thread. Scoped per team.
+- **Delivery Synthesis** — a scheduled per-engagement digest (status, top risks, what's
+  going well, next steps) grounded in Memra context and posted to the engagement's channel.
+- **Personal Concierge** — per-user action items from per-user memory; each user only ever
+  sees their own items.
+- **Security Advisories** — a scheduled Drupal security-advisory digest (severity-grouped,
+  CVEs, fix versions), also answerable on demand in chat.
 
-**Context comes from [Memra](https://memra.team)** — a read-only context layer over MCP
-(engagements, people, delivery status, risks, action items). The agent prefers cited
-context over guessing.
+Schedules are managed from a **Slack App Home** control panel (add / run-now / remove).
+**Context comes from [Memra](https://memra.team)** — a read-only layer over MCP
+(engagements, people, delivery, risks, meeting notes); the agent prefers cited context
+over guessing.
 
 ## Architecture
 
@@ -52,16 +56,19 @@ Scheduler (cron)    ─┘         │                          │
   interface supplies on every run (`resolve_user_identity=True` → `user_id` = the user's
   email). Per-user memory uses Agno **agentic memory** (the agent stores/recalls only when
   it decides to, so trivial chit-chat shows no "thinking" trace).
-- **Slack over the Events API**, via Agno's built-in `agno.os.interfaces.slack.Slack`
-  (HTTP `/slack/events`, not Socket Mode). It ACKs immediately and passes the Slack
-  `channel_id`/`thread_ts` into each run as dependencies — which the PR-review tools read
-  to know where to post the verdict.
+- **Slack over the Events API** (HTTP, not Socket Mode). Chat runs on Agno's built-in
+  `agno.os.interfaces.slack.Slack` (mounted at `/slack/chat`); a thin gateway at
+  `/slack/events` handles `app_home_opened` and forwards chat events to it. The interface
+  passes `channel_id`/`thread_ts` into each run as dependencies so the review tools know
+  where to post. The **App Home** control panel (`interfaces/slack_home/`) handles the
+  schedule buttons + modals at `/slack/interactivity`.
 - **Reviews run out-of-band.** The review tools only *enqueue*; the durable worker
   (`interfaces/slack_app.py`) runs the pipeline, posts live progress + the verdict, and
   persists the trace. Reviews are slow (clone + LLM), so they never block a chat turn.
-- **Scheduler.** `scheduler=True` on AgentOS; `skills/scheduling.py` registers DSM /
-  delivery / concierge schedules that fire the agent's run endpoint. Each schedule embeds
-  `user_id`/`session_id` in its payload, so scheduled runs stay scoped just like live ones.
+- **Scheduler.** `scheduler=True` on AgentOS; `skills/scheduling.py` registers delivery /
+  DSM / concierge / security schedules (created from the App Home panel) that fire the
+  agent's run endpoint. Each schedule embeds `user_id`/`session_id` in its payload, so
+  scheduled runs stay scoped just like live ones.
 - **Pluggable model backend** (`shared/codex.py`). For the single-user POC, models run on
   the owner's ChatGPT/Codex subscription with **no API key** via a local OpenAI-compatible
   proxy that the app auto-starts and self-heals. For multi-user production, flip
@@ -72,7 +79,8 @@ Scheduler (cron)    ─┘         │                          │
 ```
 src/bott/
 ├── agents/
-│   ├── bott_agent.py       # THE agent — one agent + skill tools (the live front door's brain)
+│   ├── bott_agent.py       # THE agent — one agent + skill tools (assembled here)
+│   ├── personality.py      # Bott's voice/identity (single source of truth)
 │   └── code_review/        # PR-review skill
 │       ├── member.py       #   enqueue tools (start_review / start_rereview)
 │       ├── webhook.py      #   GitHub PR webhook → enqueue
@@ -83,21 +91,24 @@ src/bott/
 │       ├── agent/          #   prompt, tools (Agno Toolkit), diff_hunks, noise
 │       └── rendering/      #   github.py, slack.py (verdict rendering)
 ├── skills/
-│   └── scheduling.py       # DSM pre/post, delivery synthesis, concierge recurring tasks
+│   ├── scheduling.py       # schedule helpers: delivery synthesis, DSM, concierge, security
+│   ├── advisories.py       # Drupal security-advisory digest (fetch + render + post)
+│   └── dsm.py              # standup: open collection / pre-read / post-call summary
 ├── shared/
 │   ├── config.py           # env, model selection, budget caps, gate thresholds, DB paths
 │   ├── codex.py            # Codex-subscription proxy: auto-start + supervise (or openai backend)
 │   ├── model.py            # single place the model is built
-│   ├── context/memra.py    # Memra client + read-only MCP tools
-│   ├── persistence/        # store.py (SQLite task queue + review traces)
+│   ├── context/memra.py    # Memra client + read-only MCP tools (cited)
+│   ├── persistence/        # store.py (review queue + traces), standup.py (DSM rounds)
 │   └── observability/      # logging_setup.py (secret-redacting logs)
-├── manager/personality.py  # Bott's voice/identity (single source of truth)
 └── interfaces/
-    └── app.py              # consolidated AgentOS app: agent + Slack + scheduler + webhook (`bott-app`)
+    ├── app.py              # the AgentOS app: agent + Slack + scheduler + webhook (`bott-app`)
+    ├── slack_app.py        # durable PR-review worker + Slack posting (imported by app.py)
+    └── slack_home/         # Slack App Home control panel: schedules + buttons + modals
 tests/                      # pytest suite (deterministic unit tests)
 scripts/
 ├── isolation_test.py       # two-user isolation gate (the make-or-break check)
-├── setup_schedules.py      # register the DSM/delivery/concierge schedules
+├── setup_schedules.py      # register the delivery/DSM/concierge schedules
 ├── eval_reviews.py         # score review verdicts against a manifest (live, spends tokens)
 └── set_app_webhook.py      # point the GitHub App's webhook at the current public URL
 ```
@@ -133,6 +144,10 @@ Both Slack's Events API and the GitHub webhook need to reach the app over HTTPS.
 and register:
 
 - the Slack app's **Event Subscriptions** request URL → `https://<host>/slack/events`
+  (this gateway handles `app_home_opened` and forwards chat events to Agno's interface at
+  `/slack/chat/events`; subscribe to `message.im`, `app_mention`, and `app_home_opened`)
+- the Slack app's **Interactivity** request URL → `https://<host>/slack/interactivity`
+  (the App Home buttons + modals), and turn on the **App Home** tab
 - the GitHub App's webhook → `https://<host>/webhook/github`
   (`python scripts/set_app_webhook.py https://<host>/webhook/github` repoints it; it reuses
   `GITHUB_WEBHOOK_SECRET` so signatures still verify).
