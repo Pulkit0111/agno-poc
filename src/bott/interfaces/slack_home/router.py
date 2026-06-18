@@ -133,6 +133,11 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                     client.views_open(trigger_id=trigger_id, view=blocks.build_dsm_modal())
                 except Exception as e:  # noqa: BLE001
                     log.error("open dsm modal: %s", e)
+            elif cmd == "add_security":
+                try:
+                    client.views_open(trigger_id=trigger_id, view=blocks.build_security_modal())
+                except Exception as e:  # noqa: BLE001
+                    log.error("open security modal: %s", e)
             elif cmd == "run_now":
                 background_tasks.add_task(run_now, user_id, action.get("value"))
             elif cmd == "remove":
@@ -149,6 +154,8 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                     _submit_delivery(db, values)
                 elif cb == "create_dsm":
                     _submit_dsm(db, values)
+                elif cb == "create_security":
+                    _submit_security(db, values)
             except Exception as e:  # noqa: BLE001
                 log.error("submission %s failed: %s", cb, e)
             background_tasks.add_task(publish_home, user_id)
@@ -174,6 +181,14 @@ def _submit_delivery(db, values: dict) -> None:
     time_str = _val(values, "time").get("selected_time", "09:00")
     if eng_id and eng_id != "none" and channel:
         service.create_delivery(db, eng_id, account, channel, frequency, time_str, band=band)
+
+
+def _submit_security(db, values: dict) -> None:
+    channel = _val(values, "channel").get("selected_channel")
+    frequency = (_val(values, "frequency").get("selected_option") or {}).get("value", "daily")
+    time_str = _val(values, "time").get("selected_time", "09:00")
+    if channel:
+        service.create_security(db, channel, frequency, time_str)
 
 
 def _submit_dsm(db, values: dict) -> None:

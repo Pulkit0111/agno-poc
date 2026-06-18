@@ -18,6 +18,7 @@ from bott.manager.personality import IDENTITY, VOICE
 from bott.shared.config import manager_api_key, manager_base_url, memra_configured
 from bott.shared.context import MemraClient, make_memra_tools
 from bott.shared.model import build_model
+from bott.skills.advisories import security_tools
 
 SKILL_INSTRUCTIONS = [
     "You are one agent with several skills. Use your Memra tools (read-only) to ground "
@@ -31,6 +32,9 @@ SKILL_INSTRUCTIONS = [
     "Memra/get_person lookups, and never surface another person's items.",
     "When you need to act in Slack beyond replying (post to another channel, etc.), use "
     "your Slack tools.",
+    "For Drupal security advisories (a daily digest, or someone asking 'any new Drupal "
+    "CVEs?'), use your drupal_security_advisories tool. When a scheduled run tells you to "
+    "post the digest verbatim, post the tool's output exactly — don't rewrite it.",
     "Keep replies warm, concise, and specific. Never invent facts; if context is missing, "
     "say so.",
 ]
@@ -45,6 +49,7 @@ def build_bott_agent(db=None) -> Agent:
 
     tools: list = []
     tools.extend(review_tools())  # PR review (queue → durable worker runs + posts)
+    tools.extend(security_tools())  # Drupal security advisories (digest + chat follow-ups)
     if memra_configured():
         tools.extend(make_memra_tools(MemraClient()))
     slack_token = os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")

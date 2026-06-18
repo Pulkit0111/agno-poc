@@ -92,6 +92,39 @@ def create_recurring_task(
     )
 
 
+def create_security_digest(
+    db: Any,
+    *,
+    channel: str,
+    cron: str,
+    timezone: str = "UTC",
+    source: str = "drupal",
+    window_days: int = 2,
+):
+    """Scheduled security-advisory digest: fetch the latest advisories and post them to a
+    channel. Non-personal 'system' scope (no user data), isolated like every other run."""
+    message = (
+        "It's the scheduled security check. Call your drupal_security_advisories tool "
+        f"(window_days={window_days}) to get the latest Drupal advisories as a ready-made "
+        f"digest, then post that digest VERBATIM to Slack channel {channel} using your Slack "
+        "tools — do not rewrite, summarize, or add commentary. If it reports no advisories, "
+        "post that one line as-is."
+    )
+    return _mgr(db).create(
+        name=f"security-digest:{source}",
+        cron=cron,
+        endpoint=AGENT_RUN_ENDPOINT,
+        timezone=timezone,
+        description=_display(kind="security", label=f"{source.title()} advisories", channel=channel),
+        payload={
+            "message": message,
+            "user_id": f"feed:{source}-sa",
+            "session_id": f"security:{source}",
+        },
+        if_exists="update",
+    )
+
+
 def create_dsm_precall(
     db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"
 ):

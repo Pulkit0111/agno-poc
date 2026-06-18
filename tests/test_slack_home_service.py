@@ -40,6 +40,16 @@ def test_dsm_pre_and_post_merge_into_one_row(tmp_path):
     assert len(rows[0]["remove_ids"]) == 2  # removing the row deletes both
 
 
+def test_security_digest_row(tmp_path):
+    db = _db(tmp_path)
+    service.create_security(db, "C5", "daily", "09:00")
+    rows = [r for r in service.list_rows(db) if r["icon"] == "🔒"]
+    assert len(rows) == 1
+    assert rows[0]["channel"] == "C5"
+    assert rows[0]["when"].startswith("Daily 9:00 AM")
+    assert len(rows[0]["remove_ids"]) == 1
+
+
 def test_concierge_schedules_excluded_from_home(tmp_path):
     db = _db(tmp_path)
     from bott.skills import scheduling

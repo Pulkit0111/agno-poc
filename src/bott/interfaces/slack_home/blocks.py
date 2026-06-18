@@ -76,6 +76,7 @@ def build_home_view(rows: list[dict]) -> dict:
             "elements": [
                 _btn("+ Add delivery digest", "add_delivery", "go", style="primary"),
                 _btn("+ Add DSM schedule", "add_dsm", "go"),
+                _btn("+ Add security feed", "add_security", "go"),
             ],
         }
     )
@@ -163,5 +164,28 @@ def build_dsm_modal(default_channel: str | None = None) -> dict:
                    {"type": "timepicker", "action_id": "v", "initial_time": "10:30"}),
             _input("days", "Days", _static_select("v", [("Weekdays", "weekdays"), ("Daily", "daily")],
                                                   initial="weekdays")),
+        ],
+    }
+
+
+def build_security_modal(default_channel: str | None = None) -> dict:
+    """Add a scheduled Drupal security-advisory digest: just a channel, how often, and a
+    time (no engagement to pick, so it opens instantly)."""
+    channel_el: dict[str, Any] = {"type": "channels_select", "action_id": "v",
+                                  "placeholder": {"type": "plain_text", "text": "Post advisories to"}}
+    if default_channel and default_channel.startswith("C"):
+        channel_el["initial_channel"] = default_channel
+    return {
+        "type": "modal",
+        "callback_id": "create_security",
+        "title": {"type": "plain_text", "text": "Add security feed"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn",
+             "text": "🔒 Daily Drupal security advisories (core + contrib)."}},
+            _input("channel", "Post to channel", channel_el),
+            _input("frequency", "How often", _static_select("v", _FREQ_OPTIONS, initial="daily")),
+            _input("time", "Time", {"type": "timepicker", "action_id": "v", "initial_time": "09:00"}),
         ],
     }

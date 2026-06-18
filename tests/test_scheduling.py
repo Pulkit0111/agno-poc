@@ -37,6 +37,18 @@ def test_delivery_synthesis_scoped_to_engagement(tmp_path):
     assert "eng-123" in p["message"]
 
 
+def test_security_digest_scope_and_metadata(tmp_path):
+    db = SqliteDb(db_file=str(tmp_path / "s.db"))
+    sch = scheduling.create_security_digest(db, channel="C5", cron="0 9 * * *")
+    p = _payload(sch)
+    assert p["user_id"] == "feed:drupal-sa"
+    assert p["session_id"] == "security:drupal"
+    assert "drupal_security_advisories" in p["message"]
+    import json
+    desc = json.loads(getattr(sch, "description", "{}") or "{}")
+    assert desc["kind"] == "security"
+
+
 def test_dsm_precall_and_postcall_share_team_session(tmp_path):
     db = SqliteDb(db_file=str(tmp_path / "s.db"))
     pre = scheduling.create_dsm_precall(db, team_id="core", channel="#core", cron="55 9 * * 1-5")

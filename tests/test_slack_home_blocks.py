@@ -20,6 +20,7 @@ def test_empty_home_has_add_buttons():
     ids = _action_ids(view)
     assert "add_delivery" in ids
     assert "add_dsm" in ids
+    assert "add_security" in ids
     # No schedules → an explanatory line, no run/remove buttons.
     assert not any(i.startswith("run_now") or i.startswith("remove") for i in ids)
 
@@ -94,3 +95,12 @@ def test_dsm_modal_structure():
     # Team is optional; the rest required.
     team_block = next(b for b in view["blocks"] if b["block_id"] == "team")
     assert team_block["optional"] is True
+
+
+def test_security_modal_structure():
+    view = blocks.build_security_modal(default_channel="C123")
+    assert view["callback_id"] == "create_security"
+    input_block_ids = [b.get("block_id") for b in view["blocks"] if b["type"] == "input"]
+    assert input_block_ids == ["channel", "frequency", "time"]
+    chan = next(b for b in view["blocks"] if b.get("block_id") == "channel")
+    assert chan["element"]["initial_channel"] == "C123"

@@ -34,15 +34,19 @@ def list_rows(db: Any) -> list[dict]:
     (concierge lives in chat, not here)."""
     schedules = ScheduleManager(db).list()
     deliveries: list[tuple[Any, dict]] = []
+    security: list[tuple[Any, dict]] = []
     dsm: dict[str, dict[str, tuple[Any, dict]]] = {}
 
     for s in schedules:
         d = _desc(s)
         name = getattr(s, "name", "") or ""
         kind = d.get("kind") or ("delivery" if name.startswith("delivery-synthesis:") else
+                                 "security" if name.startswith("security-digest:") else
                                  "dsm" if name.startswith("dsm-") else "")
         if kind == "delivery":
             deliveries.append((s, d))
+        elif kind == "security":
+            security.append((s, d))
         elif kind == "dsm":
             team = d.get("label") or name.split(":", 1)[-1]
             phase = d.get("phase") or ("pre" if "precall" in name else "post")
@@ -55,6 +59,18 @@ def list_rows(db: Any) -> list[dict]:
         rows.append({
             "icon": band_icon(d.get("band")),
             "label": d.get("label") or getattr(s, "name", "").split(":", 1)[-1],
+            "channel": d.get("channel") or "",
+            "when": f"{when} · next {nxt}" if nxt else when,
+            "run_buttons": [{"text": "▶ Run now", "action_id": f"run_now:{s.id}", "value": s.id}],
+            "remove_ids": [s.id],
+        })
+
+    for s, d in security:
+        nxt = format_next_run(getattr(s, "next_run_at", None), getattr(s, "timezone", "UTC"))
+        when = cron_to_friendly(getattr(s, "cron_expr", ""))
+        rows.append({
+            "icon": "🔒",
+            "label": d.get("label") or "Security advisories",
             "channel": d.get("channel") or "",
             "when": f"{when} · next {nxt}" if nxt else when,
             "run_buttons": [{"text": "▶ Run now", "action_id": f"run_now:{s.id}", "value": s.id}],
@@ -86,6 +102,12 @@ def create_delivery(db: Any, engagement_id: str, account: str, channel: str,
         db, engagement_id=engagement_id, channel=channel,
         cron=to_cron(frequency, time_str), timezone=default_timezone(),
         account_name=account, band=band,
+    )
+
+
+def create_security(db: Any, channel: str, frequency: str, time_str: str) -> Any:
+    return scheduling.create_security_digest(
+        db, channel=channel, cron=to_cron(frequency, time_str), timezone=default_timezone(),
     )
 
 
