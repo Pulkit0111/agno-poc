@@ -51,6 +51,30 @@ def _first_sentences(text: str, n: int = 2, cap: int = 320) -> str:
     return (out[: cap - 1] + "…") if len(out) > cap else out
 
 
+# Words that signal the *impact* sentence (vs. the module's marketing blurb). Lowercase
+# stems match as substrings; acronyms need word boundaries (else "source" matches "RCE").
+_RISK_STEM = re.compile(
+    r"(vulnerab|inject|attack|malicious|exploit|bypass|forger|redirect|disclos|escalat|"
+    r"seriali|arbitrary|unauthor|poison|spoof|traversal|overflow)",
+    re.IGNORECASE,
+)
+_RISK_ACRONYM = re.compile(r"\b(XSS|SQL|RCE|SSRF|CSRF)\b")  # case-sensitive, word-boundary
+
+
+def _impact_sentence(text: str, cap: int = 200) -> str:
+    """The sentence that describes the actual risk, skipping the 'The X module provides…'
+    marketing lead-in. Falls back to the first sentence."""
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    chosen = next(
+        (s for s in sentences if _RISK_STEM.search(s) or _RISK_ACRONYM.search(s)),
+        sentences[0] if sentences else "",
+    )
+    chosen = chosen.strip()
+    return (chosen[: cap - 1] + "…") if len(chosen) > cap else chosen
+
+
 def _severity_meta(label: str) -> tuple[int, str]:
     return _SEVERITY.get((label or "").strip().lower(), (9, "⚪"))
 
@@ -111,7 +135,7 @@ def parse_advisories(raw: list[dict], now_epoch: int, window_days: int) -> list[
             "icon": icon,
             "type": vtype,
             "cve": ", ".join(c for c in cves if c),
-            "summary": _first_sentences(_text(it.get("field_sa_description"))),
+            "summary": _impact_sentence(_text(it.get("field_sa_description"))),
             "fix": _fix_summary(_text(it.get("field_sa_solution"))),
             "url": url,
             "created": created,
@@ -138,15 +162,15 @@ def render_digest(advisories: list[dict]) -> str:
     ]
     for a in advisories:
         lines.append(f"{a['icon']} *{a['severity']} — {a['project']}*")
-        meta = " | ".join(x for x in (a["sa_id"], a["type"], a["cve"]) if x)
+        # Make the advisory ID the link (a labeled link, so there's no bare URL to unfurl).
+        id_part = f"<{a['url']}|{a['sa_id']}>" if a["url"] else a["sa_id"]
+        meta = " | ".join(x for x in (id_part, a["type"], a["cve"]) if x)
         if meta:
-            lines.append(f"*{meta}*")
+            lines.append(meta)
         if a["summary"]:
             lines.append(a["summary"])
         if a["fix"]:
             lines.append(f"✅ Fix: {a['fix']}")
-        if a["url"]:
-            lines.append(f"🔗 {a['url']}")
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -173,5 +197,32 @@ def drupal_security_advisories(window_days: int = 2) -> str:
     return render_digest(parse_advisories(raw, now, window_days))
 
 
+def post_drupal_security_advisories(channel: str, window_days: int = 2) -> str:
+    """Fetch the latest Drupal advisories and POST the digest to a Slack channel WITH LINK
+    PREVIEWS DISABLED. Use this for the scheduled security digest (not the plain Slack post
+    tool, which would unfurl every advisory URL into a card).
+
+    Args:
+        channel: Slack channel id or name to post to.
+        window_days: How many days back to include (default 2).
+    """
+    import os
+
+    from slack_sdk import WebClient
+
+    text = drupal_security_advisories(window_days)
+    token = os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")
+    if not token:
+        return "No Slack token configured; couldn't post the advisories."
+    try:
+        WebClient(token=token).chat_postMessage(
+            channel=channel, text=text, unfurl_links=False, unfurl_media=False
+        )
+    except Exception as e:  # noqa: BLE001
+        log.error("post advisories to %s failed: %s", channel, e)
+        return f"Couldn't post the advisories to {channel} ({e})."
+    return f"Posted the Drupal security digest to {channel} (link previews off)."
+
+
 def security_tools() -> list[Callable]:
-    return [drupal_security_advisories]
+    return [drupal_security_advisories, post_drupal_security_advisories]

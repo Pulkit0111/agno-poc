@@ -104,11 +104,10 @@ def create_security_digest(
     """Scheduled security-advisory digest: fetch the latest advisories and post them to a
     channel. Non-personal 'system' scope (no user data), isolated like every other run."""
     message = (
-        "It's the scheduled security check. Call your drupal_security_advisories tool "
-        f"(window_days={window_days}) to get the latest Drupal advisories as a ready-made "
-        f"digest, then post that digest VERBATIM to Slack channel {channel} using your Slack "
-        "tools — do not rewrite, summarize, or add commentary. If it reports no advisories, "
-        "post that one line as-is."
+        "It's the scheduled security check. Call your post_drupal_security_advisories tool "
+        f"with channel='{channel}' and window_days={window_days}. That tool fetches the "
+        "latest Drupal advisories and posts the digest itself (link previews disabled) — do "
+        "not post anything else or add commentary."
     )
     return _mgr(db).create(
         name=f"security-digest:{source}",

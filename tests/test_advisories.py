@@ -51,9 +51,10 @@ def test_render_digest_format():
     out = advisories.render_digest(advisories.parse_advisories(RAW, NOW, window_days=2))
     assert out.startswith("🔒 *Drupal Security Advisories —")
     assert "1 Critical" in out and "1 Less critical" in out
-    assert "SA-CONTRIB-2026-050" in out
     assert "✅ Fix:" in out
-    assert "🔗 https://www.drupal.org/sa-contrib-2026-050" in out
+    # Advisory ID is a labeled link (no bare URL → nothing for Slack to unfurl).
+    assert "<https://www.drupal.org/sa-contrib-2026-050|SA-CONTRIB-2026-050>" in out
+    assert "🔗 https://" not in out
 
 
 def test_fix_summary_extracts_versions():
@@ -75,6 +76,20 @@ def test_tool_uses_feed_and_renders(monkeypatch):
     out = advisories.drupal_security_advisories(window_days=2)
     assert "Drupal Security Advisories" in out
     assert "SA-CONTRIB-2026-050" in out
+
+
+def test_post_tool_disables_unfurl(monkeypatch):
+    captured: dict = {}
+    monkeypatch.setattr(advisories, "_fetch_raw", lambda *a, **k: RAW)
+    monkeypatch.setattr(advisories.time, "time", lambda: NOW + 100)
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    monkeypatch.setattr("slack_sdk.WebClient.chat_postMessage",
+                        lambda self, **kw: captured.update(kw))
+    out = advisories.post_drupal_security_advisories("C123", window_days=2)
+    assert captured["channel"] == "C123"
+    assert captured["unfurl_links"] is False and captured["unfurl_media"] is False
+    assert "SA-CONTRIB-2026-050" in captured["text"]
+    assert "Posted" in out
 
 
 def test_tool_handles_fetch_failure(monkeypatch):
