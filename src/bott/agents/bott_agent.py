@@ -19,6 +19,7 @@ from bott.shared.config import manager_api_key, manager_base_url, memra_configur
 from bott.shared.context import MemraClient, make_memra_tools
 from bott.shared.model import build_model
 from bott.skills.advisories import security_tools
+from bott.skills.dsm import dsm_tools
 
 SKILL_INSTRUCTIONS = [
     "You are one agent with several skills. Use your Memra tools (read-only) to ground "
@@ -50,6 +51,7 @@ def build_bott_agent(db=None) -> Agent:
     tools: list = []
     tools.extend(review_tools())  # PR review (queue → durable worker runs + posts)
     tools.extend(security_tools())  # Drupal security advisories (digest + chat follow-ups)
+    tools.extend(dsm_tools())  # DSM standup: open collection / pre-read / post-call summary
     if memra_configured():
         tools.extend(make_memra_tools(MemraClient()))
     slack_token = os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")

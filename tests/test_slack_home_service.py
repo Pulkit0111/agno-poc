@@ -30,14 +30,15 @@ def test_minutely_delivery_reads_as_every_minute(tmp_path):
     assert "Every minute" in row["when"]
 
 
-def test_dsm_pre_and_post_merge_into_one_row(tmp_path):
+def test_dsm_three_phases_merge_into_one_row(tmp_path):
     db = _db(tmp_path)
-    service.create_dsm(db, "core", "C9", "09:55", "10:30", "weekdays")
+    # call 10:00, open 2h before (08:00), pre-read 1h before (09:00), summary 10:30.
+    service.create_dsm(db, "core", "C9", "10:00", 120, 60, "10:30", "weekdays")
     rows = [r for r in service.list_rows(db) if r["icon"] == "👥"]
     assert len(rows) == 1
-    assert "Pre 9:55 AM" in rows[0]["when"]
-    assert "Post 10:30 AM" in rows[0]["when"]
-    assert len(rows[0]["remove_ids"]) == 2  # removing the row deletes both
+    w = rows[0]["when"]
+    assert "Open 8:00 AM" in w and "Pre-read 9:00 AM" in w and "Call summary 10:30 AM" in w
+    assert len(rows[0]["remove_ids"]) == 3  # removing the row deletes all three
 
 
 def test_security_digest_row(tmp_path):

@@ -6,7 +6,12 @@ router publishes/opens these and reads back the submitted values.
 
 from __future__ import annotations
 
+import json
 from typing import Any
+
+# Configurable timing offsets for the DSM "Add" form (label, minutes-before-call).
+_OPEN_OFFSETS = [("3 hours before", "180"), ("2 hours before", "120"), ("1 hour before", "60")]
+_CLOSE_OFFSETS = [("1 hour before", "60"), ("30 minutes before", "30"), ("15 minutes before", "15")]
 
 _BAND_ICON = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 
@@ -141,7 +146,8 @@ def build_delivery_modal(engagements: list[dict], default_channel: str | None = 
 
 
 def build_dsm_modal(default_channel: str | None = None) -> dict:
-    """Add-DSM form: one channel, a pre-call and post-call time, and the days."""
+    """Add-DSM form: the standup call time + configurable open/pre-read offsets + a post-call
+    summary time. Open and pre-read crons are derived from call time minus the offsets."""
     channel_el: dict[str, Any] = {"type": "channels_select", "action_id": "v",
                                   "placeholder": {"type": "plain_text", "text": "Standup channel"}}
     if default_channel and default_channel.startswith("C"):
@@ -158,12 +164,37 @@ def build_dsm_modal(default_channel: str | None = None) -> dict:
                    {"type": "plain_text_input", "action_id": "v",
                     "placeholder": {"type": "plain_text", "text": "e.g. core"}}, optional=True),
             _input("channel", "Standup channel", channel_el),
-            _input("precall", "Pre-call time",
-                   {"type": "timepicker", "action_id": "v", "initial_time": "09:55"}),
-            _input("postcall", "Post-call time",
+            _input("call_time", "Standup call time",
+                   {"type": "timepicker", "action_id": "v", "initial_time": "10:00"}),
+            _input("open_offset", "Open collection", _static_select("v", _OPEN_OFFSETS, initial="120")),
+            _input("close_offset", "Post pre-read", _static_select("v", _CLOSE_OFFSETS, initial="60")),
+            _input("postcall_time", "Post-call summary time",
                    {"type": "timepicker", "action_id": "v", "initial_time": "10:30"}),
             _input("days", "Days", _static_select("v", [("Weekdays", "weekdays"), ("Daily", "daily")],
                                                   initial="weekdays")),
+        ],
+    }
+
+
+def build_standup_modal(team: str, date: str) -> dict:
+    """The per-person standup update form (opened from the channel button). Carries the
+    team+date in private_metadata so the submit handler knows which round to store against."""
+    def _ml(block_id: str, label: str) -> dict:
+        return _input(block_id, label,
+                      {"type": "plain_text_input", "action_id": "v", "multiline": True},
+                      optional=True)
+
+    return {
+        "type": "modal",
+        "callback_id": "submit_standup",
+        "private_metadata": json.dumps({"team": team, "date": date}),
+        "title": {"type": "plain_text", "text": "Standup update"},
+        "submit": {"type": "plain_text", "text": "Submit"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            _ml("yesterday", "Yesterday"),
+            _ml("today", "Today"),
+            _ml("blockers", "Blockers"),
         ],
     }
 

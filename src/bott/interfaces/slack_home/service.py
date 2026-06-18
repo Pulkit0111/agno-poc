@@ -16,7 +16,14 @@ from bott.shared.observability.logging_setup import get_logger
 from bott.skills import scheduling
 
 from .blocks import band_icon
-from .cron import cron_time_12h, cron_to_friendly, default_timezone, format_next_run, to_cron
+from .cron import (
+    cron_time_12h,
+    cron_to_friendly,
+    default_timezone,
+    format_next_run,
+    shift_time,
+    to_cron,
+)
 
 log = get_logger("bott.slack_home.service")
 
@@ -49,7 +56,7 @@ def list_rows(db: Any) -> list[dict]:
             security.append((s, d))
         elif kind == "dsm":
             team = d.get("label") or name.split(":", 1)[-1]
-            phase = d.get("phase") or ("pre" if "precall" in name else "post")
+            phase = d.get("phase") or name.split(":", 1)[0].replace("dsm-", "")
             dsm.setdefault(team, {})[phase] = (s, d)
 
     rows: list[dict] = []
@@ -79,14 +86,14 @@ def list_rows(db: Any) -> list[dict]:
 
     for team, phases in dsm.items():
         when_parts, run_buttons, remove_ids, channel = [], [], [], ""
-        for phase, label in (("pre", "Pre"), ("post", "Post")):
+        for phase, label in (("open", "Open"), ("preread", "Pre-read"), ("callsummary", "Call summary")):
             entry = phases.get(phase)
             if not entry:
                 continue
             s, d = entry
             channel = channel or d.get("channel") or ""
             when_parts.append(f"{label} {cron_time_12h(getattr(s, 'cron_expr', ''))}")
-            run_buttons.append({"text": f"▶ Run {phase}", "action_id": f"run_now:{s.id}", "value": s.id})
+            run_buttons.append({"text": f"▶ {label}", "action_id": f"run_now:{s.id}", "value": s.id})
             remove_ids.append(s.id)
         rows.append({
             "icon": "👥", "label": team, "channel": channel,
@@ -111,13 +118,17 @@ def create_security(db: Any, channel: str, frequency: str, time_str: str) -> Any
     )
 
 
-def create_dsm(db: Any, team: str, channel: str, precall_time: str,
-               postcall_time: str, days: str) -> None:
+def create_dsm(db: Any, team: str, channel: str, call_time: str, open_offset_min: int,
+               close_offset_min: int, postcall_time: str, days: str) -> None:
+    """Three derived schedules: open (call − open_offset), pre-read (call − close_offset),
+    and the post-call summary (at postcall_time)."""
     tz = default_timezone()
-    scheduling.create_dsm_precall(db, team_id=team, channel=channel,
-                                  cron=to_cron(days, precall_time), timezone=tz)
-    scheduling.create_dsm_postcall(db, team_id=team, channel=channel,
-                                   cron=to_cron(days, postcall_time), timezone=tz)
+    scheduling.create_dsm_open(db, team_id=team, channel=channel,
+                               cron=to_cron(days, shift_time(call_time, open_offset_min)), timezone=tz)
+    scheduling.create_dsm_preread(db, team_id=team, channel=channel,
+                                  cron=to_cron(days, shift_time(call_time, close_offset_min)), timezone=tz)
+    scheduling.create_dsm_callsummary(db, team_id=team, channel=channel,
+                                      cron=to_cron(days, postcall_time), timezone=tz)
 
 
 def remove(db: Any, ids: list[str]) -> None:

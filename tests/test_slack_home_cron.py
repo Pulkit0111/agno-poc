@@ -43,6 +43,12 @@ def test_cron_to_friendly_falls_back_on_nonstandard():
     assert cron.cron_to_friendly("*/5 * * * *") == "*/5 * * * *"
 
 
+def test_shift_time():
+    assert cron.shift_time("10:00", 120) == "08:00"
+    assert cron.shift_time("10:00", 60) == "09:00"
+    assert cron.shift_time("00:30", 60) == "23:30"  # wraps to the prior day
+
+
 def test_cron_time_12h():
     assert cron.cron_time_12h("55 9 * * 1-5") == "9:55 AM"
     assert cron.cron_time_12h("0 0 * * *") == "12:00 AM"

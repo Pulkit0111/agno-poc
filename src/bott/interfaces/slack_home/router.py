@@ -21,6 +21,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from slack_sdk import WebClient
 
 from bott.shared.observability.logging_setup import get_logger
+from bott.shared.persistence import standup
+from bott.skills.dsm import today_key
 
 from . import blocks, service
 from .engagements import engagement_shortlist
@@ -138,6 +140,12 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                     client.views_open(trigger_id=trigger_id, view=blocks.build_security_modal())
                 except Exception as e:  # noqa: BLE001
                     log.error("open security modal: %s", e)
+            elif cmd == "add_standup_update":
+                try:
+                    client.views_open(trigger_id=trigger_id,
+                                      view=blocks.build_standup_modal(action.get("value") or "", today_key()))
+                except Exception as e:  # noqa: BLE001
+                    log.error("open standup modal: %s", e)
             elif cmd == "run_now":
                 background_tasks.add_task(run_now, user_id, action.get("value"))
             elif cmd == "remove":
@@ -147,8 +155,16 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             return {"ok": True}
 
         if ptype == "view_submission":
-            cb = (payload.get("view") or {}).get("callback_id")
-            values = (payload.get("view") or {}).get("state", {}).get("values", {})
+            view = payload.get("view") or {}
+            cb = view.get("callback_id")
+            values = view.get("state", {}).get("values", {})
+            # A standup update isn't a schedule — store it, don't refresh the Home tab.
+            if cb == "submit_standup":
+                try:
+                    _submit_standup(view, payload.get("user") or {})
+                except Exception as e:  # noqa: BLE001
+                    log.error("standup submission failed: %s", e)
+                return Response(status_code=200)
             try:
                 if cb == "create_delivery":
                     _submit_delivery(db, values)
@@ -194,8 +210,26 @@ def _submit_security(db, values: dict) -> None:
 def _submit_dsm(db, values: dict) -> None:
     channel = _val(values, "channel").get("selected_channel")
     team = (_val(values, "team").get("value") or "").strip() or (f"team-{channel}" if channel else "team")
-    precall = _val(values, "precall").get("selected_time", "09:55")
-    postcall = _val(values, "postcall").get("selected_time", "10:30")
+    call_time = _val(values, "call_time").get("selected_time", "10:00")
+    open_off = int((_val(values, "open_offset").get("selected_option") or {}).get("value", "120"))
+    close_off = int((_val(values, "close_offset").get("selected_option") or {}).get("value", "60"))
+    postcall = _val(values, "postcall_time").get("selected_time", "10:30")
     days = (_val(values, "days").get("selected_option") or {}).get("value", "weekdays")
     if channel:
-        service.create_dsm(db, team, channel, precall, postcall, days)
+        service.create_dsm(db, team, channel, call_time, open_off, close_off, postcall, days)
+
+
+def _submit_standup(view: dict, user: dict) -> None:
+    import json
+
+    meta = json.loads(view.get("private_metadata") or "{}")
+    team, date = meta.get("team"), meta.get("date")
+    if not (team and date):
+        return
+    values = view.get("state", {}).get("values", {})
+    standup.add_response(
+        team, date, user.get("id", "unknown"),
+        _val(values, "yesterday").get("value") or "",
+        _val(values, "today").get("value") or "",
+        _val(values, "blockers").get("value") or "",
+    )

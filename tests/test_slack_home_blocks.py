@@ -90,11 +90,20 @@ def test_delivery_modal_loading_placeholder_opens_without_engagements():
 def test_dsm_modal_structure():
     view = blocks.build_dsm_modal()
     assert view["callback_id"] == "create_dsm"
-    block_ids = [b.get("block_id") for b in view["blocks"]]
-    assert block_ids == ["team", "channel", "precall", "postcall", "days"]
-    # Team is optional; the rest required.
-    team_block = next(b for b in view["blocks"] if b["block_id"] == "team")
+    input_ids = [b.get("block_id") for b in view["blocks"] if b["type"] == "input"]
+    assert input_ids == ["team", "channel", "call_time", "open_offset", "close_offset",
+                         "postcall_time", "days"]
+    team_block = next(b for b in view["blocks"] if b.get("block_id") == "team")
     assert team_block["optional"] is True
+
+
+def test_standup_modal_carries_team_and_date():
+    import json
+    view = blocks.build_standup_modal("core", "2026-06-18")
+    assert view["callback_id"] == "submit_standup"
+    assert json.loads(view["private_metadata"]) == {"team": "core", "date": "2026-06-18"}
+    ids = [b["block_id"] for b in view["blocks"] if b["type"] == "input"]
+    assert ids == ["yesterday", "today", "blockers"]
 
 
 def test_security_modal_structure():

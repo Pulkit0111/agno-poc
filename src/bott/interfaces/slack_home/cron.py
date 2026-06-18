@@ -65,6 +65,14 @@ def cron_time_12h(cron: str) -> str:
         return cron
 
 
+def shift_time(time_str: str, minus_minutes: int) -> str:
+    """'10:00' shifted back 120 min -> '08:00' (wraps within a day). Used to derive the
+    open/pre-read cron times from the standup call time minus a configurable offset."""
+    hh, mm = _parse_hhmm(time_str)
+    total = (hh * 60 + mm - int(minus_minutes)) % (24 * 60)
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
 def cron_to_friendly(cron: str) -> str:
     """'0 9 * * 1-5' -> 'Weekdays 9:00 AM'. Falls back to the raw cron if non-standard."""
     if (cron or "").strip() == _EVERY_MINUTE:

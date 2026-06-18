@@ -134,23 +134,14 @@ def create_security_digest(
     )
 
 
-def create_dsm_precall(
-    db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"
-):
-    """Pre-call: build a discussion-only standup agenda from async updates and post it."""
-    message = (
-        f"It's almost standup for team '{team_id}'. Read the recent async updates in this "
-        f"channel ({channel}) using your Slack tools, then build a DISCUSSION-ONLY agenda: "
-        "include only blockers, decisions needed, cross-person conflicts, or risks worth "
-        "discussing live — drop routine status. Keep it tight. Post the agenda to "
-        f"{channel}."
-    )
+def _dsm_schedule(db: Any, *, team_id: str, channel: str, cron: str, timezone: str,
+                  phase: str, message: str):
     return _mgr(db).create(
-        name=f"dsm-precall:{team_id}",
+        name=f"dsm-{phase}:{team_id}",
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
-        description=_display(kind="dsm", phase="pre", label=team_id, channel=channel),
+        description=_display(kind="dsm", phase=phase, label=team_id, channel=channel),
         payload={
             "message": message,
             "user_id": f"team:{team_id}",
@@ -160,28 +151,34 @@ def create_dsm_precall(
     )
 
 
-def create_dsm_postcall(
-    db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"
-):
-    """Post-call: consolidate notes and update the running picture (kept in the team's
-    session, so day-to-day context carries forward)."""
-    message = (
-        f"Standup for team '{team_id}' is done. Read the notes/updates in this channel "
-        f"({channel}), consolidate them into a short digest (themes, blockers with owners, "
-        "momentum, follow-ups), and compare against the running picture from previous days "
-        "(your session history) to flag recurring/stale blockers. Post the consolidation to "
-        f"{channel}."
+def create_dsm_open(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"):
+    """Open collection: post the channel message + 'Add my update' button (form-driven)."""
+    return _dsm_schedule(
+        db, team_id=team_id, channel=channel, cron=cron, timezone=timezone, phase="open",
+        message=(
+            f"It's standup-open time for team '{team_id}'. Call your open_standup tool with "
+            f"team='{team_id}' and channel='{channel}'. Do nothing else."
+        ),
     )
-    return _mgr(db).create(
-        name=f"dsm-postcall:{team_id}",
-        cron=cron,
-        endpoint=AGENT_RUN_ENDPOINT,
-        timezone=timezone,
-        description=_display(kind="dsm", phase="post", label=team_id, channel=channel),
-        payload={
-            "message": message,
-            "user_id": f"team:{team_id}",
-            "session_id": f"dsm:{team_id}",
-        },
-        if_exists="update",
+
+
+def create_dsm_preread(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"):
+    """Pre-read: close collection and post a summary of submissions in the thread."""
+    return _dsm_schedule(
+        db, team_id=team_id, channel=channel, cron=cron, timezone=timezone, phase="preread",
+        message=(
+            f"Standup collection is closing for team '{team_id}'. Call your close_standup tool "
+            f"with team='{team_id}' and channel='{channel}'. Do nothing else."
+        ),
+    )
+
+
+def create_dsm_callsummary(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"):
+    """Post-call: fetch what was discussed (Memra) and post it in the same thread."""
+    return _dsm_schedule(
+        db, team_id=team_id, channel=channel, cron=cron, timezone=timezone, phase="callsummary",
+        message=(
+            f"The '{team_id}' standup call is done. Call your post_call_summary tool with "
+            f"team='{team_id}' and channel='{channel}'. Do nothing else."
+        ),
     )

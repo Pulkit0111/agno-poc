@@ -49,8 +49,12 @@ def test_security_digest_scope_and_metadata(tmp_path):
     assert desc["kind"] == "security"
 
 
-def test_dsm_precall_and_postcall_share_team_session(tmp_path):
+def test_dsm_three_phases_share_team_session_and_call_tools(tmp_path):
     db = SqliteDb(db_file=str(tmp_path / "s.db"))
-    pre = scheduling.create_dsm_precall(db, team_id="core", channel="#core", cron="55 9 * * 1-5")
-    post = scheduling.create_dsm_postcall(db, team_id="core", channel="#core", cron="30 10 * * 1-5")
-    assert _payload(pre)["session_id"] == _payload(post)["session_id"] == "dsm:core"
+    o = scheduling.create_dsm_open(db, team_id="core", channel="#core", cron="0 8 * * 1-5")
+    p = scheduling.create_dsm_preread(db, team_id="core", channel="#core", cron="0 9 * * 1-5")
+    c = scheduling.create_dsm_callsummary(db, team_id="core", channel="#core", cron="30 10 * * 1-5")
+    assert _payload(o)["session_id"] == _payload(p)["session_id"] == _payload(c)["session_id"] == "dsm:core"
+    assert "open_standup" in _payload(o)["message"]
+    assert "close_standup" in _payload(p)["message"]
+    assert "post_call_summary" in _payload(c)["message"]
