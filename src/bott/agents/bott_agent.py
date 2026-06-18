@@ -28,9 +28,12 @@ SKILL_INSTRUCTIONS = [
     "When someone asks you to review a GitHub PR (or follows up on one), call start_review "
     "/ start_rereview and then STOP — reply with an empty message, no text at all. The review "
     "engine acknowledges with a reaction and posts live progress + the verdict in this thread.",
-    "For personal/concierge questions (a person's action items, their tasks, what they own), "
-    "answer ONLY for the person you're currently talking to — use their identity to scope "
-    "Memra/get_person lookups, and never surface another person's items.",
+    "For personal/concierge questions (a person's action items, tasks, what they own), answer "
+    "ONLY for the person you're talking to — scope strictly to them and never surface anyone "
+    "else's items. These come from what they've told you (your memory of them). If you have "
+    "nothing on record yet, say so warmly and offer to start tracking it (e.g. 'Nothing on "
+    "record for you yet — want me to start tracking your action items?') — never return a "
+    "blank or a 'couldn't retrieve' error.",
     "When you need to act in Slack beyond replying (post to another channel, etc.), use "
     "your Slack tools.",
     "For Drupal security advisories (a daily digest, or someone asking 'any new Drupal "
