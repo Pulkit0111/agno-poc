@@ -101,12 +101,14 @@ def main() -> None:
         log.warning("Slack interface NOT mounted — set SLACK_SIGNING_SECRET + SLACK_TOKEN.")
 
     # PR-review worker: runs the review engine for queued tasks (Slack mentions +
-    # GitHub webhook) and posts verdicts. Reuses the existing handler + Slack client.
-    from bott.interfaces import slack_app as _sa
+    # GitHub webhook) and posts verdicts. The handler lives in slack_app; the queue
+    # primitives come straight from the store.
+    from bott.interfaces.slack_app import handle_task
+    from bott.shared.persistence import store
 
-    _sa.init_db()
-    _sa.recover_orphans()
-    worker = _sa.Worker(_sa.handle_task)
+    store.init_db()
+    store.recover_orphans()
+    worker = store.Worker(handle_task)
     worker.start()
     log.info("PR-review worker started.")
 

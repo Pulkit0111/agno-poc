@@ -52,7 +52,9 @@ REVIEW_BUDGET = default_budget()
 
 _VERDICT_EMOJI = {"approve": "white_check_mark", "suggestions": "bulb", "issues": "no_entry"}
 
-app = App(token=os.environ["SLACK_BOT_TOKEN"])
+# A real token is needed only when actually posting (the live worker path); a placeholder
+# keeps the module importable for tests/tooling. Construction makes no network call.
+app = App(token=os.environ.get("SLACK_BOT_TOKEN") or "xoxb-not-configured")
 _bot_user_id: str | None = None
 
 
