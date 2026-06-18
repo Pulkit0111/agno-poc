@@ -203,18 +203,48 @@ def _as_text(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
 
+def _slack_link(url: str, title: str) -> str:
+    """A Slack mrkdwn link, with the label sanitized (| < > break link syntax)."""
+    label = (title or url).replace("|", "·").replace("<", "").replace(">", "")
+    return f"<{url}|{label[:80]}>"
+
+
+def _format_ask_context(result: Any, max_evidence: int = 6, cap: int = 320) -> str:
+    """Reshape ask_context into a compact, agent-friendly result: the confidence verdict
+    plus evidence snippets, each with a ready-to-use Slack-link citation. Keeps the model
+    from wading through raw chunk JSON and makes citing the original source trivial."""
+    if not isinstance(result, dict):
+        return _as_text(result)
+    out: dict[str, Any] = {"confidence": result.get("verdict", "unknown"), "evidence": []}
+    for e in (result.get("evidence") or [])[:max_evidence]:
+        cit = e.get("citation") or {}
+        url = cit.get("source_url")
+        title = cit.get("source_title") or url
+        item: dict[str, Any] = {"text": (e.get("text") or "")[:cap]}
+        if url:
+            item["source"] = _slack_link(url, title)
+        out["evidence"].append(item)
+    out["guidance"] = (
+        "Answer from the evidence and cite the `source` Slack links inline. If confidence is "
+        "'low' or 'insufficient_evidence', say it's your best read / that you don't have it — "
+        "don't assert it as fact."
+    )
+    return _as_text(out)
+
+
 def make_memra_tools(client: MemraClient) -> list[Callable]:
     """Plain callables the agent can use to read Axelerant context from Memra. Each
     returns a JSON/text string for the model. Read-only — no write tools exposed."""
 
     def memra_ask_context(question: str) -> str:
-        """Ask the Axelerant context layer a natural-language question and get a grounded,
-        cited answer (delivery status, action items, risks, who-owns-what).
+        """Ask the Axelerant context layer a natural-language question. Returns a confidence
+        level plus evidence snippets, each with a Slack-link `source` to the original.
+        Cite those source links in your reply, and reflect the confidence honestly.
 
         Args:
             question: The question to answer from internal context.
         """
-        return _as_text(client.ask_context(question))
+        return _format_ask_context(client.ask_context(question))
 
     def memra_engagements_at_risk() -> str:
         """List active engagements ranked by delivery risk, with weekly sentiment bands."""

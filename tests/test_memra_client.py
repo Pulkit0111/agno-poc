@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from bott.shared.context.memra import MemraClient, make_memra_tools
+from bott.shared.context.memra import MemraClient, _format_ask_context, make_memra_tools
 
 
 class _FakeResp:
@@ -57,3 +57,25 @@ def test_make_memra_tools_exposes_read_only_set(monkeypatch):
     names = {t.__name__ for t in make_memra_tools(c)}
     assert "memra_ask_context" in names and "memra_resolve_channel_entity" in names
     assert not any("propose_alias" in n for n in names)  # write tool not exposed
+
+
+def test_format_ask_context_surfaces_confidence_and_link_citations():
+    raw = {
+        "verdict": "low",
+        "evidence": [
+            {"text": "Tech Stack: Drupal, Acquia, Headless",
+             "citation": {"source_url": "https://app.hubspot.com/x/1",
+                          "source_title": "WRAP — Email"}},
+            {"text": "no citation here"},
+        ],
+    }
+    out = json.loads(_format_ask_context(raw))
+    assert out["confidence"] == "low"
+    assert out["evidence"][0]["source"] == "<https://app.hubspot.com/x/1|WRAP — Email>"
+    # Evidence without a source url just carries text (no source key).
+    assert "source" not in out["evidence"][1]
+    assert "confidence" in out["guidance"].lower() or "insufficient" in out["guidance"].lower()
+
+
+def test_format_ask_context_passthrough_for_non_dict():
+    assert _format_ask_context("plain string") == "plain string"
