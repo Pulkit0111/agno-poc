@@ -131,15 +131,15 @@ def render_slack_review(
             )
 
     sorted_findings = sorted(output.line_comments, key=lambda c: SEVERITY_RANK[c.severity])
-    top = sorted_findings[:3]
+    top = sorted_findings[:5]
     if top:
         bullets = "\n".join(
             f"{i + 1}. {SEVERITY_EMOJI[lc.severity]} `{lc.path}:{lc.line}` — {to_mrkdwn(_one_line(lc.body))}"
             for i, lc in enumerate(top)
         )
         blocks.append(_section(bullets))
-        if len(sorted_findings) > 3:
-            blocks.append(_context(f"+{len(sorted_findings) - 3} more on GitHub"))
+        if len(sorted_findings) > 5:
+            blocks.append(_context(f"+{len(sorted_findings) - 5} more on GitHub"))
 
     evidence = _summarize_tool_calls(tool_calls)
     if evidence:

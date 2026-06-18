@@ -239,6 +239,19 @@ def model_api_key() -> str | None:
     return os.getenv("REVIEW_MODEL_API_KEY") or os.getenv("OPENAI_API_KEY") or None
 
 
+def review_temperature() -> float | None:
+    """Optional sampling temperature for the reviewer, for reproducible verdicts. Unset by
+    default — gpt-5 reasoning models (the Codex-proxy default) reject temperature != 1, so we
+    only pass it when explicitly configured (e.g. on a model that supports temperature=0)."""
+    v = os.getenv("REVIEW_TEMPERATURE")
+    if v is None or v.strip() == "":
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+
 def manager_model() -> str:
     """Model for the conversational manager (chat + routing). A fast/cheap model is plenty
     here — the heavy review runs separately on REVIEW_MODEL. Falls back to the review model

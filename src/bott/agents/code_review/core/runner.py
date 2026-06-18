@@ -12,7 +12,14 @@ from typing import Callable, Optional
 
 from agno.agent import Agent
 
-from bott.shared.config import DEFAULT_MODEL, Budget, calculate_cost, model_api_key, model_base_url
+from bott.shared.config import (
+    DEFAULT_MODEL,
+    Budget,
+    calculate_cost,
+    model_api_key,
+    model_base_url,
+    review_temperature,
+)
 from bott.shared.model import build_model
 
 from ..agent.prompt import PROMPT_VERSION, build_system_prompt
@@ -73,6 +80,9 @@ def run_review_agent(
         model=build_model(
             model_id, base_url=model_base_url(), api_key=model_api_key(),
             retries=5, delay_between_retries=3,
+            # Optional reproducibility knob; only passed when explicitly set (gpt-5 reasoning
+            # models reject temperature != 1, so default is to omit it entirely).
+            **({"temperature": review_temperature()} if review_temperature() is not None else {}),
         ),
         tools=[ReviewTools(clone_path, essentials)],
         system_message=system_prompt,

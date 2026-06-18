@@ -91,8 +91,10 @@ class ReviewOutput(BaseModel):
 
     verdict: Verdict = Field(description="Model-emitted verdict; the gate may adjust it.")
     summary: str = Field(
-        max_length=280,
-        description="≤280 chars: what the PR does + the headline finding (or 'looks good').",
+        max_length=600,
+        description="2-4 sentences: what the PR does, what was reviewed, and the key "
+        "observations incl. the headline finding (for an approve, what was checked and why "
+        "it's solid — never just 'looks good').",
     )
     line_comments: list[LineComment] = Field(
         default_factory=list,

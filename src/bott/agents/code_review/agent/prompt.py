@@ -185,7 +185,7 @@ A clean APPROVE on a non-trivial change with zero line_comments is a smell — i
 OUTPUT
 Produce a structured review with these fields:
   - verdict: "approve" | "suggestions" | "issues"
-  - summary: <= 280 chars; one-line description of what the PR does + the headline finding (or "looks good" for approve)
+  - summary: 2-4 sentences (<= 600 chars), written to be read in Slack. Cover: what the PR does, what you actually reviewed, and the key observations — including the headline finding. For an approve, say specifically what you checked and why it's solid; NEVER just "looks good". Plain English, no fluff.
   - line_comments: ONLY for problems, risks, or specific improvements that need to be made. Each entry IS a finding the author should address.
     DO NOT add line_comments to praise correct code or describe what the code does. If the code is fine, return an empty array.
     Every line_comment carries:
