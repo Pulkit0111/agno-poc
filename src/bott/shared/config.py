@@ -269,3 +269,66 @@ def manager_base_url() -> str | None:
 def manager_api_key() -> str | None:
     """Key for the manager endpoint: an explicit override, else the standard OpenAI key."""
     return os.getenv("MANAGER_MODEL_API_KEY") or os.getenv("OPENAI_API_KEY") or None
+
+
+# --- Jira (live sprint data for the sprint-report skill) ------------------------
+def jira_base_url() -> str | None:
+    """Jira Cloud site, e.g. https://axelerant.atlassian.net (no trailing slash)."""
+    v = os.getenv("JIRA_BASE_URL")
+    return v.rstrip("/") if v else None
+
+
+def jira_email() -> str | None:
+    """Account email for Jira Cloud basic auth (paired with an API token)."""
+    return os.getenv("JIRA_EMAIL") or None
+
+
+def jira_api_token() -> str | None:
+    return os.getenv("JIRA_API_TOKEN") or None
+
+
+def jira_configured() -> bool:
+    return bool(jira_base_url() and jira_email() and jira_api_token())
+
+
+def jira_story_points_field() -> str | None:
+    """Jira Cloud has ONE story-points custom field site-wide. Pin it here to skip
+    auto-detection (e.g. JIRA_STORY_POINTS_FIELD=customfield_10016); when unset, the
+    client detects it once from Jira's field catalogue."""
+    return os.getenv("JIRA_STORY_POINTS_FIELD") or None
+
+
+# --- Spin (publishing the rendered report as a hosted static page) --------------
+def spin_api_base_url() -> str | None:
+    v = os.getenv("SPIN_API_BASE_URL")
+    return v.rstrip("/") if v else None
+
+
+def spin_api_token() -> str | None:
+    return os.getenv("SPIN_API_TOKEN") or None
+
+
+def spin_group() -> str | None:
+    """Group slug new Spin projects land in."""
+    return os.getenv("SPIN_GROUP") or None
+
+
+def spin_configured() -> bool:
+    """True when headless Spin publishing is possible; else the skill falls back to
+    posting the report to Slack for a human to publish."""
+    return bool(spin_api_base_url() and spin_api_token())
+
+
+# --- Sprint-report overrides (OPTIONAL) -----------------------------------------
+# Sprint reports work for ANY engagement with no config: Bott discovers the Jira board
+# by project key/name and derives the title/slug from the project. This dict is only for
+# the occasional engagement that wants a custom title, slug, or a pinned channel — keyed
+# by Jira project key (case-insensitive). Leave it empty to rely entirely on discovery.
+#
+#   "PADI": {"title": "PADI Digital Overhaul", "channel": "#padi"}
+#
+SPRINT_REPORT_OVERRIDES: dict[str, dict] = {}
+
+
+def sprint_report_override(project_key: str) -> dict:
+    return SPRINT_REPORT_OVERRIDES.get((project_key or "").strip().upper(), {})

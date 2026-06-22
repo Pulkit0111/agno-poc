@@ -16,6 +16,15 @@ from agno.scheduler.manager import ScheduleManager
 
 AGENT_RUN_ENDPOINT = "/agents/bott/runs"
 
+# Every schedule fires an HTTP call to the agent's own run endpoint. The Agno poller
+# starts inside FastAPI lifespan startup and immediately fires any *overdue* (catch-up)
+# schedule — e.g. a daily digest whose time passed while the server was down. That
+# firing can race uvicorn and hit the port before it's accepting connections, surfacing
+# as "All connection attempts failed". Retries absorb that boot race (and any transient
+# blip): attempt 1 may fail, a few seconds later the server is up and attempt 2 lands.
+_MAX_RETRIES = 3
+_RETRY_DELAY_SECONDS = 15
+
 
 def _mgr(db: Any) -> ScheduleManager:
     return ScheduleManager(db)
@@ -78,6 +87,8 @@ def create_delivery_synthesis(
             "user_id": f"engagement:{engagement_id}",
             "session_id": f"delivery:{engagement_id}",
         },
+        max_retries=_MAX_RETRIES,
+        retry_delay_seconds=_RETRY_DELAY_SECONDS,
         if_exists="update",
     )
 
@@ -98,6 +109,8 @@ def create_recurring_task(
             "user_id": user_id,
             "session_id": f"concierge:{user_id}",
         },
+        max_retries=_MAX_RETRIES,
+        retry_delay_seconds=_RETRY_DELAY_SECONDS,
         if_exists="update",
     )
 
@@ -130,8 +143,72 @@ def create_security_digest(
             "user_id": f"feed:{source}-sa",
             "session_id": f"security:{source}",
         },
+        max_retries=_MAX_RETRIES,
+        retry_delay_seconds=_RETRY_DELAY_SECONDS,
         if_exists="update",
     )
+
+
+def create_sprint_report(
+    db: Any,
+    *,
+    engagement: str,
+    cron: str,
+    timezone: str = "UTC",
+    channel: str = "",
+):
+    """Scheduled per-engagement sprint report: gather live Jira facts, synthesize the
+    narrative, render the designed HTML page, publish it (Spin, or a Slack draft fallback),
+    and post the link. ``engagement`` is a Jira project key (e.g. 'PADI'). The board is
+    discovered automatically. Channel defaults to Memra resolution; pass ``channel`` to pin it.
+    Scoped by engagement so the run is isolated like every other."""
+    key = engagement.upper()
+    channel_step = (
+        f"post it to channel '{channel}'"
+        if channel
+        else "resolve this engagement's Slack channel with your Memra tools and post the link there"
+    )
+    message = (
+        f"It's the scheduled sprint report for the '{key}' engagement. First call "
+        f"build_sprint_dossier with engagement='{key}' to get the live Jira facts. Then compose "
+        "the narrative (operational highlights, risks & blockers from the incomplete/carry-over "
+        "items, the next-sprint note, and the client actions — include the UAT/board link as a "
+        f"high-priority action) and call publish_sprint_report with engagement='{key}', your "
+        f"narrative_json, only_if_new=true, and the channel. To deliver it, {channel_step}. The "
+        "only_if_new flag means it will quietly skip if this sprint was already reported — that's "
+        "expected; just stop. Do not restate the metrics or story lists, and add no other commentary."
+    )
+    return _mgr(db).create(
+        name=f"sprint-report:{key}",
+        cron=cron,
+        endpoint=AGENT_RUN_ENDPOINT,
+        timezone=timezone,
+        description=_display(kind="sprint", label=key, channel=channel or None),
+        payload={
+            "message": message,
+            "user_id": f"engagement:{key}",
+            "session_id": f"sprint-report:{key}",
+        },
+        max_retries=_MAX_RETRIES,
+        retry_delay_seconds=_RETRY_DELAY_SECONDS,
+        if_exists="update",
+    )
+
+
+def schedule_sprint_reports_for_all(db: Any, *, cron: str, timezone: str = "UTC") -> list[str]:
+    """Roll the sprint report out to EVERY engagement in one go: discover all Jira boards and
+    create a per-engagement schedule for each (channel left to Memra resolution at run time).
+    Returns the project keys scheduled. New engagements get picked up on the next run of this."""
+    from bott.skills.sprint_report.tool import _jira
+
+    keys: list[str] = []
+    for board in _jira().list_boards():
+        key = (board.get("project_key") or "").strip()
+        if not key:
+            continue
+        create_sprint_report(db, engagement=key, cron=cron, timezone=timezone)
+        keys.append(key.upper())
+    return keys
 
 
 def _dsm_schedule(db: Any, *, team_id: str, channel: str, cron: str, timezone: str,
@@ -147,6 +224,8 @@ def _dsm_schedule(db: Any, *, team_id: str, channel: str, cron: str, timezone: s
             "user_id": f"team:{team_id}",
             "session_id": f"dsm:{team_id}",
         },
+        max_retries=_MAX_RETRIES,
+        retry_delay_seconds=_RETRY_DELAY_SECONDS,
         if_exists="update",
     )
 

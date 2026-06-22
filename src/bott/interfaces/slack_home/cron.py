@@ -14,6 +14,23 @@ from zoneinfo import ZoneInfo
 _FREQ_TO_DOW = {"daily": "*", "weekdays": "1-5", "weekly": "1"}
 # Reverse, for display.
 _DOW_TO_LABEL = {"*": "Daily", "1-5": "Weekdays", "1": "Weekly"}
+# Single cron weekday (0=Sun..6=Sat) -> plural label, for sprint-report schedules pinned
+# to the day a sprint ends.
+_WEEKDAY_LABEL = {0: "Sundays", 1: "Mondays", 2: "Tuesdays", 3: "Wednesdays",
+                  4: "Thursdays", 5: "Fridays", 6: "Saturdays"}
+
+
+def weekday_to_cron_dow(py_weekday: int) -> int:
+    """Python date.weekday() (Mon=0..Sun=6) -> cron day-of-week (Sun=0..Sat=6)."""
+    return (py_weekday + 1) % 7
+
+
+def to_cron_weekday(cron_dow: int, time_str: str) -> str:
+    """(5, '17:00') -> '0 17 * * 5' — a weekly schedule pinned to one weekday."""
+    hh, mm = _parse_hhmm(time_str)
+    if not 0 <= int(cron_dow) <= 6:
+        raise ValueError(f"cron weekday out of range: {cron_dow}")
+    return f"{mm} {hh} * * {int(cron_dow)}"
 
 # "Every minute" — a demo frequency so you can add a schedule and watch the poller
 # (15s tick) fire it within ~a minute, unattended. The time field is ignored.
@@ -85,7 +102,10 @@ def cron_to_friendly(cron: str) -> str:
         when = time_to_12h(f"{int(hh):02d}:{int(mm):02d}")
     except ValueError:
         return cron
-    return f"{_DOW_TO_LABEL.get(dow, dow)} {when}"
+    label = _DOW_TO_LABEL.get(dow)
+    if label is None and dow.isdigit():
+        label = _WEEKDAY_LABEL.get(int(dow) % 7, dow)
+    return f"{label or dow} {when}"
 
 
 def format_next_run(epoch: int | None, timezone: str = "UTC") -> str:

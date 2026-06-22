@@ -80,6 +80,7 @@ def build_home_view(rows: list[dict]) -> dict:
             "type": "actions",
             "elements": [
                 _btn("+ Add delivery digest", "add_delivery", "go", style="primary"),
+                _btn("+ Add sprint report", "add_sprint", "go"),
                 _btn("+ Add DSM schedule", "add_dsm", "go"),
                 _btn("+ Add security feed", "add_security", "go"),
             ],
@@ -195,6 +196,66 @@ def build_standup_modal(team: str, date: str) -> dict:
             _ml("yesterday", "Yesterday"),
             _ml("today", "Today"),
             _ml("blockers", "Blockers"),
+        ],
+    }
+
+
+def build_sprint_modal(
+    boards: list[tuple[str, str]],
+    *,
+    selected_key: str | None = None,
+    sprint_end_label: str | None = None,
+    channel: str | None = None,
+    time_initial: str = "17:00",
+    loading: bool = False,
+    empty_reason: str | None = None,
+) -> dict:
+    """Add-sprint-report form. ``boards`` is [(label, project_key)] discovered from Jira.
+
+    The engagement selector is a SECTION ACCESSORY (not an input block) so changing it
+    dispatches a block_action — the router then fetches that board's sprint end date and
+    re-renders this modal with `sprint_end_label` filled. The schedule's weekday is derived
+    from that sprint end date at submit; the user only picks the time."""
+    if boards:
+        opts = [{"text": {"type": "plain_text", "text": t[:75]}, "value": v[:75]} for t, v in boards]
+    elif loading:
+        opts = [{"text": {"type": "plain_text", "text": "⏳ Loading engagements…"}, "value": "none"}]
+    else:
+        opts = [{"text": {"type": "plain_text", "text": "(no engagements available)"}, "value": "none"}]
+
+    select: dict[str, Any] = {"type": "static_select", "action_id": "sprint_eng_selected",
+                              "placeholder": {"type": "plain_text", "text": "Pick an engagement"},
+                              "options": opts}
+    for o in opts:
+        if selected_key is not None and o["value"] == selected_key:
+            select["initial_option"] = o
+
+    note = (
+        f"⚠️ {empty_reason}" if (empty_reason and not boards)
+        else sprint_end_label or "_Pick an engagement to see its current sprint's end date._"
+    )
+
+    channel_el: dict[str, Any] = {"type": "channels_select", "action_id": "v",
+                                  "placeholder": {"type": "plain_text", "text": "Post the report to"}}
+    if channel and channel.startswith("C"):
+        channel_el["initial_channel"] = channel
+
+    return {
+        "type": "modal",
+        "callback_id": "create_sprint",
+        "title": {"type": "plain_text", "text": "Add sprint report"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "block_id": "engagement",
+             "text": {"type": "mrkdwn", "text": "*Engagement*"}, "accessory": select},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"🏁 {note}"}]},
+            _input("channel", "Post to channel", channel_el),
+            _input("time", "Time (on the sprint's end weekday)",
+                   {"type": "timepicker", "action_id": "v", "initial_time": time_initial}),
+            {"type": "context", "elements": [{"type": "mrkdwn",
+             "text": "Runs weekly on the sprint's end weekday, but only publishes when a sprint "
+                     "has newly closed — so different cadences won't double-post."}]},
         ],
     }
 

@@ -42,6 +42,7 @@ def list_rows(db: Any) -> list[dict]:
     schedules = ScheduleManager(db).list()
     deliveries: list[tuple[Any, dict]] = []
     security: list[tuple[Any, dict]] = []
+    sprints: list[tuple[Any, dict]] = []
     dsm: dict[str, dict[str, tuple[Any, dict]]] = {}
 
     for s in schedules:
@@ -49,11 +50,14 @@ def list_rows(db: Any) -> list[dict]:
         name = getattr(s, "name", "") or ""
         kind = d.get("kind") or ("delivery" if name.startswith("delivery-synthesis:") else
                                  "security" if name.startswith("security-digest:") else
+                                 "sprint" if name.startswith("sprint-report:") else
                                  "dsm" if name.startswith("dsm-") else "")
         if kind == "delivery":
             deliveries.append((s, d))
         elif kind == "security":
             security.append((s, d))
+        elif kind == "sprint":
+            sprints.append((s, d))
         elif kind == "dsm":
             team = d.get("label") or name.split(":", 1)[-1]
             phase = d.get("phase") or name.split(":", 1)[0].replace("dsm-", "")
@@ -84,6 +88,18 @@ def list_rows(db: Any) -> list[dict]:
             "remove_ids": [s.id],
         })
 
+    for s, d in sprints:
+        nxt = format_next_run(getattr(s, "next_run_at", None), getattr(s, "timezone", "UTC"))
+        when = cron_to_friendly(getattr(s, "cron_expr", ""))
+        rows.append({
+            "icon": "📊",
+            "label": d.get("label") or getattr(s, "name", "").split(":", 1)[-1],
+            "channel": d.get("channel") or "",  # blank => resolved via Memra at run time
+            "when": f"{when} · next {nxt}" if nxt else when,
+            "run_buttons": [{"text": "▶ Run now", "action_id": f"run_now:{s.id}", "value": s.id}],
+            "remove_ids": [s.id],
+        })
+
     for team, phases in dsm.items():
         when_parts, run_buttons, remove_ids, channel = [], [], [], ""
         for phase, label in (("open", "Open"), ("preread", "Pre-read"), ("callsummary", "Call summary")):
@@ -101,6 +117,60 @@ def list_rows(db: Any) -> list[dict]:
             "run_buttons": run_buttons, "remove_ids": remove_ids,
         })
     return rows
+
+
+def _parse_iso(value: str | None):
+    from datetime import datetime
+
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def sprint_end_info(engagement_key: str) -> dict | None:
+    """For the modal: the engagement's current (or latest) sprint end date, as a friendly
+    label plus the cron weekday to pin the schedule to. None if Jira can't resolve it."""
+    from .cron import weekday_to_cron_dow
+
+    try:
+        from bott.skills.sprint_report.tool import _jira
+
+        client = _jira()
+        board = client.find_board(engagement_key)
+        if board is None:
+            return None
+        sprint = client.active_sprint(board["id"]) or client.latest_closed_sprint(board["id"])
+        if not sprint:
+            return None
+    except Exception as e:  # noqa: BLE001 — modal must not break on a Jira hiccup
+        log.error("sprint_end_info failed for %s: %s", engagement_key, e)
+        return None
+
+    end = _parse_iso(sprint.get("end"))
+    if end is None:
+        return None
+    label = f"Current sprint ends {end.strftime('%a, %-d %b')}"
+    start = _parse_iso(sprint.get("start"))
+    if start:
+        weeks = max(1, round((end - start).days / 7))
+        label += f" · ~{weeks}-week cadence"
+    return {"label": label, "cron_dow": weekday_to_cron_dow(end.weekday())}
+
+
+def create_sprint_report_schedule(db: Any, engagement_key: str, channel: str, time_str: str) -> Any:
+    """Create the per-engagement sprint-report schedule, pinned to the sprint's end weekday
+    (falls back to Friday if Jira can't tell us) at the chosen time."""
+    from .cron import to_cron_weekday
+
+    info = sprint_end_info(engagement_key)
+    cron_dow = info["cron_dow"] if info else 5  # Friday default
+    return scheduling.create_sprint_report(
+        db, engagement=engagement_key, cron=to_cron_weekday(cron_dow, time_str),
+        timezone=default_timezone(), channel=channel,
+    )
 
 
 def create_delivery(db: Any, engagement_id: str, account: str, channel: str,

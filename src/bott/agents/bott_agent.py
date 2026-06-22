@@ -26,6 +26,7 @@ from bott.shared.model import build_model
 from bott.shared.persistence import store
 from bott.skills.advisories import security_tools
 from bott.skills.dsm import dsm_tools
+from bott.skills.sprint_report import sprint_report_tools
 
 
 def effective_manager_model() -> str:
@@ -50,6 +51,16 @@ SKILL_INSTRUCTIONS = [
     "For Drupal security advisories (a daily digest, or someone asking 'any new Drupal "
     "CVEs?'), use your drupal_security_advisories tool. When a scheduled run tells you to "
     "post the digest verbatim, post the tool's output exactly — don't rewrite it.",
+    "For a sprint/status report (someone asks for an engagement's sprint report, or a "
+    "scheduled run tells you to generate one): the engagement is named by its Jira project key "
+    "or name (e.g. 'PADI') — no setup needed, the board is discovered. FIRST call "
+    "build_sprint_dossier(engagement) for the live Jira facts, THEN compose the narrative "
+    "(highlights, risks & blockers, client actions, a next-sprint note) and call "
+    "publish_sprint_report(engagement, narrative_json, channel). Use list_sprint_report_engagements "
+    "if you need to find the right key. For the channel, resolve the engagement's Slack channel "
+    "with your Memra tools (or use the current channel when asked ad-hoc). Don't restate the "
+    "metrics or story lists — those render from Jira automatically. Report back the published URL "
+    "(or the draft status) and nothing else.",
     "Keep replies warm, concise, and specific. Never invent facts; if context is missing, "
     "say so.",
 ]
@@ -66,6 +77,7 @@ def build_bott_agent(db=None) -> Agent:
     tools.extend(review_tools())  # PR review (queue → durable worker runs + posts)
     tools.extend(security_tools())  # Drupal security advisories (digest + chat follow-ups)
     tools.extend(dsm_tools())  # DSM standup: open collection / pre-read / post-call summary
+    tools.extend(sprint_report_tools())  # Sprint report: live Jira → designed HTML → Spin
     if memra_configured():
         tools.extend(make_memra_tools(MemraClient()))
     slack_token = os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")

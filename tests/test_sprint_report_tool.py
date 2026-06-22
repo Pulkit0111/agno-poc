@@ -1,0 +1,145 @@
+"""Sprint-report tools: dynamic engagement resolution, narrative parsing, metric integrity."""
+
+from __future__ import annotations
+
+from bott.shared import config
+from bott.shared.integrations.spin import PublishResult
+from bott.skills.sprint_report import tool
+from bott.skills.sprint_report.render import Metrics, ReportMeta
+from bott.skills.sprint_report.tool import Dossier, Engagement
+
+
+def _eng():
+    # client is unused once _build_dossier is stubbed.
+    return Engagement(client=None, board_id=1, project_key="PADI",
+                      title="PADI Digital Overhaul", client_name="PADI", org="Axelerant",
+                      slug_tmpl="padi-sprint-{n}-report", board_url="https://board")
+
+
+def _dossier():
+    return Dossier(
+        meta=ReportMeta("PADI Digital Overhaul", "PADI", "Axelerant", "Sprint 1", "Sprint 2",
+                        "1 June – 12 June 2026"),
+        metrics=Metrics(13, 75, 61, 81, has_points=True),
+        done_issues=[{"summary": "Frontend scaffold"}],
+        next_issues=[{"summary": "JSON API", "tag": "spike"}],
+        incomplete=[{"summary": "Acquia perms", "status": "Blocked"}],
+        slug="padi-sprint-1-report", sprint_id=900,
+    )
+
+
+def test_dossier_requires_jira(monkeypatch):
+    monkeypatch.setattr(config, "jira_configured", lambda: False)
+    assert "Jira isn't configured" in tool.build_sprint_dossier("PADI")
+
+
+def test_unknown_engagement_lists_known(monkeypatch):
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    monkeypatch.setattr(tool, "_resolve_engagement", lambda q: None)
+    monkeypatch.setattr(tool, "_not_found", lambda q: f"Couldn't find a Jira board for '{q}'. Known projects: ACME, PADI.")
+    out = tool.build_sprint_dossier("nope")
+    assert "Couldn't find a Jira board for 'nope'" in out and "PADI" in out
+
+
+def test_build_dossier_text(monkeypatch):
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
+    monkeypatch.setattr(tool, "_build_dossier", lambda e: _dossier())
+    out = tool.build_sprint_dossier("PADI")
+    assert "13 stories delivered" in out and "velocity 81%" in out
+    assert "Frontend scaffold" in out and "JSON API" in out
+    assert "Acquia perms" in out  # risk candidate surfaced
+    assert "publish_sprint_report" in out and "Memra" in out  # next-step + channel guidance
+
+
+def test_publish_bad_json(monkeypatch):
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    assert "wasn't valid" in tool.publish_sprint_report("PADI", "{not json")
+
+
+def test_publish_renders_and_metrics_cannot_be_faked(monkeypatch):
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
+    monkeypatch.setattr(tool, "_build_dossier", lambda e: _dossier())
+    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
+
+    captured = {}
+
+    class FakePub:
+        def publish(self, slug, title, html, channel=""):
+            captured["html"] = html
+            captured["slug"] = slug
+            return PublishResult(mode="spin", url="https://x", detail="Published to Spin: https://x")
+
+    monkeypatch.setattr(tool, "get_publisher", lambda: FakePub())
+
+    narrative = '{"highlights": ["velocity was 999%"], "risks": [], "actions": [], "priorities_note": ""}'
+    detail = tool.publish_sprint_report("PADI", narrative)
+    assert "Published to Spin" in detail
+    assert captured["slug"] == "padi-sprint-1-report"
+    html = captured["html"]
+    assert '<div class="num">81%</div>' in html  # real Jira-derived velocity
+    assert '<div class="num">999%</div>' not in html  # agent text can't become a metric
+    assert "velocity was 999%" in html  # only appears as a highlight line
+
+
+def test_guard_skips_already_reported_sprint(monkeypatch):
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
+    monkeypatch.setattr(tool, "_build_dossier", lambda e: _dossier())  # sprint_id=900
+    monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: "900")  # already reported
+
+    published = {"called": False}
+
+    class Pub:
+        def publish(self, *a, **k):
+            published["called"] = True
+            return PublishResult("spin", "https://x", "ok")
+
+    monkeypatch.setattr(tool, "get_publisher", lambda: Pub())
+    out = tool.publish_sprint_report("PADI", "{}", only_if_new=True)
+    assert "Already reported" in out and published["called"] is False
+
+
+def test_guard_publishes_and_records_new_sprint(monkeypatch):
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
+    monkeypatch.setattr(tool, "_build_dossier", lambda e: _dossier())  # sprint_id=900
+    monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: "880")  # older sprint
+
+    saved = {}
+    monkeypatch.setattr(tool.store, "set_setting", lambda k, v, *a, **kw: saved.update({k: v}))
+
+    class Pub:
+        def publish(self, *a, **k):
+            return PublishResult("spin", "https://x", "Published to Spin: https://x")
+
+    monkeypatch.setattr(tool, "get_publisher", lambda: Pub())
+    out = tool.publish_sprint_report("PADI", "{}", only_if_new=True)
+    assert "Published to Spin" in out
+    assert saved.get("sprint_report_last:PADI") == "900"  # marker advanced
+
+
+def test_publish_falls_back_to_slack_on_spin_failure(monkeypatch):
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
+    monkeypatch.setattr(tool, "_build_dossier", lambda e: _dossier())
+    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
+
+    class Boom:
+        def publish(self, *a, **k):
+            raise RuntimeError("spin down")
+
+    monkeypatch.setattr(tool, "get_publisher", lambda: Boom())
+
+    calls = {}
+
+    def fake_fallback_publish(self, slug, title, html, channel=""):
+        calls["channel"] = channel
+        return PublishResult(mode="slack-draft", url=None, detail="Posted the report draft to #padi.")
+
+    monkeypatch.setattr(
+        "bott.shared.integrations.spin.SlackDraftPublisher.publish", fake_fallback_publish
+    )
+    detail = tool.publish_sprint_report("PADI", "{}", channel="#padi")
+    assert "draft" in detail and calls["channel"] == "#padi"

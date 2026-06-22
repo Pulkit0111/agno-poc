@@ -26,7 +26,7 @@ from bott.shared.persistence.store import enqueue
 from bott.skills.dsm import today_key
 
 from . import blocks, service
-from .engagements import engagement_shortlist
+from .engagements import engagement_shortlist, sprint_board_options_with_reason
 
 log = get_logger("bott.slack_home.router")
 
@@ -78,6 +78,34 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                                 view=blocks.build_delivery_modal(engagement_shortlist()))
         except Exception as e:  # noqa: BLE001
             log.error("fill delivery modal failed: %s", e)
+
+    def fill_sprint_modal(view_id: str) -> None:
+        """Swap the Jira board list into the already-open sprint-report modal (or show why
+        it's empty: not configured / unreachable / no boards)."""
+        try:
+            options, reason = sprint_board_options_with_reason()
+            client.views_update(view_id=view_id,
+                                view=blocks.build_sprint_modal(options, empty_reason=reason))
+        except Exception as e:  # noqa: BLE001
+            log.error("fill sprint modal failed: %s", e)
+
+    def show_sprint_end(view_id: str, key: str, channel: str | None, time_str: str) -> None:
+        """After the user picks an engagement, fetch its sprint end date from Jira and
+        re-render the modal with that date shown (preserving channel/time already entered)."""
+        try:
+            info = service.sprint_end_info(key)
+            options, _ = sprint_board_options_with_reason()
+            client.views_update(
+                view_id=view_id,
+                view=blocks.build_sprint_modal(
+                    options, selected_key=key,
+                    sprint_end_label=(info or {}).get("label")
+                    or "Couldn't read this engagement's sprint dates — will default to Fridays.",
+                    channel=channel, time_initial=time_str or "17:00",
+                ),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.error("show sprint end failed for %s: %s", key, e)
 
     async def forward_to_chat(body: bytes, headers) -> Response:
         port = os.getenv("BOTT_PORT", "7777")
@@ -141,6 +169,25 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                     client.views_open(trigger_id=trigger_id, view=blocks.build_security_modal())
                 except Exception as e:  # noqa: BLE001
                     log.error("open security modal: %s", e)
+            elif cmd == "add_sprint":
+                try:
+                    resp = client.views_open(trigger_id=trigger_id,
+                                             view=blocks.build_sprint_modal([], loading=True))
+                    view_id = (resp.get("view") or {}).get("id")
+                    if view_id:
+                        background_tasks.add_task(fill_sprint_modal, view_id)
+                except Exception as e:  # noqa: BLE001
+                    log.error("open sprint modal: %s", e)
+            elif cmd == "sprint_eng_selected":
+                # User picked an engagement — fetch its sprint end date and re-render the modal.
+                view = payload.get("view") or {}
+                view_id = view.get("id")
+                key = (action.get("selected_option") or {}).get("value")
+                vals = view.get("state", {}).get("values", {})
+                channel = (vals.get("channel") or {}).get("v", {}).get("selected_channel")
+                time_str = (vals.get("time") or {}).get("v", {}).get("selected_time") or "17:00"
+                if view_id and key and key != "none":
+                    background_tasks.add_task(show_sprint_end, view_id, key, channel, time_str)
             elif cmd == "add_standup_update":
                 try:
                     client.views_open(trigger_id=trigger_id,
@@ -175,17 +222,25 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                 except Exception as e:  # noqa: BLE001
                     log.error("standup submission failed: %s", e)
                 return Response(status_code=200)
-            try:
-                if cb == "create_delivery":
-                    _submit_delivery(db, values)
-                elif cb == "create_dsm":
-                    _submit_dsm(db, values)
-                elif cb == "create_security":
-                    _submit_security(db, values)
-            except Exception as e:  # noqa: BLE001
-                log.error("submission %s failed: %s", cb, e)
-            background_tasks.add_task(publish_home, user_id)
-            return Response(status_code=200)  # empty 200 closes the modal
+            # Create the schedule in the BACKGROUND, then refresh Home. Creating a sprint
+            # schedule hits Jira (board discovery), which can exceed Slack's ~3s view-submission
+            # window — doing it inline makes Slack show "trouble connecting" even on success.
+            def _do_submit(cb=cb, values=values, user_id=user_id):
+                try:
+                    if cb == "create_delivery":
+                        _submit_delivery(db, values)
+                    elif cb == "create_sprint":
+                        _submit_sprint(db, values)
+                    elif cb == "create_dsm":
+                        _submit_dsm(db, values)
+                    elif cb == "create_security":
+                        _submit_security(db, values)
+                except Exception as e:  # noqa: BLE001
+                    log.error("submission %s failed: %s", cb, e)
+                publish_home(user_id)
+
+            background_tasks.add_task(_do_submit)
+            return Response(status_code=200)  # empty 200 closes the modal immediately
 
         return {"ok": True}
 
@@ -207,6 +262,17 @@ def _submit_delivery(db, values: dict) -> None:
     time_str = _val(values, "time").get("selected_time", "09:00")
     if eng_id and eng_id != "none" and channel:
         service.create_delivery(db, eng_id, account, channel, frequency, time_str, band=band)
+
+
+def _submit_sprint(db, values: dict) -> None:
+    # The engagement select is a section accessory, so its value lives under its own
+    # action_id (not the generic "v").
+    selected = (values.get("engagement") or {}).get("sprint_eng_selected", {}).get("selected_option") or {}
+    key = selected.get("value")
+    channel = _val(values, "channel").get("selected_channel")
+    time_str = _val(values, "time").get("selected_time", "17:00")
+    if key and key != "none" and channel:
+        service.create_sprint_report_schedule(db, key, channel, time_str)
 
 
 def _submit_security(db, values: dict) -> None:
