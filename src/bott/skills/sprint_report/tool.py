@@ -200,26 +200,45 @@ def build_sprint_dossier(engagement: str) -> str:
         "",
         f"UAT / board link for client actions: {eng.board_url or '(none)'}",
         "",
-        f"NEXT: call publish_sprint_report(engagement='{eng.project_key}', narrative_json, channel) "
-        'where narrative_json is a JSON object: {"highlights": [str], "risks": [{"issue","impact",'
-        '"status":"resolved|monitored|inprogress"}], "actions": [{"title","desc","link"?,"owner"?,'
-        '"priority":"high|medium"}], "priorities_note": str}. Resolve the engagement\'s Slack '
-        "channel with your Memra tools and pass it as channel.",
+        "NEXT: compose a report tailored to THIS engagement and call "
+        f"publish_sprint_report(engagement='{eng.project_key}', report_json, channel). report_json "
+        'is {"sections": [blocks]}. Choose only the blocks that are meaningful here — order them '
+        "sensibly. Block types:\n"
+        '  - {"type":"table","title":"Delivered this sprint","source":"delivered_stories"}  '
+        '(Jira-filled; also "incomplete")\n'
+        '  - {"type":"cards","title":"Next sprint","source":"next_sprint_stories"}\n'
+        '  - {"type":"table","title":"Risks & blockers","columns":["Issue","Impact","Status"],'
+        '"rows":[["..","..",{"badge":"resolved"}]]}\n'
+        '  - {"type":"bullets","title":"Highlights","items":[".."]}\n'
+        '  - {"type":"actions","title":"Actions needed","items":[{"title":"..","desc":"..",'
+        '"link":"<board url>","priority":"high"}]}\n'
+        '  - {"type":"callout","text":".."}   - {"type":"prose","title":"..","paragraphs":[".."]}\n'
+        "The header metrics/title come from Jira automatically — don't repeat them. Resolve the "
+        "engagement's Slack channel with your Memra tools and pass it as channel.",
     ]
     return "\n".join(lines)
 
 
 def publish_sprint_report(
-    engagement: str, narrative_json: str, channel: str = "", only_if_new: bool = False
+    engagement: str, report_json: str, channel: str = "", only_if_new: bool = False
 ) -> str:
-    """Render the sprint report (live Jira metrics + your narrative) as a hosted HTML page and
-    publish it. ``engagement`` is a Jira project key or name. Metrics and story tables come
-    straight from Jira — only the narrative is yours.
+    """Render the sprint report as a hosted HTML page and publish it. ``engagement`` is a Jira
+    project key or name. The header metrics and any ``source``-backed tables come straight from
+    Jira (trustworthy); you compose the BODY as a dynamic list of blocks tailored to what's
+    meaningful for this engagement.
 
     Args:
         engagement: Jira project key or name (e.g. 'PADI').
-        narrative_json: JSON object with keys highlights[], risks[], actions[], priorities_note.
-            See build_sprint_dossier's output for the exact shape.
+        report_json: JSON object {"sections": [ block, ... ]}. Each block has a "type":
+          - {"type":"table","title":..,"source":"delivered_stories"|"incomplete"}  (Jira-filled)
+          - {"type":"table","title":..,"columns":[..],"rows":[[cell,..]]}  (cell may be
+            {"badge":"resolved|monitored|inprogress","text":".."} for a status pill)
+          - {"type":"cards","title":..,"source":"next_sprint_stories"}  or "items":[{"title","tag"?}]
+          - {"type":"bullets","title":..,"items":[".."]}
+          - {"type":"actions","title":..,"items":[{"title","desc","link"?,"owner"?,"priority":"high|medium"}]}
+          - {"type":"callout","text":".."}
+          - {"type":"prose","title":..,"paragraphs":[".."]}
+          Pick only the sections that are meaningful for this engagement's data.
         channel: Slack channel to post the published link (or draft) to. Resolve it for the
             engagement with your Memra tools when it isn't obvious from context.
         only_if_new: scheduled runs pass true — publish only if this sprint hasn't been reported
@@ -229,21 +248,13 @@ def publish_sprint_report(
         return "Jira isn't configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)."
 
     try:
-        data = json.loads(narrative_json) if narrative_json else {}
-        if not isinstance(data, dict):
-            raise ValueError("narrative_json must be a JSON object")
+        data = json.loads(report_json) if report_json else {}
+        sections = data.get("sections") if isinstance(data, dict) else data
+        if not isinstance(sections, list):
+            raise ValueError("expected an object with a 'sections' list")
     except (json.JSONDecodeError, ValueError) as e:
-        return (
-            f"narrative_json wasn't valid ({e}). Expected an object with keys: highlights[], "
-            "risks[], actions[], priorities_note."
-        )
-
-    narrative = render.Narrative(
-        highlights=list(data.get("highlights") or []),
-        risks=list(data.get("risks") or []),
-        actions=list(data.get("actions") or []),
-        priorities_note=str(data.get("priorities_note") or ""),
-    )
+        return (f"report_json wasn't valid ({e}). Expected {{'sections': [ {{'type': ...}}, ... ]}}; "
+                "see build_sprint_dossier for the block types.")
 
     try:
         eng = _resolve_engagement(engagement)
@@ -262,7 +273,9 @@ def publish_sprint_report(
     if only_if_new and store.get_setting(marker_key) == str(d.sprint_id):
         return f"Already reported {d.meta.sprint_label} for {eng.project_key}; skipping (no new sprint)."
 
-    html = render.render_html(d.meta, d.metrics, d.done_issues, d.next_issues, narrative)
+    sources = {"delivered_stories": d.done_issues, "next_sprint_stories": d.next_issues,
+               "incomplete": d.incomplete}
+    html = render.render_report(d.meta, d.metrics, sources, sections)
     title = f"{d.meta.title} — {d.meta.sprint_label} Report"
 
     publisher = get_publisher()

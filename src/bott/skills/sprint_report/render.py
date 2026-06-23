@@ -1,14 +1,16 @@
-"""Pure rendering for the sprint report — metrics computation + HTML assembly.
+"""Rendering for the sprint report — deterministic metrics + a dynamic, block-based body.
 
-No I/O: every function here takes plain data and returns strings, so it's fully
-unit-testable. All model-supplied narrative text is HTML-escaped before it touches the
-template (the renderer owns the markup; the agent only supplies words)."""
+The header (title, sprint, period, stat-cards) is rendered deterministically from Jira so
+the numbers are always trustworthy. The BODY is dynamic: the agent composes a list of
+*blocks* (chosen per engagement), and each block type has a polished, on-brand renderer
+here. The agent never writes HTML — it picks block types and supplies text/data, which is
+escaped and laid out by the design system. Pure (no I/O), so fully unit-testable."""
 
 from __future__ import annotations
 
 import html
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from bott.skills.sprint_report import template
@@ -34,35 +36,21 @@ class ReportMeta:
     period: str  # "1 June – 12 June 2026"
 
 
-@dataclass
-class Narrative:
-    """The agent-authored sections. Everything else on the page is deterministic."""
-
-    highlights: list[str] = field(default_factory=list)
-    risks: list[dict] = field(default_factory=list)  # {issue, impact, status}
-    actions: list[dict] = field(default_factory=list)  # {title, desc, link?, owner?, priority}
-    priorities_note: str = ""
-
-
 # ----------------------------------------------------------------------- pure utils
 def _esc(s: object) -> str:
     return html.escape(str(s or ""))
 
 
 def _num(x: float) -> str:
-    """Drop a trailing .0 so 61.0 -> '61' but 6.5 -> '6.5'."""
     return str(int(x)) if float(x).is_integer() else str(x)
 
 
 def sprint_number(name: str) -> int | None:
-    """Pull the trailing sprint number out of a Jira sprint name ('PADI Sprint 3' -> 3)."""
     m = re.search(r"(\d+)\s*$", name or "")
     return int(m.group(1)) if m else None
 
 
 def format_period(start_iso: str | None, end_iso: str | None) -> str:
-    """'2026-06-01T..' + '2026-06-12T..' -> '1 June – 12 June 2026'. Best-effort; returns
-    '' if dates are missing/unparseable."""
     def _d(iso: str | None) -> datetime | None:
         if not iso:
             return None
@@ -81,25 +69,16 @@ def format_period(start_iso: str | None, end_iso: str | None) -> str:
 
 
 def compute_metrics(issues: list[dict]) -> Metrics:
-    """Headline numbers from normalized Jira issues. 'Delivered' / 'achieved' use the
-    Jira *done* status category; planned points = all issues in the sprint."""
     planned = sum(float(i.get("points") or 0) for i in issues)
     achieved = sum(float(i.get("points") or 0) for i in issues if i.get("is_done"))
     delivered = sum(1 for i in issues if i.get("is_done"))
     has_points = any(i.get("has_points") for i in issues)
     velocity = round(achieved / planned * 100) if planned > 0 else None
-    return Metrics(
-        stories_delivered=delivered,
-        points_planned=planned,
-        points_achieved=achieved,
-        velocity_pct=velocity,
-        has_points=has_points,
-    )
+    return Metrics(delivered, planned, achieved, velocity, has_points)
 
 
-# ------------------------------------------------------------------ section builders
+# ------------------------------------------------------------------ header / chrome
 def _h1(title: str) -> str:
-    """First word plain, the rest accent-coloured (matches the reference header)."""
     parts = (title or "").split(" ", 1)
     if len(parts) == 1:
         return _esc(parts[0])
@@ -111,125 +90,25 @@ def _stat_card(num: str, label: str) -> str:
 
 
 def render_header(meta: ReportMeta, metrics: Metrics) -> str:
-    pts_planned = _num(metrics.points_planned) if metrics.has_points else "—"
-    pts_achieved = _num(metrics.points_achieved) if metrics.has_points else "—"
-    velocity = f"{metrics.velocity_pct}%" if metrics.velocity_pct is not None else "—"
-    cards = "".join([
-        _stat_card(str(metrics.stories_delivered), "Stories Delivered"),
-        _stat_card(pts_planned, "Story Points Planned"),
-        _stat_card(pts_achieved, "Story Points Achieved"),
-        _stat_card(velocity, "Target Velocity"),
-    ])
-    meta_line = f"{_esc(meta.org)} × {_esc(meta.client)} &nbsp;·&nbsp; {_esc(meta.sprint_label)} Period: {_esc(meta.period)}"
+    cards = [_stat_card(str(metrics.stories_delivered), "Stories Delivered")]
+    if metrics.has_points:
+        cards += [
+            _stat_card(_num(metrics.points_planned), "Story Points Planned"),
+            _stat_card(_num(metrics.points_achieved), "Story Points Achieved"),
+            _stat_card(f"{metrics.velocity_pct}%" if metrics.velocity_pct is not None else "—",
+                       "Target Velocity"),
+        ]
+    meta_line = (f"{_esc(meta.org)} × {_esc(meta.client)} &nbsp;·&nbsp; "
+                 f"{_esc(meta.sprint_label)} Period: {_esc(meta.period)}")
     return (
         '<div class="header"><div class="header-inner">'
         f'<div class="header-top"><div class="logo">{_esc(meta.org)}</div>'
         f'<div class="sprint-badge">{_esc(meta.sprint_label)} Report</div></div>'
         f"<h1>{_h1(meta.title)}</h1>"
         f'<div class="header-meta">{meta_line}</div>'
-        f'<div class="header-stats">{cards}</div>'
+        f'<div class="header-stats">{"".join(cards)}</div>'
         "</div></div>" + template.CURVE_DIVIDER
     )
-
-
-def _section(title: str, inner: str) -> str:
-    return (
-        f'<div class="section"><div class="section-label"><div class="dot"></div>'
-        f"<h2>{_esc(title)}</h2></div>{inner}</div>"
-    )
-
-
-def render_achievements(done_issues: list[dict], highlights: list[str]) -> str:
-    rows = "".join(
-        f"<tr><td>{n}</td><td>{_esc(i.get('summary'))}</td>"
-        f'<td><span class="done-badge">Done</span></td></tr>'
-        for n, i in enumerate(done_issues, 1)
-    ) or '<tr><td>—</td><td>No stories completed this sprint.</td><td></td></tr>'
-    table = (
-        '<div class="table-wrap"><table><thead><tr><th>#</th><th>Story</th><th>Status</th>'
-        f"</tr></thead><tbody>{rows}</tbody></table></div>"
-    )
-    hl = ""
-    if highlights:
-        items = "".join(f'<div class="highlight-item">{_esc(h)}</div>' for h in highlights)
-        hl = f'<div class="highlights" style="margin-top:16px;">{items}</div>'
-    return _section("Achievements This Sprint", table + hl)
-
-
-_RISK_STATUS = {
-    "resolved": ("status-resolved", "Resolved"),
-    "monitored": ("status-monitored", "Monitored"),
-    "inprogress": ("status-inprogress", "In Progress"),
-}
-
-
-def render_risks(risks: list[dict]) -> str:
-    if not risks:
-        return ""
-    rows = []
-    for n, r in enumerate(risks, 1):
-        cls, label = _RISK_STATUS.get(str(r.get("status", "")).lower().replace(" ", ""),
-                                      ("status-monitored", "Monitored"))
-        rows.append(
-            f"<tr><td>{n}</td>"
-            f'<td style="font-weight:600;color:#0D1B2A;font-size:13px;">{_esc(r.get("issue"))}</td>'
-            f'<td><span class="impact-text">{_esc(r.get("impact"))}</span></td>'
-            f'<td><span class="{cls}">{label}</span></td></tr>'
-        )
-    table = (
-        '<div class="table-wrap"><table><thead><tr><th>#</th><th>Issue</th><th>Impact</th>'
-        f"<th>Status</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
-    )
-    return _section("Risks & Blockers", table)
-
-
-def _story_tag(tag: str | None) -> str:
-    if tag == "spike":
-        return '<span class="story-type-spike">Spike</span> '
-    if tag == "poc":
-        return '<span class="story-type-poc">POC</span> '
-    return ""
-
-
-def render_priorities(next_issues: list[dict], label: str, note: str) -> str:
-    if not next_issues:
-        return ""
-    cards = "".join(
-        f'<div class="story-card"><div class="story-num">{n:02d}</div>'
-        f'<div class="story-title">{_story_tag(i.get("tag"))}{_esc(i.get("summary"))}</div></div>'
-        for n, i in enumerate(next_issues, 1)
-    )
-    grid = f'<div class="stories-grid">{cards}</div>'
-    callout = f'<div class="callout">{_esc(note)}</div>' if note else ""
-    return _section(f"{label} Priorities", grid + callout)
-
-
-def render_actions(actions: list[dict], client: str = "") -> str:
-    if not actions:
-        return ""
-    cards = []
-    for a in actions:
-        prio = "high" if str(a.get("priority", "")).lower() == "high" else "medium"
-        link = ""
-        url = str(a.get("link") or "")
-        if url.startswith("http://") or url.startswith("https://"):
-            link = f'<a class="action-link" href="{_esc(url)}" target="_blank">Open link →</a>'
-        owner = (
-            f'<span class="action-owner">{_esc(a.get("owner"))}</span>' if a.get("owner") else ""
-        )
-        prio_label = "High Priority" if prio == "high" else "Medium Priority"
-        cards.append(
-            f'<div class="action-card"><div class="priority-dot priority-{prio}"></div>'
-            f'<div class="action-content">'
-            f'<div class="action-title">{_esc(a.get("title"))}</div>'
-            f'<div class="action-desc">{_esc(a.get("desc"))}</div>'
-            f"{link}"
-            f'<div class="action-meta">{owner}'
-            f'<span class="priority-tag {prio}">{prio_label}</span></div>'
-            "</div></div>"
-        )
-    title = f"Actions Needed from {client}" if client else "Actions Needed"
-    return _section(title, f'<div class="actions-list">{"".join(cards)}</div>')
 
 
 def render_footer(meta: ReportMeta) -> str:
@@ -241,23 +120,123 @@ def render_footer(meta: ReportMeta) -> str:
     )
 
 
-def render_html(
-    meta: ReportMeta,
-    metrics: Metrics,
-    done_issues: list[dict],
-    next_issues: list[dict],
-    narrative: Narrative,
-) -> str:
-    """Assemble the full self-contained HTML page."""
-    body = "".join([
-        render_header(meta, metrics),
-        '<div class="main">',
-        render_achievements(done_issues, narrative.highlights),
-        render_risks(narrative.risks),
-        render_priorities(next_issues, meta.next_sprint_label, narrative.priorities_note),
-        render_actions(narrative.actions, meta.client),
-        "</div>",
-        render_footer(meta),
-    ])
+def _section(title: str | None, inner: str) -> str:
+    head = ""
+    if title:
+        head = (f'<div class="section-label"><div class="dot"></div>'
+                f"<h2>{_esc(title)}</h2></div>")
+    return f'<div class="section">{head}{inner}</div>'
+
+
+# ----------------------------------------------------------------- block renderers
+_STATUS = {
+    "resolved": ("status-resolved", "Resolved"), "monitored": ("status-monitored", "Monitored"),
+    "inprogress": ("status-inprogress", "In Progress"), "done": ("status-resolved", "Done"),
+}
+
+
+def _badge(tone: str, text: str | None = None) -> str:
+    cls, label = _STATUS.get((tone or "").lower().replace(" ", ""), ("status-monitored", tone or ""))
+    return f'<span class="{cls}">{_esc(text or label)}</span>'
+
+
+def _cell(value: object) -> str:
+    """A table cell: plain text, or a status badge for {"badge": tone} / {"tone","text"}."""
+    if isinstance(value, dict):
+        tone = value.get("badge") or value.get("tone") or value.get("status")
+        return _badge(str(tone), value.get("text"))
+    return _esc(value)
+
+
+def _stories_rows(issues: list[dict], done_badge: bool) -> str:
+    rows = []
+    for n, i in enumerate(issues, 1):
+        status = ('<span class="done-badge">Done</span>' if done_badge
+                  else _esc(i.get("status") or ""))
+        rows.append(f"<tr><td>{n}</td><td>{_esc(i.get('summary'))}</td><td>{status}</td></tr>")
+    return "".join(rows) or '<tr><td>—</td><td>None.</td><td></td></tr>'
+
+
+def _table_block(b: dict, sources: dict) -> str:
+    src = b.get("source")
+    if src in ("delivered_stories", "incomplete"):
+        head = "<tr><th>#</th><th>Story</th><th>Status</th></tr>"
+        body = _stories_rows(sources.get(src, []), done_badge=(src == "delivered_stories"))
+    else:
+        cols = b.get("columns") or []
+        head = "<tr>" + "".join(f"<th>{_esc(c)}</th>" for c in cols) + "</tr>"
+        body = "".join(
+            "<tr>" + "".join(f"<td>{_cell(c)}</td>" for c in row) + "</tr>"
+            for row in (b.get("rows") or [])
+        ) or '<tr><td>—</td></tr>'
+    table = f'<div class="table-wrap"><table><thead>{head}</thead><tbody>{body}</tbody></table></div>'
+    return _section(b.get("title"), table)
+
+
+def _cards_block(b: dict, sources: dict) -> str:
+    items = sources.get(b["source"]) if b.get("source") else (b.get("items") or [])
+    cards = []
+    for n, it in enumerate(items, 1):
+        summary = it.get("summary") if it.get("summary") is not None else it.get("title")
+        tag = it.get("tag")
+        tag_html = (f'<span class="story-type-{tag}">{tag.upper()}</span> '
+                    if tag in ("spike", "poc") else "")
+        cards.append(f'<div class="story-card"><div class="story-num">{n:02d}</div>'
+                     f'<div class="story-title">{tag_html}{_esc(summary)}</div></div>')
+    grid = f'<div class="stories-grid">{"".join(cards)}</div>' if cards else ""
+    return _section(b.get("title"), grid)
+
+
+def _bullets_block(b: dict, _sources: dict) -> str:
+    items = "".join(f'<div class="highlight-item">{_esc(x)}</div>' for x in (b.get("items") or []))
+    return _section(b.get("title"), f'<div class="highlights" style="margin-top:4px;">{items}</div>')
+
+
+def _actions_block(b: dict, _sources: dict) -> str:
+    cards = []
+    for a in b.get("items") or []:
+        prio = "high" if str(a.get("priority", "")).lower() == "high" else "medium"
+        url = str(a.get("link") or "")
+        link = (f'<a class="action-link" href="{_esc(url)}" target="_blank">Open link →</a>'
+                if url.startswith(("http://", "https://")) else "")
+        owner = f'<span class="action-owner">{_esc(a.get("owner"))}</span>' if a.get("owner") else ""
+        cards.append(
+            f'<div class="action-card"><div class="priority-dot priority-{prio}"></div>'
+            f'<div class="action-content"><div class="action-title">{_esc(a.get("title"))}</div>'
+            f'<div class="action-desc">{_esc(a.get("desc"))}</div>{link}'
+            f'<div class="action-meta">{owner}'
+            f'<span class="priority-tag {prio}">{"High" if prio == "high" else "Medium"} Priority</span>'
+            "</div></div></div>"
+        )
+    return _section(b.get("title"), f'<div class="actions-list">{"".join(cards)}</div>')
+
+
+def _callout_block(b: dict, _sources: dict) -> str:
+    return f'<div class="section"><div class="callout">{_esc(b.get("text"))}</div></div>'
+
+
+def _prose_block(b: dict, _sources: dict) -> str:
+    paras = b.get("paragraphs") or ([b["text"]] if b.get("text") else [])
+    body = "".join(f'<p class="impact-text" style="margin-bottom:10px;">{_esc(p)}</p>' for p in paras)
+    return _section(b.get("title"), body)
+
+
+_BLOCKS = {
+    "table": _table_block, "cards": _cards_block, "bullets": _bullets_block,
+    "actions": _actions_block, "callout": _callout_block, "prose": _prose_block,
+}
+
+
+def render_report(meta: ReportMeta, metrics: Metrics, sources: dict, sections: list[dict]) -> str:
+    """Assemble the page: deterministic header + dynamic agent blocks + footer. Unknown
+    block types are skipped (never a broken page)."""
+    body = [render_header(meta, metrics), '<div class="main">']
+    for b in sections or []:
+        if not isinstance(b, dict):
+            continue
+        fn = _BLOCKS.get(str(b.get("type", "")).lower())
+        if fn is not None:
+            body.append(fn(b, sources))
+    body += ["</div>", render_footer(meta)]
     title = f"{meta.title} — {meta.sprint_label} Report"
-    return template.page(title, body)
+    return template.page(title, "".join(body))

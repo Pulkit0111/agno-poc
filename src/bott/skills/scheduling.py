@@ -171,10 +171,11 @@ def create_sprint_report(
     message = (
         f"It's the scheduled sprint report for the '{key}' engagement. First call "
         f"build_sprint_dossier with engagement='{key}' to get the live Jira facts. Then compose "
-        "the narrative (operational highlights, risks & blockers from the incomplete/carry-over "
-        "items, the next-sprint note, and the client actions — include the UAT/board link as a "
-        f"high-priority action) and call publish_sprint_report with engagement='{key}', your "
-        f"narrative_json, only_if_new=true, and the channel. To deliver it, {channel_step}. The "
+        "a report tailored to this engagement (pick meaningful blocks: delivered/next-sprint "
+        "tables, risks & blockers from the incomplete/carry-over items, highlights, and client "
+        "actions including the UAT/board link) and call publish_sprint_report with "
+        f"engagement='{key}', your report_json, only_if_new=true, and the channel. To deliver it, "
+        f"{channel_step}. The "
         "only_if_new flag means it will quietly skip if this sprint was already reported — that's "
         "expected; just stop. Do not restate the metrics or story lists, and add no other commentary."
     )

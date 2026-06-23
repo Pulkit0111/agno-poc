@@ -73,14 +73,15 @@ def test_publish_renders_and_metrics_cannot_be_faked(monkeypatch):
 
     monkeypatch.setattr(tool, "get_publisher", lambda: FakePub())
 
-    narrative = '{"highlights": ["velocity was 999%"], "risks": [], "actions": [], "priorities_note": ""}'
-    detail = tool.publish_sprint_report("PADI", narrative)
+    # The agent tries to assert a bogus velocity in a bullet — it must NOT become a stat-card.
+    report = '{"sections": [{"type": "bullets", "title": "Notes", "items": ["velocity was 999%"]}]}'
+    detail = tool.publish_sprint_report("PADI", report)
     assert "Published to Spin" in detail
     assert captured["slug"] == "padi-sprint-1-report"
     html = captured["html"]
     assert '<div class="num">81%</div>' in html  # real Jira-derived velocity
     assert '<div class="num">999%</div>' not in html  # agent text can't become a metric
-    assert "velocity was 999%" in html  # only appears as a highlight line
+    assert "velocity was 999%" in html  # only appears as a bullet line
 
 
 def test_guard_skips_already_reported_sprint(monkeypatch):
@@ -97,7 +98,7 @@ def test_guard_skips_already_reported_sprint(monkeypatch):
             return PublishResult("spin", "https://x", "ok")
 
     monkeypatch.setattr(tool, "get_publisher", lambda: Pub())
-    out = tool.publish_sprint_report("PADI", "{}", only_if_new=True)
+    out = tool.publish_sprint_report("PADI", '{"sections": []}', only_if_new=True)
     assert "Already reported" in out and published["called"] is False
 
 
@@ -115,7 +116,7 @@ def test_guard_publishes_and_records_new_sprint(monkeypatch):
             return PublishResult("spin", "https://x", "Published to Spin: https://x")
 
     monkeypatch.setattr(tool, "get_publisher", lambda: Pub())
-    out = tool.publish_sprint_report("PADI", "{}", only_if_new=True)
+    out = tool.publish_sprint_report("PADI", '{"sections": []}', only_if_new=True)
     assert "Published to Spin" in out
     assert saved.get("sprint_report_last:PADI") == "900"  # marker advanced
 
@@ -141,5 +142,5 @@ def test_publish_falls_back_to_slack_on_spin_failure(monkeypatch):
     monkeypatch.setattr(
         "bott.shared.integrations.spin.SlackDraftPublisher.publish", fake_fallback_publish
     )
-    detail = tool.publish_sprint_report("PADI", "{}", channel="#padi")
+    detail = tool.publish_sprint_report("PADI", '{"sections": []}', channel="#padi")
     assert "draft" in detail and calls["channel"] == "#padi"
