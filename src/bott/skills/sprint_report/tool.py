@@ -90,7 +90,9 @@ def _resolve_engagement(query: str) -> Engagement | None:
         title=ov.get("title", client_name),
         client_name=client_name,
         org=ov.get("org", "Axelerant"),
-        slug_tmpl=ov.get("slug", f"{key.lower()}-sprint-{{n}}-report"),
+        # Spin subdomains are GLOBALLY unique — namespace under "bott-" so we don't collide
+        # with reports others have published (e.g. the original padi-sprint-1-report).
+        slug_tmpl=ov.get("slug", f"bott-{key.lower()}-sprint-{{n}}-report"),
         board_url=ov.get("uat_board_url") or _board_url(client.base_url, board),
     )
 

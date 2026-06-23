@@ -299,24 +299,25 @@ def jira_story_points_field() -> str | None:
 
 
 # --- Spin (publishing the rendered report as a hosted static page) --------------
-def spin_api_base_url() -> str | None:
-    v = os.getenv("SPIN_API_BASE_URL")
-    return v.rstrip("/") if v else None
+# Spin's headless path is the Platform API (Bearer key); the MCP endpoint is OAuth-only.
+# A public deploy is served at https://<subdomain>.<public-zone>/.
+def spin_api_base_url() -> str:
+    return (os.getenv("SPIN_API_BASE_URL") or "https://platform-api.spin.axelerant.tech").rstrip("/")
 
 
 def spin_api_token() -> str | None:
     return os.getenv("SPIN_API_TOKEN") or None
 
 
-def spin_group() -> str | None:
-    """Group slug new Spin projects land in."""
-    return os.getenv("SPIN_GROUP") or None
+def spin_public_zone() -> str:
+    """The zone public deploys are served on: <subdomain>.<zone>/."""
+    return os.getenv("SPIN_PUBLIC_ZONE", "public.spin.axelerant.tech")
 
 
 def spin_configured() -> bool:
-    """True when headless Spin publishing is possible; else the skill falls back to
-    posting the report to Slack for a human to publish."""
-    return bool(spin_api_base_url() and spin_api_token())
+    """True when headless Spin publishing is possible (a Platform API key is set); else the
+    skill falls back to posting the report to Slack."""
+    return bool(spin_api_token())
 
 
 # --- Sprint-report overrides (OPTIONAL) -----------------------------------------

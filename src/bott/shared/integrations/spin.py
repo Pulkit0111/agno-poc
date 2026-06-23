@@ -38,36 +38,59 @@ class Publisher(Protocol):
     def publish(self, slug: str, title: str, html: str, channel: str = "") -> PublishResult: ...
 
 
-class SpinStaticPublisher:
-    """Deploy ``index.html`` as a Spin static site and return its public URL.
+def _slugify(text: str) -> str:
+    """Spin subdomains must match [a-z0-9-], 2-32 chars."""
+    import re
 
-    PROVISIONAL endpoint contract (confirm with the platform team):
-      POST {base}/projects/{slug}/deploys
-        headers: Authorization: Bearer <token>
-        json: {group, public: true, files: {"index.html": <html>}}
-        -> {"url": "https://<slug>.public.spin.axelerant.tech/..."}
+    s = re.sub(r"[^a-z0-9-]+", "-", (text or "").lower()).strip("-")[:32].strip("-")
+    return s if len(s) >= 2 else f"{s}-report"[:32]
+
+
+class SpinStaticPublisher:
+    """Deploy ``index.html`` as a public Spin static site via the Platform API (Bearer key)
+    and return the public URL. Flow (verified against platform-api.spin.axelerant.tech):
+
+      GET  /v1/projects                      -> find an existing project by subdomain
+      POST /v1/projects                      -> create {project_name, subdomain, resource_type:"static", public:true}
+      POST /v1/projects/{id}/deploy          -> {"files": {"index.html": <base64>}}
+      public URL = https://<subdomain>.<public_zone>/
     """
 
-    def __init__(self, base_url: str, token: str, group: str | None = None, timeout: float = 30.0):
+    def __init__(self, base_url: str, token: str, public_zone: str, timeout: float = 45.0):
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self.group = group
+        self.public_zone = public_zone
         self.timeout = timeout
 
-    def publish(self, slug: str, title: str, html: str, channel: str = "") -> PublishResult:
-        payload: dict = {"public": True, "files": {"index.html": html}}
-        if self.group:
-            payload["group"] = self.group
-        r = httpx.post(
-            f"{self.base_url}/projects/{slug}/deploys",
-            json=payload,
-            headers={"Authorization": f"Bearer {self.token}"},
-            timeout=self.timeout,
+    def _req(self, method: str, path: str, json: dict | None = None) -> dict:
+        r = httpx.request(
+            method, f"{self.base_url}{path}", json=json, timeout=self.timeout,
+            headers={"Authorization": f"Bearer {self.token}", "Accept": "application/json"},
         )
         r.raise_for_status()
-        url = (r.json() or {}).get("url")
-        if not url:
-            raise RuntimeError(f"Spin deploy returned no url: {r.text[:200]}")
+        try:
+            return r.json() or {}
+        except ValueError:
+            return {}
+
+    def _ensure_project(self, subdomain: str, title: str) -> str:
+        for p in self._req("GET", "/v1/projects").get("projects") or []:
+            if p.get("subdomain") == subdomain:
+                return p["project_id"]
+        created = self._req("POST", "/v1/projects", {
+            "project_name": title[:60] or subdomain, "subdomain": subdomain,
+            "resource_type": "static", "public": True,
+        })
+        return created["project_id"]
+
+    def publish(self, slug: str, title: str, html: str, channel: str = "") -> PublishResult:
+        import base64
+
+        subdomain = _slugify(slug)
+        project_id = self._ensure_project(subdomain, title)
+        b64 = base64.b64encode(html.encode("utf-8")).decode("ascii")
+        self._req("POST", f"/v1/projects/{project_id}/deploy", {"files": {"index.html": b64}})
+        url = f"https://{subdomain}.{self.public_zone}/"
         return PublishResult(mode="spin", url=url, detail=f"Published to Spin: {url}")
 
 
@@ -120,12 +143,12 @@ class SlackDraftPublisher:
 
 
 def get_publisher() -> Publisher:
-    """Spin when headless publishing is configured, else the Slack draft fallback."""
+    """Spin when a Platform API key is configured, else the Slack draft fallback."""
     if config.spin_configured():
         return SpinStaticPublisher(
-            base_url=config.spin_api_base_url(),  # type: ignore[arg-type]
+            base_url=config.spin_api_base_url(),
             token=config.spin_api_token(),  # type: ignore[arg-type]
-            group=config.spin_group(),
+            public_zone=config.spin_public_zone(),
         )
     token = os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN") or ""
     return SlackDraftPublisher(token=token)
