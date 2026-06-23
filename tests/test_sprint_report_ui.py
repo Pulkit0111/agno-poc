@@ -61,6 +61,7 @@ class _FakeJira:
 def test_board_options(monkeypatch):
     from bott.interfaces.slack_home import engagements
     from bott.shared import config
+    monkeypatch.setattr(engagements, "_BOARDS_TTL", 0)  # disable cross-test cache
     monkeypatch.setattr(config, "jira_configured", lambda: True)
     monkeypatch.setattr(tool, "_jira", lambda: _FakeJira())
     opts = engagements.sprint_board_options()
@@ -72,6 +73,7 @@ def test_board_options_reason_distinguishes_causes(monkeypatch):
     """The empty state must say WHY (not the misleading 'no boards found')."""
     from bott.interfaces.slack_home import engagements
     from bott.shared import config
+    monkeypatch.setattr(engagements, "_BOARDS_TTL", 0)  # disable cache so each case recomputes
 
     # 1) not configured
     monkeypatch.setattr(config, "jira_configured", lambda: False)

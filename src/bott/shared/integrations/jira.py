@@ -146,18 +146,25 @@ class JiraClient:
         return min(scrum or boards, key=lambda b: b.get("id") or 0)
 
     def find_board(self, query: str) -> Optional[dict]:
-        """Resolve an engagement to its board by project key (exact, case-insensitive)
-        first, then by a substring match on board/project name. When a project has several
-        boards, the Scrum board wins — that's the one with sprints."""
-        q = (query or "").strip().lower()
-        boards = self.list_boards()
-        key_matches = [b for b in boards if b["project_key"].lower() == q]
+        """Resolve an engagement to its board. Fast path: a project-key-scoped query (one
+        request, a few boards) — avoids listing all ~hundreds of boards. Falls back to a
+        fuzzy name match across all boards only when the key doesn't resolve. When a project
+        has several boards, the Scrum board wins (it's the one with sprints)."""
+        q = (query or "").strip()
+        ql = q.lower()
+        # Fast path: filter boards to this project key directly.
+        try:
+            page = self._get("/rest/agile/1.0/board", {"projectKeyOrId": q, "maxResults": 50})
+            scoped = [normalize_board(b) for b in (page.get("values") or [])]
+        except httpx.HTTPStatusError:
+            scoped = []  # not a valid project key (400) — fall through to name search
+        key_matches = [b for b in scoped if b["project_key"].lower() == ql]
         if key_matches:
             return self._prefer_scrum(key_matches)
-        name_matches = [b for b in boards if q and (q in b["name"].lower() or q in b["project_name"].lower())]
-        if name_matches:
-            return self._prefer_scrum(name_matches)
-        return None
+        # Fallback: fuzzy name match across all boards (slower, only when key didn't resolve).
+        boards = self.list_boards()
+        name_matches = [b for b in boards if ql and (ql in b["name"].lower() or ql in b["project_name"].lower())]
+        return self._prefer_scrum(name_matches) if name_matches else None
 
     def detect_story_points_field(self) -> Optional[str]:
         """Find the story-points custom field id from Jira's field catalogue (site-wide)."""

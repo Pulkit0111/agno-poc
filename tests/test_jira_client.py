@@ -103,6 +103,29 @@ def test_sprints_tolerates_kanban_400(monkeypatch):
     assert client.active_sprint(583) is None
 
 
+def test_find_board_uses_scoped_query_not_full_list(monkeypatch):
+    """A key hit must resolve via the project-scoped query (one request) and NOT page through
+    every board — that full listing was timing out against a 373-board instance."""
+    client = JiraClient("https://j", "e@x", "tok")
+    calls = []
+
+    def fake_get(path, params=None):
+        calls.append((path, params or {}))
+        if (params or {}).get("projectKeyOrId") == "IRES":
+            return {"isLast": True, "values": [
+                {"id": 7, "name": "IRES board", "type": "kanban",
+                 "location": {"projectKey": "IRES", "projectName": "Ironman/Epic Series"}},
+                {"id": 9, "name": "IRES Scrum", "type": "scrum",
+                 "location": {"projectKey": "IRES", "projectName": "Ironman/Epic Series"}}]}
+        raise AssertionError(f"unexpected full-list call: {path} {params}")
+
+    monkeypatch.setattr(client, "_get", fake_get)
+    board = client.find_board("IRES")
+    assert board["id"] == 9  # scrum board
+    assert all(c[1].get("projectKeyOrId") == "IRES" for c in calls)  # only scoped calls
+    assert len(calls) == 1  # one request, not a paged full listing
+
+
 def test_detect_story_points_field(monkeypatch):
     client = JiraClient("https://j", "e@x", "tok")
     fields = [{"id": "summary", "name": "Summary"},

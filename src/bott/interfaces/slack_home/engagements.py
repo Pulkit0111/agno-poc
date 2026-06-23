@@ -42,15 +42,27 @@ def engagement_shortlist(limit: int = 20) -> list[dict]:
     return out
 
 
+# Listing every board is ~10s against a large Jira instance; cache it briefly so the
+# modal's open + on-select rebuild don't each pay that cost (which made views.update land
+# too late — "not_found"). Boards rarely change, so a short TTL is plenty.
+_BOARDS_CACHE: dict = {"opts": None, "reason": None, "at": 0.0}
+_BOARDS_TTL = 300.0
+
+
 def sprint_board_options_with_reason(limit: int = 50) -> tuple[list[tuple[str, str]], str | None]:
     """([(label, project_key)], reason). ``reason`` is None on success, else a human message
     explaining WHY the list is empty — so the modal never shows a misleading 'no boards found'
-    when the real cause is missing creds or an auth error."""
+    when the real cause is missing creds or an auth error. Cached briefly (TTL)."""
+    import time
+
     from bott.shared import config
 
     if not config.jira_configured():
         return [], ("Jira isn't configured. Set JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN "
                     "in .env and restart the app.")
+    now = time.time()
+    if _BOARDS_CACHE["opts"] and now - _BOARDS_CACHE["at"] < _BOARDS_TTL:
+        return _BOARDS_CACHE["opts"], None
     try:
         from bott.skills.sprint_report.tool import _jira
 
@@ -75,7 +87,9 @@ def sprint_board_options_with_reason(limit: int = 50) -> tuple[list[tuple[str, s
     if not opts:
         return [], ("Connected to Jira, but no Scrum boards are visible to this account. "
                     "Sprint reports need a Scrum board with sprints (Kanban boards have none).")
-    return opts[:limit], None
+    result = opts[:limit]
+    _BOARDS_CACHE.update(opts=result, reason=None, at=now)  # cache only successful, non-empty lists
+    return result, None
 
 
 def sprint_board_options(limit: int = 50) -> list[tuple[str, str]]:
