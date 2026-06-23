@@ -29,3 +29,4 @@ agent-ui/
 docs/
 agentos.db
 agentos.db-*
+.env.workspace-b
