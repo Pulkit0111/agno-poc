@@ -17,6 +17,18 @@ def test_is_ready_false_when_down():
     assert CodexProxyManager(port=59999).is_ready(timeout=1.0) is False
 
 
+def test_should_respawn_spares_alive_proxy_but_replaces_crashed():
+    # A crashed (exited) proxy is replaced quickly...
+    assert CodexProxyManager._should_respawn(2, proc_alive=False) is True
+    assert CodexProxyManager._should_respawn(1, proc_alive=False) is False
+    # ...but an alive-but-slow proxy is NOT nuked on a few missed health checks (the bug:
+    # a transient slow /v1/models used to kill a working proxy and cause real downtime).
+    assert CodexProxyManager._should_respawn(3, proc_alive=True) is False
+    assert CodexProxyManager._should_respawn(23, proc_alive=True) is False
+    # Only a long sustained unreachability (truly hung) forces a respawn.
+    assert CodexProxyManager._should_respawn(24, proc_alive=True) is True
+
+
 def test_start_errors_clearly_without_codex_login(monkeypatch):
     mgr = CodexProxyManager(port=59999)
     monkeypatch.setattr(mgr, "is_ready", lambda timeout=3.0: False)

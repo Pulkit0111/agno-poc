@@ -46,11 +46,23 @@ class CodexProxyManager:
     def base_url(self) -> str:
         return f"http://127.0.0.1:{self.port}/v1"
 
-    def is_ready(self, timeout: float = 3.0) -> bool:
+    def is_ready(self, timeout: float = 8.0) -> bool:
         try:
             return httpx.get(f"{self.base_url}/models", timeout=timeout).status_code == 200
         except httpx.HTTPError:
             return False
+
+    def _proc_alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    # Respawn thresholds (× the 5s health interval): a crashed process is replaced quickly;
+    # an alive-but-unreachable one is given a long window (transient slowness must not kill it).
+    CRASHED_THRESHOLD = 2  # ~10s
+    HUNG_THRESHOLD = 24    # ~2min
+
+    @classmethod
+    def _should_respawn(cls, misses: int, proc_alive: bool) -> bool:
+        return misses >= (cls.HUNG_THRESHOLD if proc_alive else cls.CRASHED_THRESHOLD)
 
     def _kill_port(self) -> None:
         """Kill any stale process holding the proxy port (so a respawn can bind)."""
@@ -96,16 +108,18 @@ class CodexProxyManager:
         self._arm_supervisor()
 
     def _arm_supervisor(self) -> None:
-        """Health-check loop: if the proxy is unreachable (crashed OR hung), respawn it.
-        Retries indefinitely with backoff — never gives up while the app is running.
+        """Health-check loop. Respawn ONLY when the proxy is genuinely gone — never kill a
+        proxy whose process is still alive just because a health check was slow.
 
-        Requires several CONSECUTIVE missed health checks before respawning, so a single
-        transient blip (a one-off `fetch failed`, a slow tick) doesn't needlessly kill a
-        working proxy and trigger a respawn storm."""
+        Two cases:
+          • The managed child process has EXITED (crashed) -> respawn after a few misses.
+          • The process is still alive but /v1/models isn't answering -> it's almost always
+            transient slowness (token refresh, a busy tick). Leave it running; only force a
+            respawn if it stays unreachable for a long sustained window (likely truly hung).
+        A slow tick used to nuke a working proxy and cold-start npx, creating the very
+        downtime that killed in-flight runs — this avoids that self-inflicted outage."""
         if self._watch is not None and self._watch.is_alive():
             return
-
-        fail_threshold = 3  # ~15s of consecutive failure (3 × 5s) before we act
 
         def loop() -> None:
             backoff = 2.0
@@ -116,11 +130,15 @@ class CodexProxyManager:
                     misses = 0
                     continue
                 misses += 1
-                if misses < fail_threshold:
-                    log.warning("Codex proxy health check missed (%d/%d) — not respawning yet.",
-                                misses, fail_threshold)
+                alive = self._proc_alive()
+                if not self._should_respawn(misses, alive):
+                    threshold = self.HUNG_THRESHOLD if alive else self.CRASHED_THRESHOLD
+                    log.warning("Codex proxy health check missed (%d/%d, process %s) — not "
+                                "respawning yet.", misses, threshold,
+                                "alive" if alive else "exited")
                     continue
-                log.warning("Codex proxy unreachable (%d consecutive misses) — respawning.", misses)
+                log.warning("Codex proxy %s after %d misses — respawning.",
+                            "hung" if alive else "exited", misses)
                 try:
                     self._spawn_and_wait(60)
                     misses = 0
