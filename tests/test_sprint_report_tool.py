@@ -121,6 +121,26 @@ def test_guard_publishes_and_records_new_sprint(monkeypatch):
     assert saved.get("sprint_report_last:PADI") == "900"  # marker advanced
 
 
+def test_failed_delivery_does_not_mark_sprint_reported(monkeypatch):
+    """A Slack-draft fallback (Spin not published) must NOT set the reported-marker, or a
+    one-off delivery failure would permanently suppress the report on later runs."""
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
+    monkeypatch.setattr(tool, "_build_dossier", lambda e: _dossier())
+
+    saved = {}
+    monkeypatch.setattr(tool.store, "get_setting", lambda *a, **k: None)
+    monkeypatch.setattr(tool.store, "set_setting", lambda k, v, *a, **kw: saved.update({k: v}))
+
+    class DraftPub:
+        def publish(self, *a, **k):
+            return PublishResult(mode="slack-draft", url=None, detail="Posted a draft.")
+
+    monkeypatch.setattr(tool, "get_publisher", lambda: DraftPub())
+    tool.publish_sprint_report("PADI", '{"sections": []}', channel="#padi")
+    assert saved == {}  # marker NOT set — a later run can retry
+
+
 def test_publish_falls_back_to_slack_on_spin_failure(monkeypatch):
     monkeypatch.setattr(config, "jira_configured", lambda: True)
     monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())

@@ -307,11 +307,14 @@ def publish_sprint_report(
         except Exception as e:  # noqa: BLE001 — the report is published; posting is best-effort
             log.warning("posted report but Slack link post failed: %s", e)
 
-    # Remember the sprint we just reported so a later scheduled run won't duplicate it.
-    try:
-        store.set_setting(marker_key, str(d.sprint_id))
-    except Exception as e:  # noqa: BLE001 — marker is best-effort
-        log.warning("couldn't record last-reported sprint for %s: %s", eng.project_key, e)
+    # Mark this sprint reported ONLY when it was genuinely published (a real Spin link) —
+    # a Slack-draft fallback or a failed delivery must NOT block a later retry, otherwise a
+    # one-off delivery failure permanently suppresses the report.
+    if result.mode == "spin" and result.url:
+        try:
+            store.set_setting(marker_key, str(d.sprint_id))
+        except Exception as e:  # noqa: BLE001 — marker is best-effort
+            log.warning("couldn't record last-reported sprint for %s: %s", eng.project_key, e)
 
     return result.detail
 
