@@ -81,6 +81,7 @@ def build_home_view(rows: list[dict]) -> dict:
             "elements": [
                 _btn("+ Add delivery digest", "add_delivery", "go", style="primary"),
                 _btn("+ Add sprint report", "add_sprint", "go"),
+                _btn("+ Add sentiment report", "add_sentiment", "go"),
                 _btn("+ Add DSM schedule", "add_dsm", "go"),
                 _btn("+ Add security feed", "add_security", "go"),
             ],
@@ -256,6 +257,29 @@ def build_sprint_modal(
             {"type": "context", "elements": [{"type": "mrkdwn",
              "text": "Runs weekly on the sprint's end weekday, but only publishes when a sprint "
                      "has newly closed — so different cadences won't double-post."}]},
+        ],
+    }
+
+
+def build_sentiment_modal(default_channel: str | None = None) -> dict:
+    """Add a scheduled portfolio sentiment / delivery-health digest — just a channel, how
+    often, and a time (it rolls up ALL engagements, so there's no engagement to pick)."""
+    channel_el: dict[str, Any] = {"type": "channels_select", "action_id": "v",
+                                  "placeholder": {"type": "plain_text", "text": "Post the digest to"}}
+    if default_channel and default_channel.startswith("C"):
+        channel_el["initial_channel"] = default_channel
+    return {
+        "type": "modal",
+        "callback_id": "create_sentiment",
+        "title": {"type": "plain_text", "text": "Add sentiment report"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn",
+             "text": "📈 Portfolio delivery-health digest — sentiment & risk across all engagements."}},
+            _input("channel", "Post to channel", channel_el),
+            _input("frequency", "How often", _static_select("v", _FREQ_OPTIONS, initial="weekly")),
+            _input("time", "Time", {"type": "timepicker", "action_id": "v", "initial_time": "09:00"}),
         ],
     }
 

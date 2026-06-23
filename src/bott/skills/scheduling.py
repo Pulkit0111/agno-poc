@@ -149,6 +149,46 @@ def create_security_digest(
     )
 
 
+def create_sentiment_report(db: Any, *, channel: str, cron: str, timezone: str = "UTC"):
+    """Scheduled portfolio sentiment / delivery-health digest: roll up every active
+    engagement's sentiment + risk from Memra and post a scannable Slack digest. Non-personal
+    'portfolio' scope (no single user's data), isolated like every other run."""
+    message = (
+        "It's the scheduled delivery-health check. Use your memra_engagements_at_risk tool to "
+        "pull every active engagement's risk band, this-week sentiment, and trend vs the prior "
+        "week, then write a tight, scannable PORTFOLIO digest using this exact shape, with the "
+        "emoji section headers as *bold* lines:\n\n"
+        "📈 *Delivery health — portfolio*\n"
+        "_<one-line headline: overall mood, e.g. 'Mostly steady; 3 accounts need attention'>_\n\n"
+        "*🔻 Declining this week*\n"
+        "• <account> — <high/medium/low> risk, sentiment down vs last week\n\n"
+        "*🔺 Improving*  (include only if there is any)\n"
+        "• <account> — sentiment up\n\n"
+        "*⚠️ Top at-risk*\n"
+        "• <account> — one-line why\n\n"
+        "Rules: refer to engagements by their ACCOUNT NAME, never ids/UUIDs. State risk in words "
+        "('high risk'), never a raw score. Plain English, one line each, and only include a "
+        "section if it has content. No raw URLs. "
+        f"Finally, post the finished digest to Slack channel {channel} using your Slack tools — "
+        "post only the digest, no extra commentary."
+    )
+    return _mgr(db).create(
+        name="sentiment-report:portfolio",
+        cron=cron,
+        endpoint=AGENT_RUN_ENDPOINT,
+        timezone=timezone,
+        description=_display(kind="sentiment", label="Delivery health (portfolio)", channel=channel),
+        payload={
+            "message": message,
+            "user_id": "portfolio:delivery-health",
+            "session_id": "sentiment-report",
+        },
+        max_retries=_MAX_RETRIES,
+        retry_delay_seconds=_RETRY_DELAY_SECONDS,
+        if_exists="update",
+    )
+
+
 def create_sprint_report(
     db: Any,
     *,

@@ -71,6 +71,19 @@ def test_sprint_report_pinned_channel(tmp_path):
     assert "#acme" in msg and "Memra" not in msg
 
 
+def test_sentiment_report_portfolio_scope_and_prompt(tmp_path):
+    db = SqliteDb(db_file=str(tmp_path / "s.db"))
+    sch = scheduling.create_sentiment_report(db, channel="#leads", cron="0 9 * * 1")
+    p = _payload(sch)
+    assert p["user_id"] == "portfolio:delivery-health"
+    assert p["session_id"] == "sentiment-report"
+    assert "memra_engagements_at_risk" in p["message"]  # portfolio sentiment source
+    assert "#leads" in p["message"]
+    assert getattr(sch, "name", "") == "sentiment-report:portfolio"
+    import json
+    assert json.loads(getattr(sch, "description", "{}"))["kind"] == "sentiment"
+
+
 def test_schedules_have_retries_to_absorb_boot_race(tmp_path):
     """The Agno poller fires overdue (catch-up) schedules during lifespan startup,
     which can race uvicorn and fail with 'All connection attempts failed'. Every
@@ -87,6 +100,7 @@ def test_schedules_have_retries_to_absorb_boot_race(tmp_path):
         ),
         scheduling.create_dsm_open(db, team_id="core", channel="#c", cron="0 8 * * 1-5"),
         scheduling.create_sprint_report(db, engagement="padi", cron="0 17 * * 5"),
+        scheduling.create_sentiment_report(db, channel="#leads", cron="0 9 * * 1"),
     ]
     for sch in made:
         assert getattr(sch, "max_retries", 0) >= 1, f"{sch.name} has no retries"
