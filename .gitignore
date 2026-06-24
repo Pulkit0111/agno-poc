@@ -9,6 +9,9 @@
 *.db-wal
 *.log
 
+# Agentic workspace (sandboxed scratch for file/terminal/code tools)
+.bott_workspace/
+
 # Python
 .venv/
 __pycache__/

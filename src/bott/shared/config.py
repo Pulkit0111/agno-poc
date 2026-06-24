@@ -333,3 +333,27 @@ SPRINT_REPORT_OVERRIDES: dict[str, dict] = {}
 
 def sprint_report_override(project_key: str) -> dict:
     return SPRINT_REPORT_OVERRIDES.get((project_key or "").strip().upper(), {})
+
+
+# --- Agentic skills layer (Hermes-style) ---------------------------------------
+import os.path as _osp
+
+_DEFAULT_SHELL_ALLOWLIST = ["ls", "cat", "echo", "pwd", "head", "tail", "grep", "find", "wc", "python", "python3"]
+
+
+def bott_skills_dir() -> str:
+    """Directory holding the SKILL.md library (Agent Skills standard). In-repo + tracked."""
+    return os.getenv("BOTT_SKILLS_DIR") or _osp.join(_osp.dirname(_osp.dirname(__file__)), "skills", "library")
+
+
+def bott_workspace_dir() -> str:
+    """Sandboxed scratch dir the file/terminal/code tools are fenced to. Gitignored."""
+    return os.getenv("BOTT_WORKSPACE_DIR", ".bott_workspace")
+
+
+def bott_shell_allowed_commands() -> list[str]:
+    """Allowlist for the workspace shell. Override via BOTT_SHELL_ALLOWED_COMMANDS (csv)."""
+    raw = os.getenv("BOTT_SHELL_ALLOWED_COMMANDS")
+    if raw:
+        return [c.strip() for c in raw.split(",") if c.strip()]
+    return list(_DEFAULT_SHELL_ALLOWLIST)
