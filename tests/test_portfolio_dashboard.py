@@ -159,6 +159,22 @@ def test_history_round_trip(monkeypatch):
     assert h[-1]["high"] == 3  # upserted in place
 
 
+# --- same-day publish cache -----------------------------------------------------
+def test_portfolio_reuses_url_same_day(monkeypatch):
+    import bott.skills.portfolio.tool as t
+    monkeypatch.setattr(t.config, "memra_configured", lambda: True)
+    # pretend we already published today
+    monkeypatch.setattr(t, "_today", lambda: "2026-06-24")
+    monkeypatch.setattr(t.store, "get_setting",
+                        lambda k, *a, **kw: '{"date": "2026-06-24", "url": "https://cached"}')
+    built = {"n": 0}
+    monkeypatch.setattr(t, "_build_html", lambda top_n: (built.__setitem__("n", built["n"] + 1), ("T", "<html>"))[1])
+    posted = {}
+    monkeypatch.setattr(t, "_post_link", lambda **k: posted.update(k))
+    out = t.publish_portfolio_dashboard(channel="C1", thread_ts="1.2", broadcast=True)
+    assert built["n"] == 0 and "https://cached" in out  # no rebuild, reused URL
+
+
 # --- scheduling -----------------------------------------------------------------
 def test_create_portfolio_dashboard_scope(tmp_path):
     from bott.skills import scheduling

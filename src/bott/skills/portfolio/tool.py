@@ -7,18 +7,44 @@ velocity from Jira (best-effort), render a dashboard, publish to Spin, post the 
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from typing import Callable
 
 from bott.shared import config
 from bott.shared.observability.logging_setup import get_logger
+from bott.shared.persistence import store
 from bott.skills.portfolio import aggregate, dashboard, history
 from bott.skills.sprint_report import render
 
 log = get_logger("bott.skills.portfolio")
 
 _SLUG = "bott-portfolio-risk-rollup"
+_CACHE_KEY = "portfolio_last_published"
+
+
+def _today() -> str:
+    """Return today's date in UTC as YYYY-MM-DD."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _post_link(channel: str, text: str, thread_ts: str, broadcast: bool) -> None:
+    """Post a Slack link message to the given channel (best-effort)."""
+    if not channel:
+        return
+    try:
+        from slack_sdk import WebClient
+
+        token = os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")
+        if token:
+            WebClient(token=token).chat_postMessage(
+                channel=channel, text=text,
+                thread_ts=thread_ts or None, reply_broadcast=broadcast,
+                unfurl_links=False, unfurl_media=False,
+            )
+    except Exception as e:  # noqa: BLE001 — link post is best-effort
+        log.warning("portfolio link post failed: %s", e)
 
 
 def _engagements() -> list[dict]:
@@ -156,6 +182,20 @@ def publish_portfolio_dashboard(
     """
     if not config.memra_configured():
         return "Memra isn't configured (set MEMRA_CLIENT_ID/SECRET) — the portfolio roll-up needs it."
+
+    # Same-day cache: if we already published today, reuse the URL without rebuilding.
+    try:
+        raw = store.get_setting(_CACHE_KEY)
+        if raw:
+            cached = json.loads(raw)
+            if cached.get("date") == _today() and cached.get("url"):
+                url = cached["url"]
+                _post_link(channel=channel, text=f"📊 *Portfolio Risk Roll-up* is ready: {url}",
+                           thread_ts=thread_ts, broadcast=broadcast)
+                return f"Portfolio dashboard already published today: {url}"
+    except Exception as e:  # noqa: BLE001 — cache read is best-effort; proceed to rebuild
+        log.warning("portfolio cache read failed, rebuilding: %s", e)
+
     try:
         title, html = _build_html(top_n)
     except LookupError as e:
@@ -179,19 +219,13 @@ def publish_portfolio_dashboard(
         except Exception as e2:  # noqa: BLE001
             return f"Built the dashboard but couldn't publish it ({e2})."
 
-    if result.mode == "spin" and result.url and channel:
+    if result.mode == "spin" and result.url:
         try:
-            from slack_sdk import WebClient
-
-            token = os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")
-            if token:
-                WebClient(token=token).chat_postMessage(
-                    channel=channel, text=f"📊 *{title}* is ready: {result.url}",
-                    thread_ts=thread_ts or None, reply_broadcast=broadcast,
-                    unfurl_links=False, unfurl_media=False,
-                )
-        except Exception as e:  # noqa: BLE001 — published; posting the link is best-effort
-            log.warning("published dashboard but link post failed: %s", e)
+            store.set_setting(_CACHE_KEY, json.dumps({"date": _today(), "url": result.url}))
+        except Exception as e:  # noqa: BLE001 — cache write is best-effort
+            log.warning("portfolio cache write failed: %s", e)
+        _post_link(channel=channel, text=f"📊 *{title}* is ready: {result.url}",
+                   thread_ts=thread_ts, broadcast=broadcast)
 
     return result.detail
 
