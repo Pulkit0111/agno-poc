@@ -82,6 +82,7 @@ def build_home_view(rows: list[dict]) -> dict:
                 _btn("+ Add delivery digest", "add_delivery", "go", style="primary"),
                 _btn("+ Add sprint report", "add_sprint", "go"),
                 _btn("+ Add sentiment report", "add_sentiment", "go"),
+                _btn("+ Add portfolio dashboard", "add_portfolio", "go"),
                 _btn("+ Add DSM schedule", "add_dsm", "go"),
                 _btn("+ Add security feed", "add_security", "go"),
             ],
@@ -278,6 +279,30 @@ def build_sentiment_modal(default_channel: str | None = None) -> dict:
             {"type": "section", "text": {"type": "mrkdwn",
              "text": "📈 Portfolio delivery-health digest — sentiment & risk across all engagements."}},
             _input("channel", "Post to channel", channel_el),
+            _input("frequency", "How often", _static_select("v", _FREQ_OPTIONS, initial="weekly")),
+            _input("time", "Time", {"type": "timepicker", "action_id": "v", "initial_time": "09:00"}),
+        ],
+    }
+
+
+def build_portfolio_modal(default_channel: str | None = None) -> dict:
+    """Add a scheduled leadership portfolio risk roll-up — channel, frequency, time. It rolls
+    up ALL engagements (Memra risk/sentiment + Jira velocity), so there's no engagement to pick."""
+    channel_el: dict[str, Any] = {"type": "channels_select", "action_id": "v",
+                                  "placeholder": {"type": "plain_text", "text": "Post the dashboard link to"}}
+    if default_channel and default_channel.startswith("C"):
+        channel_el["initial_channel"] = default_channel
+    return {
+        "type": "modal",
+        "callback_id": "create_portfolio",
+        "title": {"type": "plain_text", "text": "Add portfolio dashboard"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn",
+             "text": "🗂️ Leadership portfolio risk roll-up — risk & sentiment (Memra) + delivery "
+                     "velocity (Jira), published as a dashboard link."}},
+            _input("channel", "Post link to channel", channel_el),
             _input("frequency", "How often", _static_select("v", _FREQ_OPTIONS, initial="weekly")),
             _input("time", "Time", {"type": "timepicker", "action_id": "v", "initial_time": "09:00"}),
         ],

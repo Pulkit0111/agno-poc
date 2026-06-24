@@ -174,6 +174,11 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                     client.views_open(trigger_id=trigger_id, view=blocks.build_sentiment_modal())
                 except Exception as e:  # noqa: BLE001
                     log.error("open sentiment modal: %s", e)
+            elif cmd == "add_portfolio":
+                try:
+                    client.views_open(trigger_id=trigger_id, view=blocks.build_portfolio_modal())
+                except Exception as e:  # noqa: BLE001
+                    log.error("open portfolio modal: %s", e)
             elif cmd == "add_sprint":
                 try:
                     resp = client.views_open(trigger_id=trigger_id,
@@ -242,6 +247,8 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                         _submit_security(db, values)
                     elif cb == "create_sentiment":
                         _submit_sentiment(db, values)
+                    elif cb == "create_portfolio":
+                        _submit_portfolio(db, values)
                 except Exception as e:  # noqa: BLE001
                     log.error("submission %s failed: %s", cb, e)
                 publish_home(user_id)
@@ -296,6 +303,14 @@ def _submit_sentiment(db, values: dict) -> None:
     time_str = _val(values, "time").get("selected_time", "09:00")
     if channel:
         service.create_sentiment(db, channel, frequency, time_str)
+
+
+def _submit_portfolio(db, values: dict) -> None:
+    channel = _val(values, "channel").get("selected_channel")
+    frequency = (_val(values, "frequency").get("selected_option") or {}).get("value", "weekly")
+    time_str = _val(values, "time").get("selected_time", "09:00")
+    if channel:
+        service.create_portfolio(db, channel, frequency, time_str)
 
 
 def _submit_dsm(db, values: dict) -> None:

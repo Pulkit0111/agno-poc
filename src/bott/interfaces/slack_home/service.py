@@ -44,6 +44,7 @@ def list_rows(db: Any) -> list[dict]:
     security: list[tuple[Any, dict]] = []
     sprints: list[tuple[Any, dict]] = []
     sentiment: list[tuple[Any, dict]] = []
+    portfolio: list[tuple[Any, dict]] = []
     dsm: dict[str, dict[str, tuple[Any, dict]]] = {}
 
     for s in schedules:
@@ -53,6 +54,7 @@ def list_rows(db: Any) -> list[dict]:
                                  "security" if name.startswith("security-digest:") else
                                  "sprint" if name.startswith("sprint-report:") else
                                  "sentiment" if name.startswith("sentiment-report:") else
+                                 "portfolio" if name.startswith("portfolio-dashboard:") else
                                  "dsm" if name.startswith("dsm-") else "")
         if kind == "delivery":
             deliveries.append((s, d))
@@ -62,6 +64,8 @@ def list_rows(db: Any) -> list[dict]:
             sprints.append((s, d))
         elif kind == "sentiment":
             sentiment.append((s, d))
+        elif kind == "portfolio":
+            portfolio.append((s, d))
         elif kind == "dsm":
             team = d.get("label") or name.split(":", 1)[-1]
             phase = d.get("phase") or name.split(":", 1)[0].replace("dsm-", "")
@@ -110,6 +114,18 @@ def list_rows(db: Any) -> list[dict]:
         rows.append({
             "icon": "📈",
             "label": d.get("label") or "Delivery health (portfolio)",
+            "channel": d.get("channel") or "",
+            "when": f"{when} · next {nxt}" if nxt else when,
+            "run_buttons": [{"text": "▶ Run now", "action_id": f"run_now:{s.id}", "value": s.id}],
+            "remove_ids": [s.id],
+        })
+
+    for s, d in portfolio:
+        nxt = format_next_run(getattr(s, "next_run_at", None), getattr(s, "timezone", "UTC"))
+        when = cron_to_friendly(getattr(s, "cron_expr", ""))
+        rows.append({
+            "icon": "🗂️",
+            "label": d.get("label") or "Portfolio risk roll-up",
             "channel": d.get("channel") or "",
             "when": f"{when} · next {nxt}" if nxt else when,
             "run_buttons": [{"text": "▶ Run now", "action_id": f"run_now:{s.id}", "value": s.id}],
@@ -206,6 +222,12 @@ def create_security(db: Any, channel: str, frequency: str, time_str: str) -> Any
 
 def create_sentiment(db: Any, channel: str, frequency: str, time_str: str) -> Any:
     return scheduling.create_sentiment_report(
+        db, channel=channel, cron=to_cron(frequency, time_str), timezone=default_timezone(),
+    )
+
+
+def create_portfolio(db: Any, channel: str, frequency: str, time_str: str) -> Any:
+    return scheduling.create_portfolio_dashboard(
         db, channel=channel, cron=to_cron(frequency, time_str), timezone=default_timezone(),
     )
 

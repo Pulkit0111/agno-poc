@@ -101,6 +101,7 @@ def test_schedules_have_retries_to_absorb_boot_race(tmp_path):
         scheduling.create_dsm_open(db, team_id="core", channel="#c", cron="0 8 * * 1-5"),
         scheduling.create_sprint_report(db, engagement="padi", cron="0 17 * * 5"),
         scheduling.create_sentiment_report(db, channel="#leads", cron="0 9 * * 1"),
+        scheduling.create_portfolio_dashboard(db, channel="#leads", cron="0 9 * * 1"),
     ]
     for sch in made:
         assert getattr(sch, "max_retries", 0) >= 1, f"{sch.name} has no retries"
