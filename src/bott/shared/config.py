@@ -336,14 +336,12 @@ def sprint_report_override(project_key: str) -> dict:
 
 
 # --- Agentic skills layer (Hermes-style) ---------------------------------------
-import os.path as _osp
-
 _DEFAULT_SHELL_ALLOWLIST = ["ls", "cat", "echo", "pwd", "head", "tail", "grep", "find", "wc", "python", "python3"]
 
 
 def bott_skills_dir() -> str:
     """Directory holding the SKILL.md library (Agent Skills standard). In-repo + tracked."""
-    return os.getenv("BOTT_SKILLS_DIR") or _osp.join(_osp.dirname(_osp.dirname(__file__)), "skills", "library")
+    return os.getenv("BOTT_SKILLS_DIR") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "skills", "library")
 
 
 def bott_workspace_dir() -> str:
