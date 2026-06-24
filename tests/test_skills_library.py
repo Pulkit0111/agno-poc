@@ -12,3 +12,9 @@ def test_discovery_snippet_mentions_advisories():
     skills = bott_agent.build_skills()
     snippet = skills.get_system_prompt_snippet()
     assert "security-advisories" in snippet
+
+
+def test_all_six_skills_present():
+    skills = bott_agent.build_skills()
+    names = set(skills.get_skill_names())
+    assert {"pr-review", "dsm", "sprint-report", "portfolio", "concierge", "security-advisories"} <= names
