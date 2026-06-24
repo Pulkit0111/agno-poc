@@ -14,7 +14,6 @@ from pathlib import Path
 from agno.run import RunContext
 from agno.tools.coding import CodingTools
 from agno.tools.python import PythonTools
-from agno.tools.user_control_flow import UserControlFlowTools
 
 from bott.shared import config
 from bott.shared.observability.logging_setup import get_logger
@@ -92,7 +91,6 @@ def build_workspace_tools(db=None, skills=None) -> list:
             enable_ls=True,
         ),
         PythonTools(base_dir=Path(ws), restrict_to_base_dir=True),
-        UserControlFlowTools(),
     ]
     if db is not None:
         from agno.tools import tool

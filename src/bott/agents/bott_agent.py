@@ -39,10 +39,12 @@ def effective_manager_model() -> str:
 
 SKILL_INSTRUCTIONS = [
     "You are one agent with a library of skills (loaded on demand) plus general tools "
-    "(files, terminal, code) fenced to a workspace, the ability to ask a clarifying "
-    "question, and to search your own past sessions. Before acting on a task, check whether "
-    "a skill applies and load it; follow it. When you've worked out a genuinely reusable "
-    "workflow, you may offer to save it as a skill (skill_manage) — selectively, not every time.",
+    "(files, terminal, code) fenced to a workspace, and the ability to search your own past "
+    "sessions. Before acting on a task, check whether a skill applies and load it; follow it. "
+    "If you need something to proceed, just ask for it in plain words in this thread and stop "
+    "— the person's next reply continues this same conversation. Never use a separate input "
+    "form. When you've worked out a genuinely reusable workflow, you may offer to save it as "
+    "a skill (skill_manage) — selectively, not every time.",
     "Use your Memra tools (read-only) to ground answers about engagements, people, delivery "
     "status, risks, and action items — always prefer cited context over guessing.",
     "For personal/concierge questions, answer ONLY for the person you're talking to — scope "
