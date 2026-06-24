@@ -11,9 +11,11 @@ from __future__ import annotations
 import os
 
 from agno.agent import Agent
+from agno.skills import LocalSkills, Skills
 
 from bott.agents.code_review.member import review_tools
 from bott.agents.personality import IDENTITY, VOICE
+from bott.shared import config
 from bott.shared.config import (
     SETTING_MANAGER_MODEL,
     manager_api_key,
@@ -76,6 +78,11 @@ SKILL_INSTRUCTIONS = [
 ]
 
 
+def build_skills() -> Skills:
+    """The SKILL.md library (Agent Skills standard). Discovery + activation handled by Agno."""
+    return Skills(loaders=[LocalSkills(config.bott_skills_dir())])
+
+
 def build_bott_agent(db=None) -> Agent:
     model = build_model(
         effective_manager_model(),
@@ -97,6 +104,8 @@ def build_bott_agent(db=None) -> Agent:
 
         tools.append(SlackTools(token=slack_token))
 
+    skills = build_skills()
+
     return Agent(
         id="bott",
         name="Bott",
@@ -105,6 +114,7 @@ def build_bott_agent(db=None) -> Agent:
         description=IDENTITY,
         instructions=[VOICE, *SKILL_INSTRUCTIONS],
         tools=tools,
+        skills=skills,
         add_history_to_context=True,
         # Agentic memory (keyed by user_id): the agent stores/recalls memory only when it
         # decides to — so a trivial "Hi" runs no memory step and shows NO thinking pill,
