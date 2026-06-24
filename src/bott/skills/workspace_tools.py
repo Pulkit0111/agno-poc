@@ -79,7 +79,8 @@ def ensure_workspace() -> str:
 
 
 def build_workspace_tools(db=None, skills=None) -> list:
-    """The new agentic tools. `db` and `skills` are wired in Tasks 4 and 5."""
+    """The agentic tools (hands + clarify). `db` enables session_search; `skills`
+    enables skill_manage — each tool is appended only when its dependency is provided."""
     ws = ensure_workspace()
     tools: list = [
         CodingTools(
