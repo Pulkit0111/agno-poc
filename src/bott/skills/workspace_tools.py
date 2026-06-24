@@ -67,6 +67,9 @@ def _skill_manage_impl(skills, action: str, name: str, content: str = "") -> str
             skills.reload()
         except Exception as e:  # noqa: BLE001
             return f"Wrote the skill but reload failed ({e}); it'll load next restart."
+        if slug not in skills.get_skill_names():
+            return (f"Wrote '{slug}' but it didn't load — check the frontmatter "
+                    "(needs valid `name:` and `description:`).")
         return f"Saved skill '{slug}'. It's available now."
     return f"Unknown action '{action}' (use create, edit, or list)."
 
