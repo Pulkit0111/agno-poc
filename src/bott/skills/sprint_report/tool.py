@@ -222,7 +222,8 @@ def build_sprint_dossier(engagement: str) -> str:
 
 
 def publish_sprint_report(
-    engagement: str, report_json: str, channel: str = "", only_if_new: bool = False
+    engagement: str, report_json: str, channel: str = "",
+    thread_ts: str = "", broadcast: bool = False, only_if_new: bool = False
 ) -> str:
     """Render the sprint report as a hosted HTML page and publish it. ``engagement`` is a Jira
     project key or name. The header metrics and any ``source``-backed tables come straight from
@@ -243,6 +244,9 @@ def publish_sprint_report(
           Pick only the sections that are meaningful for this engagement's data.
         channel: Slack channel to post the published link (or draft) to. Resolve it for the
             engagement with your Memra tools when it isn't obvious from context.
+        thread_ts: when posting in reply to a chat request, the thread timestamp to reply in.
+        broadcast: with thread_ts, also surface the reply on the channel root
+            (Slack's "Also send to channel"). Use true for ad-hoc chat requests.
         only_if_new: scheduled runs pass true — publish only if this sprint hasn't been reported
             yet (skip duplicates). Leave false for ad-hoc requests so they always generate.
     """
@@ -302,6 +306,7 @@ def publish_sprint_report(
                 WebClient(token=token).chat_postMessage(
                     channel=channel,
                     text=f"📊 *{title}* is ready: {result.url}",
+                    thread_ts=thread_ts or None, reply_broadcast=broadcast,
                     unfurl_links=False, unfurl_media=False,
                 )
         except Exception as e:  # noqa: BLE001 — the report is published; posting is best-effort

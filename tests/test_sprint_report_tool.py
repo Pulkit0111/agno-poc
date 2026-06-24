@@ -141,6 +141,15 @@ def test_failed_delivery_does_not_mark_sprint_reported(monkeypatch):
     assert saved == {}  # marker NOT set — a later run can retry
 
 
+def test_sprint_report_posts_in_thread(monkeypatch):
+    import inspect
+
+    import bott.skills.sprint_report.tool as t
+
+    sig = inspect.signature(t.publish_sprint_report)
+    assert "thread_ts" in sig.parameters and "broadcast" in sig.parameters
+
+
 def test_publish_falls_back_to_slack_on_spin_failure(monkeypatch):
     monkeypatch.setattr(config, "jira_configured", lambda: True)
     monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
