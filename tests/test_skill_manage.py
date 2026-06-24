@@ -1,4 +1,3 @@
-# tests/test_skill_manage.py
 from bott.agents import bott_agent
 from bott.skills import workspace_tools
 

@@ -1,4 +1,3 @@
-# tests/test_skills_library.py
 from bott.agents import bott_agent
 
 
