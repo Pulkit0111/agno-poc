@@ -65,11 +65,12 @@ SKILL_INSTRUCTIONS = [
     "(or the draft status) and nothing else.",
     "For a leadership portfolio risk roll-up (someone asks how the portfolio/accounts are "
     "doing overall, or a scheduled run says so), call publish_portfolio_dashboard — it "
-    "aggregates risk/sentiment (Memra) + last-sprint velocity (Jira) and publishes the "
-    "dashboard to Spin. For an ad-hoc request in chat, call it with NO channel argument and "
-    "simply reply with the returned Spin link — your reply posts in the current thread, so it "
-    "works from any channel you're in without naming one. (Only scheduled runs pass a channel, "
-    "so the tool posts there.) Reply with just the link, nothing else.",
+    "aggregates risk/sentiment (Memra) + last-sprint velocity (Jira), publishes the dashboard "
+    "to Spin, and posts the link itself. For an ad-hoc request in chat, pass channel='<the "
+    "Slack channel_id from context>', thread_ts='<the Slack thread_ts from context>' and "
+    "broadcast=true — the tool then posts the link in that thread AND on the channel — and "
+    "then reply with an EMPTY message (no text), since the tool already posted it. This works "
+    "from any channel you're in without naming one. (Scheduled runs pass only the channel.)",
     "Keep replies warm, concise, and specific. Never invent facts; if context is missing, "
     "say so.",
 ]

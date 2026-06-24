@@ -98,13 +98,18 @@ def _build_html(top_n: int) -> tuple[str, str]:
     return "Portfolio Risk Roll-up", dashboard.render_portfolio_dashboard(pf, series, as_of)
 
 
-def publish_portfolio_dashboard(channel: str = "", top_n: int = 10) -> str:
+def publish_portfolio_dashboard(
+    channel: str = "", thread_ts: str = "", broadcast: bool = False, top_n: int = 10
+) -> str:
     """Build the leadership portfolio risk roll-up — per-engagement risk & sentiment (Memra)
     plus last-sprint delivery velocity (Jira) for the most at-risk — render it as a hosted
     dashboard, publish to Spin, and (if a channel is given) post the link.
 
     Args:
-        channel: Slack channel to post the dashboard link to.
+        channel: Slack channel id to post the dashboard link to.
+        thread_ts: when posting in reply to a chat request, the thread to reply in.
+        broadcast: with thread_ts, also surface the reply on the channel root
+            (Slack's "Also send to channel"). Use true for ad-hoc chat requests.
         top_n: how many of the most at-risk engagements to detail + enrich with Jira velocity.
     """
     if not config.memra_configured():
@@ -140,6 +145,7 @@ def publish_portfolio_dashboard(channel: str = "", top_n: int = 10) -> str:
             if token:
                 WebClient(token=token).chat_postMessage(
                     channel=channel, text=f"📊 *{title}* is ready: {result.url}",
+                    thread_ts=thread_ts or None, reply_broadcast=broadcast,
                     unfurl_links=False, unfurl_media=False,
                 )
         except Exception as e:  # noqa: BLE001 — published; posting the link is best-effort

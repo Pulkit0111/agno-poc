@@ -88,6 +88,28 @@ def test_publish_builds_dashboard_and_returns_link(monkeypatch):
     assert '"engagements"' in html and "Acme" in html and "Beta" in html  # embedded live data
 
 
+def test_publish_posts_in_thread_and_broadcasts(monkeypatch):
+    """Ad-hoc: the tool posts the link itself in the thread AND broadcasts to the channel
+    (Slack 'Also send to channel'), so it works from any channel without naming one."""
+    monkeypatch.setattr(config, "memra_configured", lambda: True)
+    monkeypatch.setattr(config, "jira_configured", lambda: False)
+    monkeypatch.setattr(tool, "_engagements", lambda: _ENGS)
+    monkeypatch.setattr(tool.history, "record_snapshot", lambda *a, **k: [])
+    monkeypatch.setattr(spin, "get_publisher",
+                        lambda: type("P", (), {"publish": lambda s, *a, **k: PublishResult(
+                            "spin", "https://x.public.spin.axelerant.tech/", "Published to Spin: …")})())
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-x")
+    posted = {}
+
+    import slack_sdk
+    monkeypatch.setattr(slack_sdk, "WebClient",
+                        lambda token=None: type("W", (), {"chat_postMessage": lambda s, **k: posted.update(k)})())
+    tool.publish_portfolio_dashboard(channel="C1", thread_ts="1782.45", broadcast=True)
+    assert posted["channel"] == "C1" and posted["thread_ts"] == "1782.45"
+    assert posted["reply_broadcast"] is True
+    assert "x.public.spin.axelerant.tech" in posted["text"]
+
+
 def test_history_round_trip(monkeypatch):
     from bott.shared.persistence import store
     from bott.skills.portfolio import history
