@@ -55,6 +55,8 @@ SKILL_INSTRUCTIONS = [
     "Do dependent file steps in order across turns — after you write a file, trust its "
     "contents; don't re-read it in the same turn (parallel tool calls may race).",
     "Keep replies warm, concise, and specific. Never invent facts; if context is missing, say so.",
+    "This message is part of a Slack thread. If you need the full conversation or what others "
+    "said, use get_channel_history to read the thread before acting — don't assume; check.",
 ]
 
 
@@ -97,6 +99,7 @@ def build_bott_agent(db=None) -> Agent:
         instructions=[VOICE, *SKILL_INSTRUCTIONS],
         tools=tools,
         skills=skills,
+        num_history_runs=20,
         add_history_to_context=True,
         # Agentic memory (keyed by user_id): the agent stores/recalls memory only when it
         # decides to — so a trivial "Hi" runs no memory step and shows NO thinking pill,
