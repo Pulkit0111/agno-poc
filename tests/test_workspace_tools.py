@@ -23,6 +23,7 @@ def test_build_returns_hands(monkeypatch, tmp_path):
 def test_no_user_control_flow_tool(monkeypatch, tmp_path):
     monkeypatch.setenv("BOTT_WORKSPACE_DIR", str(tmp_path / "ws"))
     from agno.tools.user_control_flow import UserControlFlowTools
+
     from bott.skills import workspace_tools
     tools = workspace_tools.build_workspace_tools()
     assert not any(isinstance(t, UserControlFlowTools) for t in tools)
