@@ -38,6 +38,8 @@ class PortfolioRow:
     velocity: str = "—"  # display string for the table (Jira last sprint, best-effort)
     vel_stories: int | None = None  # numeric, for the velocity chart
     vel_points: float | None = None
+    detail: str = ""  # "N engagements" sub-label when an account rolls up >1 engagement
+    children: list[dict] = field(default_factory=list)  # per-channel rows for the drill-down
 
 
 @dataclass
@@ -62,19 +64,48 @@ def is_improving(trend: float) -> bool:
 
 
 def summarize(engagements: list[dict]) -> Portfolio:
-    """Build the portfolio summary from raw engagements_at_risk rows, ranked at-risk-first."""
-    rows: list[PortfolioRow] = []
+    """Roll engagements up to ONE row per ACCOUNT (leadership view), ranked at-risk-first.
+
+    An account can have several engagements (each a Slack channel); we combine them
+    escalation-first: risk = the WORST engagement, sentiment = the WORST (lowest) channel,
+    trend = activity-weighted average (busier channels count more), plus a 'N engagements'
+    sub-label when >1."""
+    parsed: list[dict] = []
     for e in engagements or []:
         if not isinstance(e, dict):
             continue
-        band = str(_g(e, "risk_band", "band", default="") or "").lower()
+        parsed.append({
+            "engagement_id": str(_g(e, "engagement_id", "id", default="")),
+            "account": str(_g(e, "account", "name", "engagement_id", default="?")) or "?",
+            "band": str(_g(e, "risk_band", "band", default="") or "").lower() or "unknown",
+            "score": _num(e, "risk_score", "score"),
+            "sentiment": _num(e, "overall_sentiment", "sentiment", "weekly_sentiment"),
+            "trend": _num(e, "trend_vs_prior", "trend", "sentiment_trend"),
+            "weight": _num(e, "recent_message_count", "sample_size") or 1.0,
+        })
+
+    groups: dict[str, list[dict]] = {}
+    for p in parsed:
+        groups.setdefault(p["account"], []).append(p)
+
+    rows: list[PortfolioRow] = []
+    for account, items in groups.items():
+        wsum = sum(x["weight"] for x in items) or 1.0
+        # Per-channel children for the drill-down (only when an account has >1 engagement);
+        # 'channel' is filled in later (Memra+Slack) — kept as engagement_id for now.
+        children = [{
+            "engagement_id": x["engagement_id"], "channel": "", "band": x["band"],
+            "sentiment": round(x["sentiment"], 3), "trend": round(x["trend"], 3),
+        } for x in sorted(items, key=lambda x: _BAND_ORDER.get(x["band"], 3))] if len(items) > 1 else []
         rows.append(PortfolioRow(
-            account=str(_g(e, "account", "name", "engagement_id", default="?")),
-            engagement_id=str(_g(e, "engagement_id", "id", default="")),
-            band=band or "unknown",
-            score=_num(e, "risk_score", "score"),
-            sentiment=_num(e, "overall_sentiment", "sentiment", "weekly_sentiment"),
-            trend=_num(e, "trend_vs_prior", "trend", "sentiment_trend"),
+            account=account,
+            engagement_id="",
+            band=min(items, key=lambda x: _BAND_ORDER.get(x["band"], 3))["band"],  # worst
+            score=max(x["score"] for x in items),  # worst
+            sentiment=round(min(x["sentiment"] for x in items), 3),  # worst (lowest) channel
+            trend=round(sum(x["trend"] * x["weight"] for x in items) / wsum, 3),  # volume-weighted
+            detail=(f"{len(items)} engagements" if len(items) > 1 else ""),
+            children=children,
         ))
     rows.sort(key=lambda r: (_BAND_ORDER.get(r.band, 3), -r.score))
     total = len(rows)

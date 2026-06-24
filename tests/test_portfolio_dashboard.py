@@ -49,6 +49,7 @@ def test_dashboard_is_interactive():
     assert "searchInput" in html and "data-band" in html and "decliningToggle" in html
     assert "const DATA =" in html and "function refresh" in html
     assert '"engagements"' in html and "Acme" in html and "Beta" in html  # embedded data
+    assert '"children"' in html and "acctrow" in html  # expandable account/channel rows
     assert '"history": []' in html  # no weekly snapshots embedded yet
 
 
@@ -108,6 +109,40 @@ def test_publish_posts_in_thread_and_broadcasts(monkeypatch):
     assert posted["channel"] == "C1" and posted["thread_ts"] == "1782.45"
     assert posted["reply_broadcast"] is True
     assert "x.public.spin.axelerant.tech" in posted["text"]
+
+
+def test_summarize_rolls_up_to_account_worst_risk_weighted_sentiment_children():
+    engs = [
+        {"account": "PADI", "engagement_id": "e1", "risk_band": "low", "risk_score": 0.1,
+         "overall_sentiment": 0.4, "trend_vs_prior": 0.3, "recent_message_count": 100},
+        {"account": "PADI", "engagement_id": "e2", "risk_band": "high", "risk_score": 0.8,
+         "overall_sentiment": -0.2, "trend_vs_prior": -0.1, "recent_message_count": 900},
+    ]
+    pf = aggregate.summarize(engs)
+    assert pf.total == 1 and pf.high == 1  # one PADI account, worst band = high
+    r = pf.rows[0]
+    assert r.account == "PADI" and r.band == "high" and r.score == 0.8  # worst-case
+    assert r.detail == "2 engagements"
+    assert r.sentiment == -0.2  # worst (lowest) channel sentiment, not the average
+    assert len(r.children) == 2 and {c["engagement_id"] for c in r.children} == {"e1", "e2"}
+
+
+def test_resolve_children_sets_channel_names(monkeypatch):
+    """Drill-down children get resolved Slack channel names (fallback to id when unresolved)."""
+    from bott.skills.portfolio.aggregate import PortfolioRow
+    row = PortfolioRow("PADI", "", "high", 0.8, -0.1, -0.1, detail="2 engagements",
+                       children=[{"engagement_id": "e1", "channel": "", "band": "high", "sentiment": -0.2, "trend": -0.1},
+                                 {"engagement_id": "e2", "channel": "", "band": "low", "sentiment": 0.4, "trend": 0.3}])
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-x")
+    chan, name = {"e1": "C1", "e2": "C2"}, {"C1": "padi-fe", "C2": "padi-be"}
+    import bott.shared.context as ctx
+    monkeypatch.setattr(ctx, "MemraClient",
+                        lambda: type("M", (), {"get_entity": lambda s, eid, t: {"record": {"slack_channel_id": chan[eid]}}})())
+    import slack_sdk
+    monkeypatch.setattr(slack_sdk, "WebClient",
+                        lambda token=None: type("W", (), {"conversations_info": lambda s, channel: {"channel": {"name": name[channel]}}})())
+    tool._resolve_children([row])
+    assert row.children[0]["channel"] == "#padi-fe" and row.children[1]["channel"] == "#padi-be"
 
 
 def test_history_round_trip(monkeypatch):

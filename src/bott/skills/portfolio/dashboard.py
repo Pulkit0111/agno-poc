@@ -71,6 +71,12 @@ _PAGE = r"""<!DOCTYPE html>
   tbody tr:hover{background:#fafafa}
   tbody td{padding:9px 14px;font-size:13px;color:var(--slate)}
   tbody td.acct{color:var(--navy);font-weight:600}
+  tr.acctrow.has-kids{cursor:pointer}
+  .caret{display:inline-block;width:12px;color:var(--slate);font-weight:700;margin-right:5px}
+  .nocaret{display:inline-block;width:12px;margin-right:5px}
+  .asub{font-size:10.5px;color:#94a3b8;font-weight:500;margin-top:1px;padding-left:17px}
+  tr.kid td{background:#fafbfc;font-size:12.5px;color:#64748b;border-bottom:1px solid #f4f4f5}
+  tr.kid td.kidchan{padding-left:38px;color:#475569}
   .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.4px}
   .pill-high{background:#fef2f2;color:#b91c1c}.pill-medium{background:#fffbeb;color:#92400e}
   .pill-low{background:#ecfdf5;color:#065f46}.pill-unknown{background:#f1f5f9;color:#475569}
@@ -104,13 +110,13 @@ _PAGE = r"""<!DOCTYPE html>
     <div class="charts">
       <div class="card"><h3>Risk <span class="hint">· click to filter</span></h3><div class="chartbox"><canvas id="riskChart"></canvas></div></div>
       <div class="card"><h3>Sentiment trend</h3><div class="chartbox"><canvas id="sentChart"></canvas></div></div>
-      <div class="card"><h3>Risk × sentiment <span class="hint">· each dot = engagement</span></h3><div class="chartbox"><canvas id="scatterChart"></canvas></div></div>
+      <div class="card"><h3>Risk × sentiment <span class="hint">· each dot = account</span></h3><div class="chartbox"><canvas id="scatterChart"></canvas></div></div>
       <div class="card"><h3>Velocity <span class="hint">· last sprint</span></h3><div class="chartbox" id="velBox"><canvas id="velChart"></canvas></div></div>
       <div class="card span2"><h3>Sentiment over time</h3><div class="chartbox" id="trendBox"><canvas id="trendChart"></canvas></div></div>
     </div>
   </div>
   <div class="right">
-    <div class="rhead">Engagements <span class="count" id="count"></span></div>
+    <div class="rhead">Accounts <span class="count" id="count"></span> <span class="hint" style="font-weight:500;color:#9aa3af">· click a multi-engagement account to see its channels</span></div>
     <div class="tablewrap">
       <table><thead><tr>
         <th data-sort="account">Account</th><th data-sort="risk">Risk</th>
@@ -125,7 +131,8 @@ _PAGE = r"""<!DOCTYPE html>
 const DATA = __DATA__;
 const ALL = DATA.engagements, HIST = DATA.history || [];
 const EPS = 0.05, dec = t => t < -EPS, imp = t => t > EPS;
-const state = {q:"", band:"all", declining:false, sort:{key:"score", dir:-1}};
+const state = {q:"", band:"all", declining:false, sort:{key:"score", dir:-1}, expanded:new Set()};
+let lastRows = [];
 const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const $ = id => document.getElementById(id);
 function filtered(){
@@ -157,13 +164,26 @@ function renderKPIs(rows){
   $("kpiDeclining").textContent = rows.filter(e=>dec(e.trend)).length;
   $("kpiImproving").textContent = rows.filter(e=>imp(e.trend)).length;
 }
-function renderTable(rows){
-  $("tbody").innerHTML = rows.map(e =>
-    "<tr><td class='acct'>"+esc(e.account)+"</td>"+
+function rowHtml(e){
+  const kids = e.children && e.children.length, open = state.expanded.has(e.account);
+  const caret = kids ? "<span class='caret'>"+(open?'▾':'▸')+"</span>" : "<span class='nocaret'></span>";
+  let h = "<tr class='acctrow"+(kids?" has-kids":"")+"' data-acct='"+esc(e.account)+"'>"+
+    "<td class='acct'>"+caret+esc(e.account)+(e.detail?"<div class='asub'>"+esc(e.detail)+"</div>":"")+"</td>"+
     "<td><span class='pill pill-"+esc(e.band)+"'>"+esc(e.band)+"</span></td>"+
     "<td>"+Number(e.sentiment).toFixed(2)+"</td><td>"+trendCell(e.trend)+"</td>"+
-    "<td>"+esc(e.velocity)+"</td></tr>").join("") || "<tr><td colspan='5' style='padding:16px'>No matches.</td></tr>";
-  $("count").textContent = rows.length + " shown";
+    "<td>"+esc(e.velocity)+"</td></tr>";
+  if (kids && open){
+    h += e.children.map(c =>
+      "<tr class='kid'><td class='kidchan'>↳ "+esc(c.channel)+"</td>"+
+      "<td><span class='pill pill-"+esc(c.band)+"'>"+esc(c.band)+"</span></td>"+
+      "<td>"+Number(c.sentiment).toFixed(2)+"</td><td>"+trendCell(c.trend)+"</td><td>—</td></tr>").join("");
+  }
+  return h;
+}
+function renderTable(rows){
+  lastRows = rows;
+  $("tbody").innerHTML = rows.map(rowHtml).join("") || "<tr><td colspan='5' style='padding:16px'>No matches.</td></tr>";
+  $("count").textContent = rows.length + (rows.length!==ALL.length ? " of "+ALL.length : "") + " accounts";
 }
 let risk, sent, scatter, vel, trend;
 function buildCharts(){
@@ -211,6 +231,12 @@ $("decliningToggle").addEventListener('change', e=>{ state.declining=e.target.ch
 $("clearBtn").addEventListener('click', ()=>{ state.q=""; state.band="all"; state.declining=false; $("searchInput").value=""; $("decliningToggle").checked=false; syncChips(); refresh(); });
 document.querySelectorAll('th[data-sort]').forEach(th=>th.addEventListener('click', ()=>{
   const k=th.dataset.sort; state.sort = {key:k, dir: state.sort.key===k ? -state.sort.dir : (k==="account"?1:-1)}; refresh(); }));
+$("tbody").addEventListener('click', ev=>{
+  const tr = ev.target.closest('tr.acctrow.has-kids'); if(!tr) return;
+  const a = tr.dataset.acct;
+  state.expanded.has(a) ? state.expanded.delete(a) : state.expanded.add(a);
+  renderTable(lastRows);
+});
 buildCharts(); refresh();
 </script>
 </body></html>
@@ -219,9 +245,12 @@ buildCharts(); refresh();
 
 def render_portfolio_dashboard(pf: Portfolio, history: list[dict], as_of: str) -> str:
     engagements = [{
-        "account": r.account, "band": r.band, "score": round(r.score, 3),
+        "account": r.account, "detail": r.detail, "band": r.band, "score": round(r.score, 3),
         "sentiment": round(r.sentiment, 3), "trend": round(r.trend, 3),
         "velocity": r.velocity, "vel_stories": r.vel_stories,
+        "children": [{"channel": c.get("channel") or "", "band": c.get("band", "unknown"),
+                      "sentiment": c.get("sentiment", 0), "trend": c.get("trend", 0)}
+                     for c in r.children],
     } for r in pf.rows]
     data_js = json.dumps({"engagements": engagements, "history": history}).replace("</", "<\\/")
     return (_PAGE

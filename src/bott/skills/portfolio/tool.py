@@ -70,11 +70,53 @@ def _enrich(row, boards: list[dict], client) -> None:
         log.warning("velocity enrich failed for %s: %s", row.account, e)
 
 
+def _resolve_children(rows) -> None:
+    """Fill each drill-down child's Slack channel NAME (multi-engagement accounts only). Per
+    child: one Memra get_entity (engagement → slack_channel_id) + a channel-name resolve.
+    Capped, cached, best-effort — falls back to the channel id, then a short engagement id.
+    (Names resolve only in the channel's own workspace; elsewhere you get the id.)"""
+    children = [c for r in rows for c in r.children][:40]  # cap total lookups
+    if not children:
+        return
+    from bott.shared.context import MemraClient
+
+    mc = MemraClient()
+    token = os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")
+    slack = None
+    if token:
+        from slack_sdk import WebClient
+
+        slack = WebClient(token=token)
+    chan_name: dict[str, str | None] = {}
+    for c in children:
+        eid = c.get("engagement_id", "")
+        try:
+            rec = mc.get_entity(eid, "engagement")
+            rec = rec.get("record") if isinstance(rec, dict) and isinstance(rec.get("record"), dict) else rec
+            cid = (rec or {}).get("slack_channel_id")
+            if cid and slack is not None:
+                if cid not in chan_name:
+                    try:
+                        chan_name[cid] = "#" + slack.conversations_info(channel=cid)["channel"]["name"]
+                    except Exception:  # noqa: BLE001 — private/cross-workspace channel
+                        chan_name[cid] = None
+                c["channel"] = chan_name[cid] or f"channel {cid}"
+            elif cid:
+                c["channel"] = f"channel {cid}"
+            else:
+                c["channel"] = eid[:8] or "engagement"
+        except Exception as e:  # noqa: BLE001 — best-effort
+            log.warning("child channel resolve failed (%s): %s", eid, e)
+            c["channel"] = eid[:8] or "engagement"
+
+
 def _build_html(top_n: int) -> tuple[str, str]:
     """Returns (title, html). Raises if Memra isn't reachable/empty."""
     pf = aggregate.summarize(_engagements())
     if pf.total == 0:
         raise LookupError("Memra returned no engagements for the portfolio roll-up.")
+
+    _resolve_children(pf.rows)  # resolve channel names for the per-account drill-down rows
 
     # Enrich the most at-risk rows with Jira velocity (one board listing, matched locally).
     if config.jira_configured():
