@@ -30,3 +30,15 @@ def test_render_submissions_groups_blockers():
 
 def test_render_submissions_empty():
     assert "No updates" in dsm._render_submissions("core", [])
+
+
+def test_open_blocks_value_is_string():
+    blocks = dsm.standup_open_blocks(None)
+    val = blocks[1]["elements"][0]["value"]
+    assert isinstance(val, str) and val != ""
+
+
+def test_open_standup_guards_missing_team(monkeypatch):
+    monkeypatch.setattr(dsm, "_client", lambda: object())  # truthy, won't be used
+    out = dsm.open_standup("", "C1")
+    assert "team" in out.lower()

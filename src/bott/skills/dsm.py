@@ -37,13 +37,14 @@ def _client() -> Optional[WebClient]:
 
 
 def standup_open_blocks(team: str) -> list[dict]:
+    value = str(team or "team")
     return [
         {"type": "section", "text": {"type": "mrkdwn",
          "text": f"🧭 *Standup — {team}*\nAdd your async update before the call — tap below. "
                  "Collection is open until the pre-read posts here."}},
         {"type": "actions", "elements": [
             {"type": "button", "text": {"type": "plain_text", "text": "➕ Add my update", "emoji": True},
-             "action_id": "add_standup_update", "value": team, "style": "primary"},
+             "action_id": "add_standup_update", "value": value, "style": "primary"},
         ]},
     ]
 
@@ -123,6 +124,8 @@ def open_standup(team: str, channel: str) -> str:
         team: The team id/name.
         channel: Slack channel id to post in.
     """
+    if not team:
+        return "Can't open a standup without a team name."
     cli = _client()
     if not cli:
         return "No Slack token configured."
