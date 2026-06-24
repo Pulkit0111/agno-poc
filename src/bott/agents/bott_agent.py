@@ -30,6 +30,7 @@ from bott.skills.advisories import security_tools
 from bott.skills.dsm import dsm_tools
 from bott.skills.portfolio import portfolio_tools
 from bott.skills.sprint_report import sprint_report_tools
+from bott.skills.workspace_tools import build_workspace_tools
 
 
 def effective_manager_model() -> str:
@@ -105,6 +106,7 @@ def build_bott_agent(db=None) -> Agent:
         tools.append(SlackTools(token=slack_token))
 
     skills = build_skills()
+    tools.extend(build_workspace_tools(db=db, skills=skills))
 
     return Agent(
         id="bott",
