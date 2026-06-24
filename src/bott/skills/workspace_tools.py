@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from agno.run import RunContext
@@ -48,6 +49,29 @@ def _session_search_impl(db, run_context: RunContext, query: str, limit: int = 5
     return "Found in your past sessions:\n" + "\n".join(hits)
 
 
+def _skill_manage_impl(skills, action: str, name: str, content: str = "") -> str:
+    """Create/edit/list SKILL.md files in the library, then reload so they're discoverable."""
+    action = (action or "").strip().lower()
+    if action == "list":
+        return "Skills: " + ", ".join(skills.get_skill_names())
+    slug = re.sub(r"[^a-z0-9-]", "-", (name or "").strip().lower()).strip("-")
+    if not slug:
+        return "A skill needs a kebab-case name."
+    if action in ("create", "edit"):
+        if "---" not in content or "name:" not in content:
+            return "Skill content must start with YAML frontmatter including name + description."
+        skill_dir = os.path.join(config.bott_skills_dir(), slug)
+        os.makedirs(skill_dir, exist_ok=True)
+        with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
+            f.write(content)
+        try:
+            skills.reload()
+        except Exception as e:  # noqa: BLE001
+            return f"Wrote the skill but reload failed ({e}); it'll load next restart."
+        return f"Saved skill '{slug}'. It's available now."
+    return f"Unknown action '{action}' (use create, edit, or list)."
+
+
 def ensure_workspace() -> str:
     d = config.bott_workspace_dir()
     os.makedirs(d, exist_ok=True)
@@ -83,5 +107,22 @@ def build_workspace_tools(db=None, skills=None) -> list:
             return _session_search_impl(db, run_context, query, limit)
 
         tools.append(session_search)
+
+    if skills is not None:
+        from agno.tools import tool
+
+        @tool(name="skill_manage")
+        def skill_manage(action: str, name: str = "", content: str = "") -> str:
+            """Save or edit a reusable skill (a SKILL.md workflow) so you can reuse it later.
+            Use selectively — only when asked, or when a workflow is clearly reusable.
+
+            Args:
+                action: "create", "edit", or "list".
+                name: kebab-case skill name (for create/edit).
+                content: full SKILL.md text with YAML frontmatter (name + description) + body.
+            """
+            return _skill_manage_impl(skills, action, name, content)
+
+        tools.append(skill_manage)
 
     return tools
