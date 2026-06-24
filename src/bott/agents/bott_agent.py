@@ -26,6 +26,7 @@ from bott.shared.model import build_model
 from bott.shared.persistence import store
 from bott.skills.advisories import security_tools
 from bott.skills.dsm import dsm_tools
+from bott.skills.portfolio import portfolio_tools
 from bott.skills.sprint_report import sprint_report_tools
 
 
@@ -62,6 +63,13 @@ SKILL_INSTRUCTIONS = [
     "with your Memra tools (or use the current channel when asked ad-hoc). Don't restate the "
     "metrics or story lists — those render from Jira automatically. Report back the published URL "
     "(or the draft status) and nothing else.",
+    "For a leadership portfolio risk roll-up (someone asks how the portfolio/accounts are "
+    "doing overall, or a scheduled run says so), call publish_portfolio_dashboard — it "
+    "aggregates risk/sentiment (Memra) + last-sprint velocity (Jira) and publishes the "
+    "dashboard to Spin. For an ad-hoc request in chat, call it with NO channel argument and "
+    "simply reply with the returned Spin link — your reply posts in the current thread, so it "
+    "works from any channel you're in without naming one. (Only scheduled runs pass a channel, "
+    "so the tool posts there.) Reply with just the link, nothing else.",
     "Keep replies warm, concise, and specific. Never invent facts; if context is missing, "
     "say so.",
 ]
@@ -79,6 +87,7 @@ def build_bott_agent(db=None) -> Agent:
     tools.extend(security_tools())  # Drupal security advisories (digest + chat follow-ups)
     tools.extend(dsm_tools())  # DSM standup: open collection / pre-read / post-call summary
     tools.extend(sprint_report_tools())  # Sprint report: live Jira → designed HTML → Spin
+    tools.extend(portfolio_tools())  # Portfolio risk roll-up: Memra + Jira → leadership dashboard
     if memra_configured():
         tools.extend(make_memra_tools(MemraClient()))
     slack_token = os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")

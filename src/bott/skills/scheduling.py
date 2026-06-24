@@ -158,11 +158,11 @@ def create_sentiment_report(db: Any, *, channel: str, cron: str, timezone: str =
         "pull every active engagement's risk band, this-week sentiment, and trend vs the prior "
         "week, then write a tight, scannable PORTFOLIO digest using this exact shape, with the "
         "emoji section headers as *bold* lines:\n\n"
-        "📈 *Delivery health — portfolio*\n"
+        "📊 *Delivery health — portfolio*\n"
         "_<one-line headline: overall mood, e.g. 'Mostly steady; 3 accounts need attention'>_\n\n"
         "*🔻 Declining this week*\n"
         "• <account> — <high/medium/low> risk, sentiment down vs last week\n\n"
-        "*🔺 Improving*  (include only if there is any)\n"
+        "*📈 Improving*  (include only if there is any)\n"
         "• <account> — sentiment up\n\n"
         "*⚠️ Top at-risk*\n"
         "• <account> — one-line why\n\n"
@@ -182,6 +182,33 @@ def create_sentiment_report(db: Any, *, channel: str, cron: str, timezone: str =
             "message": message,
             "user_id": "portfolio:delivery-health",
             "session_id": "sentiment-report",
+        },
+        max_retries=_MAX_RETRIES,
+        retry_delay_seconds=_RETRY_DELAY_SECONDS,
+        if_exists="update",
+    )
+
+
+def create_portfolio_dashboard(db: Any, *, channel: str, cron: str, timezone: str = "UTC"):
+    """Scheduled leadership portfolio risk roll-up: per-engagement risk/sentiment (Memra) +
+    last-sprint velocity (Jira) → a Spin dashboard, link posted to a channel. Non-personal
+    'portfolio' scope, isolated like every other run."""
+    message = (
+        "It's the scheduled portfolio risk roll-up. Call your publish_portfolio_dashboard tool "
+        f"with channel='{channel}'. That tool aggregates risk/sentiment and delivery velocity, "
+        "renders the dashboard, publishes it to Spin, and posts the link itself — do not add any "
+        "other commentary."
+    )
+    return _mgr(db).create(
+        name="portfolio-dashboard:risk-rollup",
+        cron=cron,
+        endpoint=AGENT_RUN_ENDPOINT,
+        timezone=timezone,
+        description=_display(kind="portfolio", label="Portfolio risk roll-up", channel=channel),
+        payload={
+            "message": message,
+            "user_id": "portfolio:risk-rollup",
+            "session_id": "portfolio-dashboard",
         },
         max_retries=_MAX_RETRIES,
         retry_delay_seconds=_RETRY_DELAY_SECONDS,
