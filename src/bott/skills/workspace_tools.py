@@ -90,7 +90,11 @@ def build_workspace_tools(db=None, skills=None) -> list:
             enable_find=True,
             enable_ls=True,
         ),
-        PythonTools(base_dir=Path(ws), restrict_to_base_dir=True),
+        PythonTools(
+            base_dir=Path(ws),
+            restrict_to_base_dir=True,
+            exclude_tools=["read_file", "list_files"],
+        ),
     ]
     if db is not None:
         from agno.tools import tool

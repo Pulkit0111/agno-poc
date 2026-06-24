@@ -52,6 +52,8 @@ SKILL_INSTRUCTIONS = [
     "strictly to them and never surface anyone else's items.",
     "When you need to act in Slack beyond replying (post to another channel, etc.), use your "
     "Slack tools.",
+    "Do dependent file steps in order across turns — after you write a file, trust its "
+    "contents; don't re-read it in the same turn (parallel tool calls may race).",
     "Keep replies warm, concise, and specific. Never invent facts; if context is missing, say so.",
 ]
 

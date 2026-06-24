@@ -26,3 +26,13 @@ def test_no_user_control_flow_tool(monkeypatch, tmp_path):
     from bott.skills import workspace_tools
     tools = workspace_tools.build_workspace_tools()
     assert not any(isinstance(t, UserControlFlowTools) for t in tools)
+
+
+def test_no_duplicate_file_tool_names(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOTT_WORKSPACE_DIR", str(tmp_path / "ws"))
+    from bott.skills import workspace_tools
+    names = []
+    for t in workspace_tools.build_workspace_tools():
+        fns = getattr(t, "functions", None)
+        names += list(fns.keys()) if fns else [getattr(t, "name", "")]
+    assert names.count("read_file") <= 1, f"duplicate read_file: {names}"
