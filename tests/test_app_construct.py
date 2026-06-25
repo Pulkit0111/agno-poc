@@ -6,8 +6,9 @@ from __future__ import annotations
 def test_github_tools_present_with_token(monkeypatch):
     """Agent exposes a GithubTools instance (and thus PR/commit read tools) when a token is set."""
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test_token")
-    from bott.agents import bott_agent
     import importlib
+
+    from bott.agents import bott_agent
     importlib.reload(bott_agent)
     a = bott_agent.build_bott_agent()
     from agno.tools.github import GithubTools
@@ -28,8 +29,9 @@ def test_github_tools_absent_without_token(monkeypatch):
     """Agent constructs safely with no GitHub token — GithubTools must not be added."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("BOTT_POC_GITHUB_TOKEN", raising=False)
-    from bott.agents import bott_agent
     import importlib
+
+    from bott.agents import bott_agent
     importlib.reload(bott_agent)
     a = bott_agent.build_bott_agent()
     from agno.tools.github import GithubTools
