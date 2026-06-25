@@ -54,10 +54,11 @@ if _slack_signing and _slack_token:
                 # Chat lives under /slack/chat so the App Home gateway can own /slack/events
                 # (handling app_home_opened) and forward chat events here unchanged.
                 prefix="/slack/chat",
-                # streaming=True shows the tool-use trace for tool tasks (PR review,
-                # Memra lookups) — what we want for visibility. Plain chat shows a small
-                # (empty) thinking indicator; that's an Agno-interface behavior.
-                streaming=True,
+                # streaming=False avoids the Agno Slack interface flushing streamed
+                # chunks as duplicate text in a single bot message. PR-review and other
+                # long tasks post their own follow-up messages via the worker, so the
+                # streamed trace is not needed here.
+                streaming=False,
             )
         )
     except Exception as e:  # noqa: BLE001 — never let a Slack mount failure crash the app
