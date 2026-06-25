@@ -93,6 +93,37 @@ def build_bott_agent(db=None) -> Agent:
 
         tools.append(SlackTools(token=slack_token))
 
+    github_token = config.github_token()
+    if github_token:
+        from agno.tools.github import GithubTools
+
+        _GITHUB_WRITE_TOOLS = [
+            "create_issue",
+            "create_repository",
+            "delete_repository",
+            "create_pull_request",
+            "create_pull_request_comment",
+            "edit_pull_request_comment",
+            "create_review_request",
+            "comment_on_issue",
+            "close_issue",
+            "reopen_issue",
+            "assign_issue",
+            "label_issue",
+            "edit_issue",
+            "create_file",
+            "update_file",
+            "delete_file",
+            "create_branch",
+            "set_default_branch",
+        ]
+        tools.append(
+            GithubTools(
+                access_token=github_token,
+                exclude_tools=_GITHUB_WRITE_TOOLS,
+            )
+        )
+
     skills = build_skills()
     tools.extend(build_workspace_tools(db=db, skills=skills))
 
