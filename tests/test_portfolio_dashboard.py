@@ -203,7 +203,7 @@ def test_create_portfolio_dashboard_scope(tmp_path):
     sch = scheduling.create_portfolio_dashboard(db, channel="#leads", cron="0 9 * * 1")
     p = sch.payload if hasattr(sch, "payload") else sch.get("payload")
     assert p["user_id"] == "portfolio:risk-rollup" and p["session_id"] == "portfolio-dashboard"
-    assert "publish_portfolio_dashboard" in p["message"]
+    assert "publish_portfolio_dashboard" in p["message"] and "scheduled=true" in p["message"]
     assert getattr(sch, "name", "") == "portfolio-dashboard:risk-rollup"
 
 
@@ -238,8 +238,12 @@ def test_portfolio_dashboard_builds_when_scheduled(monkeypatch):
     monkeypatch.setattr(t.store, "get_setting", lambda *a, **k: None)
     monkeypatch.setattr(t.store, "set_setting", lambda *a, **k: None)
     monkeypatch.setattr(t, "_build_html", lambda top_n: ("Portfolio Risk Roll-up", "<html>x</html>"))
-    class R: mode="spin"; url="https://u"; detail="Published to Spin: https://u"
-    monkeypatch.setattr(t, "get_publisher", lambda: type("P", (), {"publish": lambda self, *a, **k: R()})(), raising=False)
+    class R:
+        mode = "spin"
+        url = "https://u"
+        detail = "Published to Spin: https://u"
+
+    monkeypatch.setattr(t, "get_publisher", lambda: type("P", (), {"publish": lambda self, *a, **k: R()})())
     out = t.publish_portfolio_dashboard(scheduled=True)
     assert "https://u" in out
 
