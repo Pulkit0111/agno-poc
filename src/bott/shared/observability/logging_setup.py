@@ -47,6 +47,44 @@ class _RedactFilter(logging.Filter):
         return True
 
 
+# ---------------------------------------------------------------------------
+# Benign-noise filter — agno's best-effort channel-name resolution
+# ---------------------------------------------------------------------------
+# agno's Slack interface (agno/os/interfaces/slack/helpers.py ~L165) emits a
+# WARNING on every message in a *private* channel when the Slack app is missing
+# the `groups:read` scope.  The warning is benign: channel-name resolution is
+# cosmetic and the bot continues to function normally.
+#
+# REAL FIX: add `groups:read` to the Slack app's bot token scopes in the
+# Slack API dashboard, then reinstall the app to the workspace.  Once that
+# scope is granted this filter can be removed.
+#
+# Until then we silence ONLY this specific substring so that all other
+# WARNING (and above) records still surface in logs — the match is as narrow
+# as possible so nothing unrelated is suppressed.
+_CHANNEL_NAME_NOISE = "Failed to resolve channel name"
+
+
+class _ChannelNameFilter(logging.Filter):
+    """Drop agno's spurious 'Failed to resolve channel name' warnings.
+
+    Returns False (drop) only for WARNING-or-above records whose rendered
+    message contains the exact ``_CHANNEL_NAME_NOISE`` substring.  Every
+    other record passes through unchanged.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Only suppress at WARNING level or above; let INFO/DEBUG through
+        # (INFO records with this substring are unlikely but shouldn't vanish).
+        if record.levelno < logging.WARNING:
+            return True
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        return _CHANNEL_NAME_NOISE not in msg
+
+
 _configured = False
 
 
@@ -61,6 +99,7 @@ def setup_logging() -> None:
         logging.Formatter("%(asctime)s %(levelname)-7s %(name)s — %(message)s", "%H:%M:%S")
     )
     handler.addFilter(_RedactFilter())
+    handler.addFilter(_ChannelNameFilter())
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)
