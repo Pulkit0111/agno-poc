@@ -171,13 +171,13 @@ def publish_portfolio_dashboard(
 ) -> str:
     """Build the leadership portfolio risk roll-up — per-engagement risk & sentiment (Memra)
     plus last-sprint delivery velocity (Jira) for the most at-risk — render it as a hosted
-    dashboard, publish to Spin, and (if a channel is given) post the link.
+    dashboard, publish to Spin, and RETURN the link. This tool does NOT post to Slack: share
+    the returned link once in your own reply (a scheduled run posts it via your Slack tool).
 
     Args:
-        channel: Slack channel id to post the dashboard link to.
-        thread_ts: when posting in reply to a chat request, the thread to reply in.
-        broadcast: with thread_ts, also surface the reply on the channel root
-            (Slack's "Also send to channel"). Use true for ad-hoc chat requests.
+        channel: Accepted for back-compat but unused — you share the returned link in your reply.
+        thread_ts: Accepted for back-compat but unused.
+        broadcast: Accepted for back-compat but unused.
         top_n: how many of the most at-risk engagements to detail + enrich with Jira velocity.
     """
     if not config.memra_configured():

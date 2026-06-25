@@ -242,11 +242,10 @@ def publish_sprint_report(
           - {"type":"callout","text":".."}
           - {"type":"prose","title":..,"paragraphs":[".."]}
           Pick only the sections that are meaningful for this engagement's data.
-        channel: Slack channel to post the published link (or draft) to. Resolve it for the
-            engagement with your Memra tools when it isn't obvious from context.
-        thread_ts: when posting in reply to a chat request, the thread timestamp to reply in.
-        broadcast: with thread_ts, also surface the reply on the channel root
-            (Slack's "Also send to channel"). Use true for ad-hoc chat requests.
+        channel: Accepted for back-compat but unused — this tool RETURNS the link; you share
+            it once in your own reply (a scheduled run posts it via your Slack tool).
+        thread_ts: Accepted for back-compat but unused.
+        broadcast: Accepted for back-compat but unused.
         only_if_new: scheduled runs pass true — publish only if this sprint hasn't been reported
             yet (skip duplicates). Leave false for ad-hoc requests so they always generate.
     """
