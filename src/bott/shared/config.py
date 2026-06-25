@@ -258,9 +258,18 @@ def openai_api_key() -> str | None:
     return os.getenv("OPENAI_API_KEY")
 
 
+def _codex_proxy_base_url() -> str:
+    """The local Codex proxy's OpenAI-compatible endpoint, derived from CODEX_PROXY_PORT."""
+    return f"http://127.0.0.1:{codex_proxy_port()}/v1"
+
+
 def model_base_url() -> str | None:
-    """Custom OpenAI-compatible endpoint (Azure/OpenRouter/local model/Codex-subscription
-    proxy). When set, the app talks here instead of api.openai.com."""
+    """Endpoint for the reviewer model. In codex backend mode it's DERIVED from CODEX_PROXY_PORT
+    (the single source of truth) so a second instance on a different proxy port can't call the
+    wrong port — a hardcoded REVIEW_MODEL_BASE_URL is ignored in codex mode. In openai mode it's
+    the custom endpoint env (Azure/OpenRouter/etc.) or None → api.openai.com."""
+    if model_backend() == "codex":
+        return _codex_proxy_base_url()
     return os.getenv("REVIEW_MODEL_BASE_URL") or None
 
 
@@ -290,9 +299,11 @@ def manager_model() -> str:
 
 
 def manager_base_url() -> str | None:
-    """Endpoint for the manager model. Independent of the reviewer's, so the manager can run
-    a cheap model on the OpenAI API (default: unset → api.openai.com) while the reviewer uses
-    a Codex-subscription proxy."""
+    """Endpoint for the manager (chat) model. In codex backend mode it's DERIVED from
+    CODEX_PROXY_PORT (single source of truth — see model_base_url), so multi-instance setups
+    never drift to a stale hardcoded port. In openai mode it's MANAGER_MODEL_BASE_URL or None."""
+    if model_backend() == "codex":
+        return _codex_proxy_base_url()
     return os.getenv("MANAGER_MODEL_BASE_URL") or None
 
 
