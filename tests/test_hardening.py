@@ -21,6 +21,9 @@ def test_manager_model_fallback_to_review_model(monkeypatch):
     assert config.manager_model() == config.DEFAULT_MODEL
 
 
-def test_manager_model_override(monkeypatch):
+def test_bott_model_is_single_source(monkeypatch):
+    # One agent, one model: BOTT_MODEL wins; the legacy MANAGER_MODEL does not override it.
+    monkeypatch.setenv("BOTT_MODEL", "gpt-5.5")
     monkeypatch.setenv("MANAGER_MODEL", "fast-mini")
-    assert config.manager_model() == "fast-mini"
+    assert config.bott_model() == "gpt-5.5"
+    assert config.manager_model() == "gpt-5.5"  # deprecated alias resolves to bott_model()

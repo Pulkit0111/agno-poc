@@ -13,12 +13,15 @@ from dataclasses import dataclass
 DIFF_CAP = 16_000
 PER_FILE_PATCH_CAP = 4_000
 
-# gpt-4.1-mini: 1M-token context (vs gpt-4o-mini's 128k) + faster. Override via env.
-DEFAULT_MODEL = os.getenv("REVIEW_MODEL", "gpt-4.1-mini")
+# One agent, one LLM. BOTT_MODEL is the single source of truth (default gpt-5.5).
+# MANAGER_MODEL / REVIEW_MODEL are kept ONLY as deprecated fallbacks so existing .env files
+# keep working — there is no separate manager/review model and no store-setting override.
+def bott_model() -> str:
+    return os.getenv("BOTT_MODEL") or os.getenv("MANAGER_MODEL") or os.getenv("REVIEW_MODEL") or "gpt-5.5"
 
-# Setting keys for the shared settings KV (dashboard-selected models).
-SETTING_MANAGER_MODEL = "manager_model"
-SETTING_REVIEWER_MODEL = "reviewer_model"
+
+# Back-compat alias (used as a default arg in the review engine); resolves to the single model.
+DEFAULT_MODEL = bott_model()
 
 # Fallback model list for the dashboard picker when the Codex proxy can't be queried.
 # These are the models the Codex-subscription proxy typically exposes.
@@ -292,10 +295,8 @@ def review_temperature() -> float | None:
 
 
 def manager_model() -> str:
-    """Model for the conversational manager (chat + routing). A fast/cheap model is plenty
-    here — the heavy review runs separately on REVIEW_MODEL. Falls back to the review model
-    when MANAGER_MODEL isn't set, so behavior is unchanged unless you opt in."""
-    return os.getenv("MANAGER_MODEL") or DEFAULT_MODEL
+    """Deprecated — one agent, one model now. Resolves to the single bott_model()."""
+    return bott_model()
 
 
 def manager_base_url() -> str | None:

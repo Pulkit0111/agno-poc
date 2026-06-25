@@ -17,15 +17,13 @@ from bott.agents.code_review.member import review_tools
 from bott.agents.personality import IDENTITY, VOICE
 from bott.shared import config
 from bott.shared.config import (
-    SETTING_MANAGER_MODEL,
+    bott_model,
     manager_api_key,
     manager_base_url,
-    manager_model,
     memra_configured,
 )
 from bott.shared.context import MemraClient, make_memra_tools
 from bott.shared.model import build_model
-from bott.shared.persistence import store
 from bott.skills.advisories import security_tools
 from bott.skills.dsm import dsm_tools
 from bott.skills.engagement_data import engagement_data_tools
@@ -63,8 +61,9 @@ _GITHUB_READ_TOOLS: list[str] = [
 
 
 def effective_manager_model() -> str:
-    """The conversational model id: the persisted setting if present, else the env default."""
-    return store.get_setting(SETTING_MANAGER_MODEL) or manager_model()
+    """The agent's model id — the single bott_model() (BOTT_MODEL env, default gpt-5.5).
+    No store-setting override: one agent, one model, no hidden hijack."""
+    return bott_model()
 
 SKILL_INSTRUCTIONS = [
     "You have a library of skills (listed for you) plus general tools (files, terminal, code) "

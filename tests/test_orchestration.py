@@ -13,6 +13,7 @@ from bott.agents.code_review.member import (
     start_rereview,
     start_review,
 )
+from bott.shared import config
 
 
 def _fresh_store():
@@ -31,10 +32,11 @@ def test_start_review_enqueues_review_task():
     assert "octo/repo#42" in msg
     task = store.next_pending()
     assert task.kind == "review"
-    assert task.args == {
+    args = dict(task.args)
+    assert args.pop("model_id") == config.bott_model()  # one model everywhere
+    assert args == {
         "owner": "octo", "name": "repo", "number": 42,
         "channel": "C1", "thread_ts": "t1", "trigger_ts": "x1",
-        "model_id": None,
     }
 
 

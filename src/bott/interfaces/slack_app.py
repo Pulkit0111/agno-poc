@@ -27,9 +27,8 @@ from slack_bolt import App
 
 from bott.agents.code_review.github.app_auth import app_token_for
 from bott.shared.config import (
-    DEFAULT_MODEL,
-    SETTING_REVIEWER_MODEL,
     allowed_post_repos,
+    bott_model,
     default_budget,
 )
 from bott.shared.observability.logging_setup import get_logger
@@ -42,7 +41,6 @@ from bott.agents.code_review.core.verdict_gate import GateResult
 from bott.agents.code_review.rendering.slack import render_slack_review
 from bott.shared.persistence.store import (
     Task,
-    get_setting,
     latest_trace_for_thread,
     save_trace,
 )
@@ -224,8 +222,8 @@ def handle_task(task: Task) -> None:
             _update(channel, status_ts,
                     [{"type": "section", "text": {"type": "mrkdwn", "text": text_md}}], fallback)
 
-    # Reviewer model: task-stamped selection (from the dashboard) → shared setting → env.
-    review_model = a.get("model_id") or get_setting(SETTING_REVIEWER_MODEL) or DEFAULT_MODEL
+    # One model everywhere: the task-stamped id (set by the enqueuer) or the single bott_model().
+    review_model = a.get("model_id") or bott_model()
     try:
         result = review_pr(
             owner, name, number,
