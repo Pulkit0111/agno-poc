@@ -6,6 +6,7 @@ Secrets come from the environment (.env loaded by the entrypoints), never hardco
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 
 # Diff assembly caps (port of fetch-pr-essentials.ts).
@@ -165,9 +166,38 @@ def calculate_cost(
     )
 
 
+_GH_CLI_TOKEN_SENTINEL = object()
+_gh_cli_token_cache: object = _GH_CLI_TOKEN_SENTINEL
+
+
+def _gh_cli_token() -> str | None:
+    """The locally-authenticated `gh` CLI's token (dev fallback), looked up once per process.
+    Returns None when `gh` isn't installed or isn't logged in. Lets the POC reuse your existing
+    `gh` login instead of a separate env var — same spirit as the Codex backend. Not for a
+    deployed/multi-user Bott (use a scoped PAT or the GitHub App there)."""
+    global _gh_cli_token_cache
+    if _gh_cli_token_cache is not _GH_CLI_TOKEN_SENTINEL:
+        return _gh_cli_token_cache  # type: ignore[return-value]
+    val: str | None = None
+    if shutil.which("gh"):
+        try:
+            import subprocess
+
+            r = subprocess.run(
+                ["gh", "auth", "token"], capture_output=True, text=True, timeout=5
+            )
+            val = (r.stdout or "").strip() or None
+        except Exception:  # noqa: BLE001 — gh missing/unauthed/slow → just no token
+            val = None
+    _gh_cli_token_cache = val
+    return val
+
+
 def github_token() -> str | None:
-    """Optional token to raise GitHub's 60/hr unauthenticated rate limit (phase 1)."""
-    return os.getenv("GITHUB_TOKEN") or os.getenv("BOTT_POC_GITHUB_TOKEN")
+    """Token for GitHub reads (raises the 60/hr unauthenticated limit; powers the read-only
+    GitHub tools). Env vars win; otherwise fall back to the local `gh` CLI's token so the POC
+    reuses your existing `gh` login with no extra setup."""
+    return os.getenv("GITHUB_TOKEN") or os.getenv("BOTT_POC_GITHUB_TOKEN") or _gh_cli_token()
 
 
 # --- Phase 3: GitHub App + webhook ---------------------------------------------

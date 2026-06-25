@@ -26,9 +26,15 @@ def test_github_tools_present_with_token(monkeypatch):
 
 
 def test_github_tools_absent_without_token(monkeypatch):
-    """Agent constructs safely with no GitHub token — GithubTools must not be added."""
+    """Agent constructs safely with no GitHub token — GithubTools must not be added.
+
+    Also stub the `gh` CLI fallback so this holds on machines where `gh` is logged in
+    (otherwise github_token() resolves a real token and GithubTools would be present).
+    """
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("BOTT_POC_GITHUB_TOKEN", raising=False)
+    from bott.shared import config
+    monkeypatch.setattr(config, "_gh_cli_token", lambda: None)
     import importlib
 
     from bott.agents import bott_agent
