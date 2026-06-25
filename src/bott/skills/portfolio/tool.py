@@ -226,5 +226,32 @@ def publish_portfolio_dashboard(
     return result.detail
 
 
+def get_portfolio_risk_data() -> str:
+    """Per-engagement risk/sentiment DATA (no rendering) — use this to compose a custom
+    briefing, scorecard, or answer, then publish with publish_web_page. (The full canonical
+    dashboard is the scheduled roll-up, not this.)"""
+    if not config.memra_configured():
+        return "Memra isn't configured (set MEMRA_CLIENT_ID/SECRET) — can't get portfolio data."
+    try:
+        pf = aggregate.summarize(_engagements())
+    except Exception as e:  # noqa: BLE001
+        log.error("portfolio risk data failed: %s", e)
+        return f"Couldn't get portfolio risk data ({e})."
+    if pf.total == 0:
+        return "Memra returned no engagements for the portfolio."
+    lines = [
+        f"Portfolio: {pf.total} engagements — {pf.high} high / {pf.medium} medium / {pf.low} low "
+        f"risk; {pf.declining} declining, {pf.improving} improving; avg sentiment {pf.avg_sentiment:.2f}.",
+        "Per account (worst risk first):",
+    ]
+    for r in pf.rows:
+        extra = f" ({r.detail})" if r.detail else ""
+        lines.append(
+            f"- {r.account}: band={r.band}, risk_score={r.score:.1f}, "
+            f"sentiment={r.sentiment:.2f}, trend={r.trend:+.2f}{extra}"
+        )
+    return "\n".join(lines)
+
+
 def portfolio_tools() -> list[Callable]:
-    return [publish_portfolio_dashboard]
+    return [publish_portfolio_dashboard, get_portfolio_risk_data]

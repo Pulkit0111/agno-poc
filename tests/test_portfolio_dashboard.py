@@ -209,6 +209,19 @@ def test_create_portfolio_dashboard_scope(tmp_path):
 
 
 # --- App Home -------------------------------------------------------------------
+def test_get_portfolio_risk_data_returns_rows(monkeypatch):
+    import bott.skills.portfolio.tool as t
+    monkeypatch.setattr(t.config, "memra_configured", lambda: True)
+    monkeypatch.setattr(t, "_engagements", lambda: [
+        {"account": "PADI", "risk_band": "high", "risk_score": 8.0, "overall_sentiment": -0.3, "trend_vs_prior": -0.2},
+        {"account": "Ironman", "risk_band": "low", "risk_score": 2.0, "overall_sentiment": 0.4, "trend_vs_prior": 0.1},
+    ])
+    out = t.get_portfolio_risk_data()
+    assert "PADI" in out and "Ironman" in out
+    assert "high" in out and "8.0" in out  # numbers preserved, no rendering
+    assert "<html" not in out.lower()       # data, not a page
+
+
 def test_app_home_portfolio_wiring(monkeypatch, tmp_path):
     from bott.interfaces.slack_home import blocks, router, service
     assert "add_portfolio" in str(blocks.build_home_view([]))
