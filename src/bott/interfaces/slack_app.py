@@ -53,8 +53,14 @@ REVIEW_BUDGET = default_budget()
 _VERDICT_EMOJI = {"approve": "white_check_mark", "suggestions": "bulb", "issues": "no_entry"}
 
 # A real token is needed only when actually posting (the live worker path); a placeholder
-# keeps the module importable for tests/tooling. Construction makes no network call.
-app = App(token=os.environ.get("SLACK_BOT_TOKEN") or "xoxb-not-configured")
+# keeps the module importable for tests/tooling. token_verification_enabled=False is
+# REQUIRED: slack_bolt's default runs a blocking auth.test on construction, which crashes
+# startup if Slack is slow/unreachable or the token is the placeholder. We only use this
+# App for its web client (posting/reactions), so the startup check buys nothing.
+app = App(
+    token=os.environ.get("SLACK_BOT_TOKEN") or "xoxb-not-configured",
+    token_verification_enabled=False,
+)
 _bot_user_id: str | None = None
 
 
