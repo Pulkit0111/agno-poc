@@ -56,6 +56,7 @@ def test_sprint_report_scoped_to_engagement(tmp_path):
     assert p["user_id"] == "engagement:PADI"  # normalized to the project key
     assert p["session_id"] == "sprint-report:PADI"
     assert "build_sprint_dossier" in p["message"] and "publish_sprint_report" in p["message"]
+    assert "scheduled=true" in p["message"]  # guard: scheduled run must pass the flag
     # No channel pinned -> the run resolves it via Memra.
     assert "Memra" in p["message"]
     assert getattr(sch, "name", "") == "sprint-report:PADI"

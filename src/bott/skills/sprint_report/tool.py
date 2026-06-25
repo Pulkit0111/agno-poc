@@ -249,12 +249,18 @@ def get_sprint_history(engagement: str, n: int = 3) -> str:
 
 def publish_sprint_report(
     engagement: str, report_json: str, channel: str = "",
-    thread_ts: str = "", broadcast: bool = False, only_if_new: bool = False
+    thread_ts: str = "", broadcast: bool = False, only_if_new: bool = False,
+    scheduled: bool = False,
 ) -> str:
     """Render the sprint report as a hosted HTML page and publish it. ``engagement`` is a Jira
     project key or name. The header metrics and any ``source``-backed tables come straight from
     Jira (trustworthy); you compose the BODY as a dynamic list of blocks tailored to what's
     meaningful for this engagement.
+
+    This tool renders the full canonical sprint report and is **reserved for scheduled runs**
+    (pass ``scheduled=True``). For ad-hoc or custom requests (a scorecard, a one-pager, a
+    custom slice) use ``build_sprint_dossier`` to get the live Jira facts, compose the HTML
+    you need, and publish it with ``publish_web_page``.
 
     Args:
         engagement: Jira project key or name (e.g. 'PADI').
@@ -274,9 +280,19 @@ def publish_sprint_report(
         broadcast: Accepted for back-compat but unused.
         only_if_new: scheduled runs pass true — publish only if this sprint hasn't been reported
             yet (skip duplicates). Leave false for ad-hoc requests so they always generate.
+        scheduled: Must be True for scheduled runs. Ad-hoc calls (scheduled=False, the default)
+            are redirected to the ingredient tools so the agent composes a custom report instead.
     """
     if not config.jira_configured():
         return "Jira isn't configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)."
+
+    if not scheduled:
+        return (
+            "For an ad-hoc or custom request (a scorecard, a one-pager, 'not the full report'), "
+            "call build_sprint_dossier for the exact numbers, compose the HTML you need, and "
+            "publish it with publish_web_page. publish_sprint_report renders the full canonical "
+            "report and is reserved for the scheduled run."
+        )
 
     try:
         data = json.loads(report_json) if report_json else {}

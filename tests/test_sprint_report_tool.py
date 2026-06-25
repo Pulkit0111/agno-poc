@@ -54,7 +54,7 @@ def test_build_dossier_text(monkeypatch):
 
 def test_publish_bad_json(monkeypatch):
     monkeypatch.setattr(config, "jira_configured", lambda: True)
-    assert "wasn't valid" in tool.publish_sprint_report("PADI", "{not json")
+    assert "wasn't valid" in tool.publish_sprint_report("PADI", "{not json", scheduled=True)
 
 
 def test_publish_renders_and_metrics_cannot_be_faked(monkeypatch):
@@ -75,7 +75,7 @@ def test_publish_renders_and_metrics_cannot_be_faked(monkeypatch):
 
     # The agent tries to assert a bogus velocity in a bullet — it must NOT become a stat-card.
     report = '{"sections": [{"type": "bullets", "title": "Notes", "items": ["velocity was 999%"]}]}'
-    detail = tool.publish_sprint_report("PADI", report)
+    detail = tool.publish_sprint_report("PADI", report, scheduled=True)
     assert "Published to Spin" in detail
     assert captured["slug"] == "padi-sprint-1-report"
     html = captured["html"]
@@ -98,7 +98,7 @@ def test_guard_skips_already_reported_sprint(monkeypatch):
             return PublishResult("spin", "https://x", "ok")
 
     monkeypatch.setattr(tool, "get_publisher", lambda: Pub())
-    out = tool.publish_sprint_report("PADI", '{"sections": []}', only_if_new=True)
+    out = tool.publish_sprint_report("PADI", '{"sections": []}', only_if_new=True, scheduled=True)
     assert "Already reported" in out and published["called"] is False
 
 
@@ -116,7 +116,7 @@ def test_guard_publishes_and_records_new_sprint(monkeypatch):
             return PublishResult("spin", "https://x", "Published to Spin: https://x")
 
     monkeypatch.setattr(tool, "get_publisher", lambda: Pub())
-    out = tool.publish_sprint_report("PADI", '{"sections": []}', only_if_new=True)
+    out = tool.publish_sprint_report("PADI", '{"sections": []}', only_if_new=True, scheduled=True)
     assert "Published to Spin" in out
     assert saved.get("sprint_report_last:PADI") == "900"  # marker advanced
 
@@ -137,7 +137,7 @@ def test_failed_delivery_does_not_mark_sprint_reported(monkeypatch):
             return PublishResult(mode="slack-draft", url=None, detail="Posted a draft.")
 
     monkeypatch.setattr(tool, "get_publisher", lambda: DraftPub())
-    tool.publish_sprint_report("PADI", '{"sections": []}', channel="#padi")
+    tool.publish_sprint_report("PADI", '{"sections": []}', channel="#padi", scheduled=True)
     assert saved == {}  # marker NOT set — a later run can retry
 
 
@@ -161,7 +161,7 @@ def test_sprint_report_does_not_post_to_slack(monkeypatch):
 
     monkeypatch.setattr(slack_sdk, "WebClient", _boom)
     detail = tool.publish_sprint_report(
-        "PADI", '{"sections": []}', channel="#padi", thread_ts="1.2", broadcast=True
+        "PADI", '{"sections": []}', channel="#padi", thread_ts="1.2", broadcast=True, scheduled=True
     )
     assert "Published to Spin" in detail
 
@@ -190,6 +190,16 @@ def test_sprint_report_posts_in_thread(monkeypatch):
     assert "thread_ts" in sig.parameters and "broadcast" in sig.parameters
 
 
+def test_sprint_report_refuses_adhoc(monkeypatch):
+    import bott.skills.sprint_report.tool as t
+    monkeypatch.setattr(t.config, "jira_configured", lambda: True)
+    called = {"resolved": False}
+    monkeypatch.setattr(t, "_resolve_engagement", lambda q: called.__setitem__("resolved", True))
+    out = t.publish_sprint_report("PADI", '{"sections":[]}')  # ad-hoc
+    assert called["resolved"] is False
+    assert "build_sprint_dossier" in out and "publish_web_page" in out
+
+
 def test_publish_falls_back_to_slack_on_spin_failure(monkeypatch):
     monkeypatch.setattr(config, "jira_configured", lambda: True)
     monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
@@ -211,5 +221,5 @@ def test_publish_falls_back_to_slack_on_spin_failure(monkeypatch):
     monkeypatch.setattr(
         "bott.shared.integrations.spin.SlackDraftPublisher.publish", fake_fallback_publish
     )
-    detail = tool.publish_sprint_report("PADI", '{"sections": []}', channel="#padi")
+    detail = tool.publish_sprint_report("PADI", '{"sections": []}', channel="#padi", scheduled=True)
     assert "draft" in detail and calls["channel"] == "#padi"

@@ -241,7 +241,7 @@ def create_sprint_report(
         "a report tailored to this engagement (pick meaningful blocks: delivered/next-sprint "
         "tables, risks & blockers from the incomplete/carry-over items, highlights, and client "
         "actions including the UAT/board link) and call publish_sprint_report with "
-        f"engagement='{key}', your report_json, only_if_new=true, and the channel. The tool "
+        f"engagement='{key}', your report_json, only_if_new=true, scheduled=true, and the channel. The tool "
         "returns a link; then "
         f"{channel_step}. The "
         "only_if_new flag means it will quietly skip if this sprint was already reported — that's "
