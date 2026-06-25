@@ -1,6 +1,6 @@
 ---
 name: concierge
-description: Answer a person's own action items / tasks — strictly scoped to the person you're talking to.
+description: A person's OWN action items / tasks — scoped strictly to the person you're talking to.
 ---
 
 # Personal Concierge

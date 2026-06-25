@@ -1,6 +1,6 @@
 ---
 name: dsm
-description: Run the form-driven daily standup — open async collection, the pre-read, and the post-call summary.
+description: Run a scheduled daily-standup moment for a team (open collection / pre-read / post-call summary). Triggered by the standup schedule, not ad-hoc chat.
 ---
 
 # Daily Standup (DSM)

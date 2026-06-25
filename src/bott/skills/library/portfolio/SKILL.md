@@ -1,6 +1,6 @@
 ---
 name: portfolio
-description: Publish the leadership portfolio risk roll-up (risk/sentiment + velocity) as a dashboard and share the link.
+description: Leadership portfolio risk roll-up ACROSS ALL engagements (risk/sentiment + delivery velocity) as one dashboard. Not for a single engagement.
 ---
 
 # Portfolio Risk Roll-up

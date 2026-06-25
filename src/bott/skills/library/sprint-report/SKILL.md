@@ -1,6 +1,6 @@
 ---
 name: sprint-report
-description: Generate an engagement's sprint/status report from live Jira and publish it (Spin), sharing the link in Slack.
+description: Publish an engagement's FULL sprint report from live Jira — requires a Jira project key (e.g. PADI). Not for ad-hoc/custom one-pagers or scorecards.
 ---
 
 # Sprint Report

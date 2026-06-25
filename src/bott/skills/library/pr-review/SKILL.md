@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Review a GitHub PR (or re-review on a thread follow-up) — enqueue the review and let the engine post the verdict.
+description: Review a specific GitHub pull request — requires a PR URL or owner/repo#number. Not for release notes or general GitHub questions.
 ---
 
 # PR Review

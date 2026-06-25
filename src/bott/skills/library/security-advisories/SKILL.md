@@ -1,6 +1,6 @@
 ---
 name: security-advisories
-description: Post or answer the Drupal security-advisory digest (severity-grouped, CVEs, fix versions) — on a schedule or when someone asks "any new Drupal CVEs?".
+description: Drupal security-advisory digest (severity-grouped CVEs + fixes) — when asked about Drupal CVEs/advisories, or the scheduled daily digest.
 ---
 
 # Drupal Security Advisories
