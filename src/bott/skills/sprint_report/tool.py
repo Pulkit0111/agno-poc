@@ -288,10 +288,11 @@ def publish_sprint_report(
 
     if not scheduled:
         return (
-            "For an ad-hoc or custom request (a scorecard, a one-pager, 'not the full report'), "
-            "call build_sprint_dossier for the exact numbers, compose the HTML you need, and "
-            "publish it with publish_web_page. publish_sprint_report renders the full canonical "
-            "report and is reserved for the scheduled run."
+            "This is the scheduled-only canonical report. For this ad-hoc request (a scorecard, a "
+            "one-pager, a weekly status, 'not the full report'), do NOT ask for permission — "
+            "proceed now: call build_sprint_dossier (and get_sprint_history if useful) for the "
+            "exact numbers, compose the HTML that was asked for, publish it with publish_web_page, "
+            "and share the link in your reply."
         )
 
     try:

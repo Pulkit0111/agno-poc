@@ -45,13 +45,13 @@ def test_github_tools_absent_without_token(monkeypatch):
     assert not github_toolkits, "GithubTools must NOT be added when no token is configured"
 
 
-def test_skill_instructions_no_must_load():
+def test_skill_instructions_balanced_selection():
+    """Forcing on a MATCH (so saved skills get reused), but anti-force-fit when none matches."""
     from bott.agents.bott_agent import SKILL_INSTRUCTIONS
 
     combined = " ".join(SKILL_INSTRUCTIONS)
-    assert "MUST load" not in combined, (
-        "SKILL_INSTRUCTIONS must not contain 'MUST load' — use balanced skill-selection wording"
-    )
+    assert "MUST load" in combined, "must force loading a MATCHING skill (so saved skills get reused)"
+    assert "near-miss" in combined, "must keep the anti-force-fit clause for non-matching tasks"
 
 
 def test_agent_retains_more_history():

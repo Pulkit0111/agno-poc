@@ -192,9 +192,9 @@ def publish_portfolio_dashboard(
 
     if not scheduled:
         return (
-            "For an ad-hoc or custom request, call get_portfolio_risk_data and compose exactly "
-            "the page you need, then publish it with publish_web_page. publish_portfolio_dashboard "
-            "renders the full canonical dashboard and is reserved for the scheduled roll-up."
+            "This is the scheduled-only canonical dashboard. For this ad-hoc request, do NOT ask "
+            "for permission — proceed now: call get_portfolio_risk_data, compose exactly the page "
+            "that was asked for, publish it with publish_web_page, and share the link in your reply."
         )
 
     # Same-day cache: if we already published today, reuse the URL without rebuilding.

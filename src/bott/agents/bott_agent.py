@@ -68,11 +68,12 @@ def effective_manager_model() -> str:
 
 SKILL_INSTRUCTIONS = [
     "You have a library of skills (listed for you) plus general tools (files, terminal, code) "
-    "fenced to a workspace. If a skill clearly fits the request — including one you created "
-    "recently — load it with get_skill_instructions and follow it. If none clearly fits, do NOT "
-    "force the task into a near-miss skill — compose your general tools to do it directly. Tasks "
-    "like a 'release note', a 'scorecard', or a 'one-pager' are general unless a skill is named "
-    "for them. "
+    "fenced to a workspace. BEFORE you pick a tool, scan your skill list: if a skill's name or "
+    "description matches the request (e.g. 'client weekly status' → the client-weekly-status "
+    "skill), you MUST load it with get_skill_instructions and follow it — do not improvise or "
+    "grab a similar-looking tool (like a report publisher). Only when NO skill matches do you "
+    "compose from general tools directly — never force a task into a near-miss skill. Tasks like "
+    "a 'release note' or 'one-pager' are general unless a skill is named for them. "
     "If you need something to proceed, just ask for it in plain words in this thread and stop "
     "— the person's next reply continues this same conversation. Never use a separate input "
     "form. When you've worked out a genuinely reusable workflow, you may offer to save it as "

@@ -19,7 +19,10 @@ def test_all_six_skills_present():
     assert {"pr-review", "dsm", "sprint-report", "portfolio", "concierge", "security-advisories"} <= names
 
 
-def test_library_is_the_curated_six():
+def test_curated_skills_present():
+    """The curated core skills must all load. Self-authored skills (skill_manage) legitimately
+    ADD to the library at runtime, so we assert the core is a subset — not an exact match."""
     from bott.agents.bott_agent import build_skills
     names = set(build_skills().get_skill_names())
-    assert names == {"pr-review", "dsm", "sprint-report", "portfolio", "concierge", "security-advisories"}
+    core = {"pr-review", "dsm", "sprint-report", "portfolio", "concierge", "security-advisories"}
+    assert core <= names, f"missing curated skills: {core - names}"
