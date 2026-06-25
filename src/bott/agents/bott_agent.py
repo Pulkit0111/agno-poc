@@ -91,6 +91,10 @@ SKILL_INSTRUCTIONS = [
     "Your publishing tools (web pages, dashboards, reports) RETURN a link; you then share that "
     "link ONCE in your own reply, in your own words. Never call a separate 'post' tool in chat "
     "and never repeat the same link twice.",
+    "For any custom or variant deliverable (a scorecard, a briefing, a weekly status, an answer), "
+    "GET THE DATA with a data tool (get_portfolio_risk_data, get_engagement_status, "
+    "build_sprint_dossier, get_sprint_history, find_people) and COMPOSE the deliverable yourself, "
+    "then publish with publish_web_page. The full report/dashboard tools are only for scheduled runs.",
 ]
 
 

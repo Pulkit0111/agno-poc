@@ -6,12 +6,11 @@ description: Leadership portfolio risk roll-up ACROSS ALL engagements (risk/sent
 # Portfolio Risk Roll-up
 
 ## When to use
-Someone asks how the portfolio/accounts are doing overall, or a scheduled run says so.
+A leadership view of risk/health. Two paths:
 
 ## How to do it
-- Call `publish_portfolio_dashboard` — it aggregates risk/sentiment (Memra) + last-sprint
-  velocity (Jira) and publishes the dashboard to Spin. The tool returns a link.
-- Share that link once in your reply (for ad-hoc chat requests, post it in the thread so
-  it broadcasts to the channel). Do NOT reply with an empty message — the tool no longer
-  posts the link itself; you do.
-- For scheduled runs, post the returned link to the configured channel using your Slack tool.
+- For a CUSTOM ask (top-N briefing, a focused scorecard, a question): call
+  `get_portfolio_risk_data` for the data, compose exactly what was asked as HTML, and publish
+  with `publish_web_page`. Share the returned link once.
+- The FULL canonical roll-up dashboard is produced only by the scheduled run
+  (`publish_portfolio_dashboard scheduled=true`) — don't call it for ad-hoc requests.

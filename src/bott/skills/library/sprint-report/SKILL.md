@@ -6,27 +6,11 @@ description: Publish an engagement's FULL sprint report from live Jira — requi
 # Sprint Report
 
 ## When to use
-Someone asks for an engagement's sprint report, or a scheduled run generates one. The
-engagement is named by its Jira project key or name (e.g. "PADI") — no setup needed.
+An engagement's sprint/delivery picture (needs a Jira project key, e.g. PADI).
 
 ## How to do it
-1. Call `build_sprint_dossier(engagement)` FIRST for the live Jira facts.
-2. Compose a report tailored to the engagement as `report_json` — a `{"sections":[blocks]}`
-   spec; pick the meaningful blocks (delivered / next-sprint tables, risks, highlights,
-   client actions, notes). Do NOT restate metrics or story lists — those render from Jira
-   automatically.
-3. Call `publish_sprint_report(engagement, report_json, channel='<channel_id>', ...)`. The
-   tool returns a link in its detail string.
-4. Share that link once in your reply:
-   - **Ad-hoc chat request**: post the link in-thread (with `thread_ts`) so it also
-     broadcasts to the channel. Do NOT reply with an empty message.
-   - **Scheduled run**: post the returned link to the configured channel using your Slack tool.
-- Use `list_sprint_report_engagements` to find the right key. Resolve the engagement's
-  Slack channel with your Memra tools (or use the current channel when asked ad-hoc).
-
-## Custom artifacts (scorecard / one-pager / "not the full report")
-For a CUSTOM artifact — a scorecard, executive one-pager, or any bespoke view that is NOT
-the standard sprint report — do NOT call `publish_sprint_report`. Instead:
-1. Call `build_sprint_dossier` for the exact numbers.
-2. Compose your own HTML tailored to that artifact.
-3. Publish it with `publish_web_page`.
+- For a CUSTOM ask (a scorecard, one-pager, "not the full report", a status/weekly update):
+  call `build_sprint_dossier` (and `get_sprint_history` for trends) for the exact numbers,
+  compose the HTML you need, and publish with `publish_web_page`. Share the link once.
+- The FULL canonical report is produced only by the scheduled run
+  (`publish_sprint_report scheduled=true`) — don't call it for ad-hoc requests.

@@ -17,3 +17,9 @@ def test_all_six_skills_present():
     skills = bott_agent.build_skills()
     names = set(skills.get_skill_names())
     assert {"pr-review", "dsm", "sprint-report", "portfolio", "concierge", "security-advisories"} <= names
+
+
+def test_library_is_the_curated_six():
+    from bott.agents.bott_agent import build_skills
+    names = set(build_skills().get_skill_names())
+    assert names == {"pr-review", "dsm", "sprint-report", "portfolio", "concierge", "security-advisories"}
