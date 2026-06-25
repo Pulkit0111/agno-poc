@@ -297,21 +297,6 @@ def publish_sprint_report(
         except Exception as e2:  # noqa: BLE001
             return f"Couldn't publish the report and the Slack fallback failed too ({e2})."
 
-    if result.mode == "spin" and result.url and channel:
-        try:
-            from slack_sdk import WebClient
-
-            token = os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")
-            if token:
-                WebClient(token=token).chat_postMessage(
-                    channel=channel,
-                    text=f"📊 *{title}* is ready: {result.url}",
-                    thread_ts=thread_ts or None, reply_broadcast=broadcast,
-                    unfurl_links=False, unfurl_media=False,
-                )
-        except Exception as e:  # noqa: BLE001 — the report is published; posting is best-effort
-            log.warning("posted report but Slack link post failed: %s", e)
-
     # Mark this sprint reported ONLY when it was genuinely published (a real Spin link) —
     # a Slack-draft fallback or a failed delivery must NOT block a later retry, otherwise a
     # one-off delivery failure permanently suppresses the report.

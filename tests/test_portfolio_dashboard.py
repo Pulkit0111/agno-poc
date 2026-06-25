@@ -81,6 +81,9 @@ def test_publish_builds_dashboard_and_returns_link(monkeypatch):
 
     monkeypatch.setattr(tool.history, "record_snapshot", lambda *a, **k: [])  # no real DB write
     monkeypatch.setattr(spin, "get_publisher", lambda: FakePub())
+    # Bypass the same-day cache so publish always runs
+    monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: None)
+    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
     out = tool.publish_portfolio_dashboard(channel="#leads", top_n=2)
     assert "Published to Spin" in out
     assert captured["slug"] == "bott-portfolio-risk-rollup"
@@ -89,9 +92,8 @@ def test_publish_builds_dashboard_and_returns_link(monkeypatch):
     assert '"engagements"' in html and "Acme" in html and "Beta" in html  # embedded live data
 
 
-def test_publish_posts_in_thread_and_broadcasts(monkeypatch):
-    """Ad-hoc: the tool posts the link itself in the thread AND broadcasts to the channel
-    (Slack 'Also send to channel'), so it works from any channel without naming one."""
+def test_publish_does_not_post_to_slack(monkeypatch):
+    """publish_portfolio_dashboard must NOT call _post_link — the agent posts the link."""
     monkeypatch.setattr(config, "memra_configured", lambda: True)
     monkeypatch.setattr(config, "jira_configured", lambda: False)
     monkeypatch.setattr(tool, "_engagements", lambda: _ENGS)
@@ -99,16 +101,33 @@ def test_publish_posts_in_thread_and_broadcasts(monkeypatch):
     monkeypatch.setattr(spin, "get_publisher",
                         lambda: type("P", (), {"publish": lambda s, *a, **k: PublishResult(
                             "spin", "https://x.public.spin.axelerant.tech/", "Published to Spin: …")})())
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-x")
-    posted = {}
+    # Bypass the same-day cache so publish always runs
+    monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: None)
+    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
 
-    import slack_sdk
-    monkeypatch.setattr(slack_sdk, "WebClient",
-                        lambda token=None: type("W", (), {"chat_postMessage": lambda s, **k: posted.update(k)})())
-    tool.publish_portfolio_dashboard(channel="C1", thread_ts="1782.45", broadcast=True)
-    assert posted["channel"] == "C1" and posted["thread_ts"] == "1782.45"
-    assert posted["reply_broadcast"] is True
-    assert "x.public.spin.axelerant.tech" in posted["text"]
+    def _raise(**k):
+        raise AssertionError("_post_link must not be called")
+
+    monkeypatch.setattr(tool, "_post_link", _raise)
+    # Should not raise even with channel/thread params
+    out = tool.publish_portfolio_dashboard(channel="C1", thread_ts="1782.45", broadcast=True)
+    assert "Published to Spin" in out
+
+
+def test_publish_returns_url_in_detail(monkeypatch):
+    """The detail string returned by the tool must contain the published URL."""
+    monkeypatch.setattr(config, "memra_configured", lambda: True)
+    monkeypatch.setattr(config, "jira_configured", lambda: False)
+    monkeypatch.setattr(tool, "_engagements", lambda: _ENGS)
+    monkeypatch.setattr(tool.history, "record_snapshot", lambda *a, **k: [])
+    monkeypatch.setattr(spin, "get_publisher",
+                        lambda: type("P", (), {"publish": lambda s, *a, **k: PublishResult(
+                            "spin", "https://x.public.spin.axelerant.tech/", "Published to Spin: https://x.public.spin.axelerant.tech/")})())
+    # Bypass the same-day cache so publish always runs
+    monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: None)
+    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
+    out = tool.publish_portfolio_dashboard()
+    assert "https://x.public.spin.axelerant.tech/" in out
 
 
 def test_summarize_rolls_up_to_account_worst_risk_weighted_sentiment_children():
@@ -169,10 +188,13 @@ def test_portfolio_reuses_url_same_day(monkeypatch):
                         lambda k, *a, **kw: '{"date": "2026-06-24", "url": "https://cached"}')
     built = {"n": 0}
     monkeypatch.setattr(t, "_build_html", lambda top_n: (built.__setitem__("n", built["n"] + 1), ("T", "<html>"))[1])
-    posted = {}
-    monkeypatch.setattr(t, "_post_link", lambda **k: posted.update(k))
+
+    def _no_post(**k):
+        raise AssertionError("_post_link must not be called on cache-hit path")
+
+    monkeypatch.setattr(t, "_post_link", _no_post)
     out = t.publish_portfolio_dashboard(channel="C1", thread_ts="1.2", broadcast=True)
-    assert built["n"] == 0 and "https://cached" in out  # no rebuild, reused URL
+    assert built["n"] == 0 and "https://cached" in out  # no rebuild, reused URL, no post
 
 
 # --- scheduling -----------------------------------------------------------------

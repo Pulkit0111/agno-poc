@@ -1,6 +1,6 @@
 ---
 name: portfolio
-description: Publish the leadership portfolio risk roll-up (risk/sentiment + velocity) as a dashboard and post the link.
+description: Publish the leadership portfolio risk roll-up (risk/sentiment + velocity) as a dashboard and share the link.
 ---
 
 # Portfolio Risk Roll-up
@@ -10,8 +10,8 @@ Someone asks how the portfolio/accounts are doing overall, or a scheduled run sa
 
 ## How to do it
 - Call `publish_portfolio_dashboard` — it aggregates risk/sentiment (Memra) + last-sprint
-  velocity (Jira), publishes the dashboard to Spin, and posts the link itself.
-- For an ad-hoc chat request, pass `channel='<the Slack channel_id from context>'`,
-  `thread_ts='<the Slack thread_ts from context>'` and `broadcast=true` — the tool posts the
-  link in that thread AND on the channel — then reply with an EMPTY message (no text), since
-  the tool already posted it. (Scheduled runs pass only the channel.)
+  velocity (Jira) and publishes the dashboard to Spin. The tool returns a link.
+- Share that link once in your reply (for ad-hoc chat requests, post it in the thread so
+  it broadcasts to the channel). Do NOT reply with an empty message — the tool no longer
+  posts the link itself; you do.
+- For scheduled runs, post the returned link to the configured channel using your Slack tool.

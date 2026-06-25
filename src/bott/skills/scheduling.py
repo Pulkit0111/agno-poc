@@ -195,9 +195,9 @@ def create_portfolio_dashboard(db: Any, *, channel: str, cron: str, timezone: st
     'portfolio' scope, isolated like every other run."""
     message = (
         "It's the scheduled portfolio risk roll-up. Call your publish_portfolio_dashboard tool "
-        f"with channel='{channel}'. That tool aggregates risk/sentiment and delivery velocity, "
-        "renders the dashboard, publishes it to Spin, and posts the link itself — do not add any "
-        "other commentary."
+        f"with channel='{channel}'. That tool aggregates risk/sentiment and delivery velocity "
+        "and renders the dashboard — the tool returns a link; then post that link to channel "
+        f"'{channel}' using your Slack tool. Do not add any other commentary."
     )
     return _mgr(db).create(
         name="portfolio-dashboard:risk-rollup",
@@ -231,9 +231,9 @@ def create_sprint_report(
     Scoped by engagement so the run is isolated like every other."""
     key = engagement.upper()
     channel_step = (
-        f"post it to channel '{channel}'"
+        f"post that link to channel '{channel}' using your Slack tool"
         if channel
-        else "resolve this engagement's Slack channel with your Memra tools and post the link there"
+        else "resolve this engagement's Slack channel with your Memra tools and post the link there using your Slack tool"
     )
     message = (
         f"It's the scheduled sprint report for the '{key}' engagement. First call "
@@ -241,7 +241,8 @@ def create_sprint_report(
         "a report tailored to this engagement (pick meaningful blocks: delivered/next-sprint "
         "tables, risks & blockers from the incomplete/carry-over items, highlights, and client "
         "actions including the UAT/board link) and call publish_sprint_report with "
-        f"engagement='{key}', your report_json, only_if_new=true, and the channel. To deliver it, "
+        f"engagement='{key}', your report_json, only_if_new=true, and the channel. The tool "
+        "returns a link; then "
         f"{channel_step}. The "
         "only_if_new flag means it will quietly skip if this sprint was already reported — that's "
         "expected; just stop. Do not restate the metrics or story lists, and add no other commentary."

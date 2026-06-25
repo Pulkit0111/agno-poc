@@ -1,6 +1,6 @@
 ---
 name: sprint-report
-description: Generate an engagement's sprint/status report from live Jira and publish it (Spin), posting the link to Slack.
+description: Generate an engagement's sprint/status report from live Jira and publish it (Spin), sharing the link in Slack.
 ---
 
 # Sprint Report
@@ -15,9 +15,18 @@ engagement is named by its Jira project key or name (e.g. "PADI") — no setup n
    spec; pick the meaningful blocks (delivered / next-sprint tables, risks, highlights,
    client actions, notes). Do NOT restate metrics or story lists — those render from Jira
    automatically.
-3. Publish:
-   - **Ad-hoc chat request**: call `publish_sprint_report(engagement, report_json, channel='<channel_id>', thread_ts='<thread_ts from context>', broadcast=true)` — posts in-thread AND broadcasts to the channel. Then reply with an EMPTY message (the link post IS the reply).
-   - **Scheduled run**: call `publish_sprint_report(engagement, report_json, channel='<channel_id>')` — only the channel is needed.
+3. Call `publish_sprint_report(engagement, report_json, channel='<channel_id>', ...)`. The
+   tool returns a link in its detail string.
+4. Share that link once in your reply:
+   - **Ad-hoc chat request**: post the link in-thread (with `thread_ts`) so it also
+     broadcasts to the channel. Do NOT reply with an empty message.
+   - **Scheduled run**: post the returned link to the configured channel using your Slack tool.
 - Use `list_sprint_report_engagements` to find the right key. Resolve the engagement's
   Slack channel with your Memra tools (or use the current channel when asked ad-hoc).
-- Report back the published URL (or draft status) and nothing else.
+
+## Custom artifacts (scorecard / one-pager / "not the full report")
+For a CUSTOM artifact — a scorecard, executive one-pager, or any bespoke view that is NOT
+the standard sprint report — do NOT call `publish_sprint_report`. Instead:
+1. Call `build_sprint_dossier` for the exact numbers.
+2. Compose your own HTML tailored to that artifact.
+3. Publish it with `publish_web_page`.

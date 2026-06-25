@@ -141,6 +141,31 @@ def test_failed_delivery_does_not_mark_sprint_reported(monkeypatch):
     assert saved == {}  # marker NOT set — a later run can retry
 
 
+def test_sprint_report_does_not_post_to_slack(monkeypatch):
+    """publish_sprint_report must NOT call chat_postMessage — the agent posts the link."""
+    monkeypatch.setattr(config, "jira_configured", lambda: True)
+    monkeypatch.setattr(tool, "_resolve_engagement", lambda q: _eng())
+    monkeypatch.setattr(tool, "_build_dossier", lambda e: _dossier())
+    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
+
+    class FakePub:
+        def publish(self, slug, title, html, channel=""):
+            return PublishResult(mode="spin", url="https://x", detail="Published to Spin: https://x")
+
+    monkeypatch.setattr(tool, "get_publisher", lambda: FakePub())
+
+    import slack_sdk
+
+    def _boom(token=None):
+        raise AssertionError("WebClient must not be instantiated — tool must not post to Slack")
+
+    monkeypatch.setattr(slack_sdk, "WebClient", _boom)
+    detail = tool.publish_sprint_report(
+        "PADI", '{"sections": []}', channel="#padi", thread_ts="1.2", broadcast=True
+    )
+    assert "Published to Spin" in detail
+
+
 def test_sprint_report_posts_in_thread(monkeypatch):
     import inspect
 

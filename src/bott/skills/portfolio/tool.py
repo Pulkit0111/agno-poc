@@ -190,8 +190,6 @@ def publish_portfolio_dashboard(
             cached = json.loads(raw)
             if cached.get("date") == _today() and cached.get("url"):
                 url = cached["url"]
-                _post_link(channel=channel, text=f"📊 *Portfolio Risk Roll-up* is ready: {url}",
-                           thread_ts=thread_ts, broadcast=broadcast)
                 return f"Portfolio dashboard already published today: {url}"
     except Exception as e:  # noqa: BLE001 — cache read is best-effort; proceed to rebuild
         log.warning("portfolio cache read failed, rebuilding: %s", e)
@@ -224,8 +222,6 @@ def publish_portfolio_dashboard(
             store.set_setting(_CACHE_KEY, json.dumps({"date": _today(), "url": result.url}))
         except Exception as e:  # noqa: BLE001 — cache write is best-effort
             log.warning("portfolio cache write failed: %s", e)
-        _post_link(channel=channel, text=f"📊 *{title}* is ready: {result.url}",
-                   thread_ts=thread_ts, broadcast=broadcast)
 
     return result.detail
 

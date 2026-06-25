@@ -9,9 +9,8 @@ description: Post or answer the Drupal security-advisory digest (severity-groupe
 A scheduled daily digest, or someone asking about new Drupal security advisories / CVEs.
 
 ## How to do it
-- Use your `drupal_security_advisories` tool to fetch the latest digest.
-- When a scheduled run tells you to post the digest verbatim, post the tool's output
-  exactly — do not rewrite it.
-- To post to a specific channel with link previews disabled, use
-  `post_drupal_security_advisories(channel=...)` (the plain Slack post tool would unfurl
-  every advisory URL).
+- **In chat**: use your `drupal_security_advisories` tool to fetch the latest digest, then
+  reply with it directly. Do NOT call `post_drupal_security_advisories` for chat responses.
+- **Scheduled runs**: call `post_drupal_security_advisories(channel=...)` — that tool
+  fetches the advisories and posts the digest to the channel (link previews disabled).
+  Do not post anything else or add commentary.
