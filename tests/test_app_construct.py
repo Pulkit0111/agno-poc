@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 
+def test_skill_instructions_no_must_load():
+    from bott.agents.bott_agent import SKILL_INSTRUCTIONS
+
+    combined = " ".join(SKILL_INSTRUCTIONS)
+    assert "MUST load" not in combined, (
+        "SKILL_INSTRUCTIONS must not contain 'MUST load' — use balanced skill-selection wording"
+    )
+
+
 def test_agent_retains_more_history():
     from bott.agents.bott_agent import build_bott_agent
     a = build_bott_agent()

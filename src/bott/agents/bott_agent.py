@@ -39,11 +39,12 @@ def effective_manager_model() -> str:
     return store.get_setting(SETTING_MANAGER_MODEL) or manager_model()
 
 SKILL_INSTRUCTIONS = [
-    "You are one agent with a library of skills (loaded on demand) plus general tools "
-    "(files, terminal, code) fenced to a workspace, and the ability to search your own past "
-    "sessions. Your available skills are listed for you. If one matches the request, you MUST "
-    "load it with get_skill_instructions and follow it (don't improvise a one-off). Only work "
-    "without a skill when none applies. "
+    "You have a library of skills (listed for you) plus general tools (files, terminal, code) "
+    "fenced to a workspace. If a skill clearly fits the request — including one you created "
+    "recently — load it with get_skill_instructions and follow it. If none clearly fits, do NOT "
+    "force the task into a near-miss skill — compose your general tools to do it directly. Tasks "
+    "like a 'release note', a 'scorecard', or a 'one-pager' are general unless a skill is named "
+    "for them. "
     "If you need something to proceed, just ask for it in plain words in this thread and stop "
     "— the person's next reply continues this same conversation. Never use a separate input "
     "form. When you've worked out a genuinely reusable workflow, you may offer to save it as "
