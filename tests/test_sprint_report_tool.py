@@ -166,6 +166,21 @@ def test_sprint_report_does_not_post_to_slack(monkeypatch):
     assert "Published to Spin" in detail
 
 
+def test_get_sprint_history_lists_recent_sprints(monkeypatch):
+    import bott.skills.sprint_report.tool as t
+    monkeypatch.setattr(t.config, "jira_configured", lambda: True)
+    class FakeClient:
+        def _sprints(self, board_id, state):
+            return [{"id": 1, "name": "Sprint 1"}, {"id": 2, "name": "Sprint 2"}, {"id": 3, "name": "Sprint 3"}]
+        def sprint_issues(self, sid):
+            return [{"is_done": True, "summary": "x"}]
+    eng = t.Engagement(client=FakeClient(), board_id=10, project_key="PADI", title="PADI",
+                       client_name="PADI", org="Axelerant", slug_tmpl="s", board_url="")
+    monkeypatch.setattr(t, "_resolve_engagement", lambda q: eng)
+    out = t.get_sprint_history("PADI", n=2)
+    assert "Sprint 3" in out and "Sprint 2" in out and "Sprint 1" not in out  # last 2 by id desc
+
+
 def test_sprint_report_posts_in_thread(monkeypatch):
     import inspect
 

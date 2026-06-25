@@ -221,6 +221,32 @@ def build_sprint_dossier(engagement: str) -> str:
     return "\n".join(lines)
 
 
+def get_sprint_history(engagement: str, n: int = 3) -> str:
+    """Last N CLOSED sprints' metrics (delivered stories, velocity) for an engagement, as
+    DATA — for trend/variance write-ups you compose yourself. ``engagement`` is a Jira project
+    key or name."""
+    if not config.jira_configured():
+        return "Jira isn't configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)."
+    try:
+        eng = _resolve_engagement(engagement)
+        if eng is None:
+            return _not_found(engagement)
+        closed = sorted(eng.client._sprints(eng.board_id, "closed"),
+                        key=lambda s: s.get("id") or 0, reverse=True)[: max(1, n)]
+        if not closed:
+            return f"No closed sprints on the {eng.project_key} board."
+        lines = [f"Last {len(closed)} closed sprint(s) for {eng.project_key}:"]
+        for s in closed:
+            m = render.compute_metrics(eng.client.sprint_issues(s["id"]))
+            pts = (f"{render._num(m.points_achieved)}/{render._num(m.points_planned)} pts, "
+                   f"velocity {m.velocity_pct}%") if m.has_points else "story points not tracked"
+            lines.append(f"- {s.get('name', 'Sprint')}: {m.stories_delivered} stories delivered, {pts}.")
+        return "\n".join(lines)
+    except Exception as e:  # noqa: BLE001
+        log.error("sprint history failed for %s: %s", engagement, e)
+        return f"Couldn't get sprint history for '{engagement}' ({e})."
+
+
 def publish_sprint_report(
     engagement: str, report_json: str, channel: str = "",
     thread_ts: str = "", broadcast: bool = False, only_if_new: bool = False
@@ -309,4 +335,4 @@ def publish_sprint_report(
 
 
 def sprint_report_tools() -> list[Callable]:
-    return [list_sprint_report_engagements, build_sprint_dossier, publish_sprint_report]
+    return [list_sprint_report_engagements, build_sprint_dossier, get_sprint_history, publish_sprint_report]
