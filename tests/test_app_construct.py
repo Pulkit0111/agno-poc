@@ -14,6 +14,15 @@ def test_github_tools_present_with_token(monkeypatch):
     github_toolkits = [t for t in (a.tools or []) if isinstance(t, GithubTools)]
     assert github_toolkits, "Expected a GithubTools instance in agent.tools when GITHUB_TOKEN is set"
 
+    # Allowlist enforcement: a known write tool must be absent; a known read tool must be present.
+    gh = github_toolkits[0]
+    assert "create_pull_request" not in gh.functions, (
+        "create_pull_request (write) must NOT be exposed — GithubTools is allowlist-only"
+    )
+    assert "get_pull_request" in gh.functions, (
+        "get_pull_request (read) must be exposed via the allowlist"
+    )
+
 
 def test_github_tools_absent_without_token(monkeypatch):
     """Agent constructs safely with no GitHub token — GithubTools must not be added."""

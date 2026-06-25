@@ -33,6 +33,33 @@ from bott.skills.sprint_report import sprint_report_tools
 from bott.skills.web_publish import web_publish_tools
 from bott.skills.workspace_tools import build_workspace_tools
 
+# Explicit allowlist of read-only GithubTools functions exposed to the bot.
+# Using include_tools (allowlist) instead of exclude_tools (denylist) so that any
+# future write tools added by agno are blocked by default, not silently exposed.
+_GITHUB_READ_TOOLS: list[str] = [
+    "search_repositories",
+    "list_repositories",
+    "get_repository",
+    "get_repository_languages",
+    "get_repository_stars",
+    "get_repository_with_stats",
+    "list_branches",
+    "get_pull_request",
+    "get_pull_request_changes",
+    "get_pull_request_comments",
+    "get_pull_request_count",
+    "get_pull_requests",
+    "get_pull_request_with_details",
+    "list_issues",
+    "get_issue",
+    "list_issue_comments",
+    "get_file_content",
+    "get_directory_content",
+    "get_branch_content",
+    "search_code",
+    "search_issues_and_prs",
+]
+
 
 def effective_manager_model() -> str:
     """The conversational model id: the persisted setting if present, else the env default."""
@@ -97,30 +124,10 @@ def build_bott_agent(db=None) -> Agent:
     if github_token:
         from agno.tools.github import GithubTools
 
-        _GITHUB_WRITE_TOOLS = [
-            "create_issue",
-            "create_repository",
-            "delete_repository",
-            "create_pull_request",
-            "create_pull_request_comment",
-            "edit_pull_request_comment",
-            "create_review_request",
-            "comment_on_issue",
-            "close_issue",
-            "reopen_issue",
-            "assign_issue",
-            "label_issue",
-            "edit_issue",
-            "create_file",
-            "update_file",
-            "delete_file",
-            "create_branch",
-            "set_default_branch",
-        ]
         tools.append(
             GithubTools(
                 access_token=github_token,
-                exclude_tools=_GITHUB_WRITE_TOOLS,
+                include_tools=_GITHUB_READ_TOOLS,
             )
         )
 
