@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from bott.shared import config
+from bott.shared.integrations.spin import get_publisher
 from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import store
 from bott.skills.portfolio import aggregate, dashboard, history
@@ -167,21 +168,34 @@ def _build_html(top_n: int) -> tuple[str, str]:
 
 
 def publish_portfolio_dashboard(
-    channel: str = "", thread_ts: str = "", broadcast: bool = False, top_n: int = 10
+    channel: str = "", thread_ts: str = "", broadcast: bool = False, top_n: int = 10,
+    scheduled: bool = False,
 ) -> str:
-    """Build the leadership portfolio risk roll-up — per-engagement risk & sentiment (Memra)
+    """Scheduled canonical portfolio risk roll-up — per-engagement risk & sentiment (Memra)
     plus last-sprint delivery velocity (Jira) for the most at-risk — render it as a hosted
     dashboard, publish to Spin, and RETURN the link. This tool does NOT post to Slack: share
     the returned link once in your own reply (a scheduled run posts it via your Slack tool).
+
+    For ad-hoc or custom requests, use get_portfolio_risk_data to get the raw data, compose
+    the page you need, and publish it with publish_web_page instead of calling this tool.
 
     Args:
         channel: Accepted for back-compat but unused — you share the returned link in your reply.
         thread_ts: Accepted for back-compat but unused.
         broadcast: Accepted for back-compat but unused.
         top_n: how many of the most at-risk engagements to detail + enrich with Jira velocity.
+        scheduled: set only by the scheduled roll-up; ad-hoc requests should compose from
+            get_portfolio_risk_data and publish with publish_web_page instead.
     """
     if not config.memra_configured():
         return "Memra isn't configured (set MEMRA_CLIENT_ID/SECRET) — the portfolio roll-up needs it."
+
+    if not scheduled:
+        return (
+            "For an ad-hoc or custom request, call get_portfolio_risk_data and compose exactly "
+            "the page you need, then publish it with publish_web_page. publish_portfolio_dashboard "
+            "renders the full canonical dashboard and is reserved for the scheduled roll-up."
+        )
 
     # Same-day cache: if we already published today, reuse the URL without rebuilding.
     try:
@@ -201,8 +215,6 @@ def publish_portfolio_dashboard(
     except Exception as e:  # noqa: BLE001
         log.error("portfolio dashboard build failed: %s", e)
         return f"Couldn't build the portfolio dashboard ({e})."
-
-    from bott.shared.integrations.spin import get_publisher
 
     publisher = get_publisher()
     try:

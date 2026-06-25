@@ -195,9 +195,9 @@ def create_portfolio_dashboard(db: Any, *, channel: str, cron: str, timezone: st
     'portfolio' scope, isolated like every other run."""
     message = (
         "It's the scheduled portfolio risk roll-up. Call your publish_portfolio_dashboard tool "
-        f"with channel='{channel}'. That tool aggregates risk/sentiment and delivery velocity "
-        "and renders the dashboard — the tool returns a link; then post that link to channel "
-        f"'{channel}' using your Slack tool. Do not add any other commentary."
+        f"with scheduled=true and channel='{channel}'. That tool aggregates risk/sentiment and "
+        "delivery velocity and renders the dashboard — the tool returns a link; then post that "
+        f"link to channel '{channel}' using your Slack tool. Do not add any other commentary."
     )
     return _mgr(db).create(
         name="portfolio-dashboard:risk-rollup",

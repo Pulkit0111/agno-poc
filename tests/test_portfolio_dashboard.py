@@ -5,7 +5,6 @@ from __future__ import annotations
 from agno.db.sqlite import SqliteDb
 
 from bott.shared import config
-from bott.shared.integrations import spin
 from bott.shared.integrations.spin import PublishResult
 from bott.skills.portfolio import aggregate, dashboard, tool
 
@@ -80,11 +79,11 @@ def test_publish_builds_dashboard_and_returns_link(monkeypatch):
             return PublishResult("spin", "https://x.public.spin.axelerant.tech/", "Published to Spin: https://x...")
 
     monkeypatch.setattr(tool.history, "record_snapshot", lambda *a, **k: [])  # no real DB write
-    monkeypatch.setattr(spin, "get_publisher", lambda: FakePub())
+    monkeypatch.setattr(tool, "get_publisher", lambda: FakePub())
     # Bypass the same-day cache so publish always runs
     monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: None)
     monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
-    out = tool.publish_portfolio_dashboard(channel="#leads", top_n=2)
+    out = tool.publish_portfolio_dashboard(channel="#leads", top_n=2, scheduled=True)
     assert "Published to Spin" in out
     assert captured["slug"] == "bott-portfolio-risk-rollup"
     html = captured["html"]
@@ -98,7 +97,7 @@ def test_publish_does_not_post_to_slack(monkeypatch):
     monkeypatch.setattr(config, "jira_configured", lambda: False)
     monkeypatch.setattr(tool, "_engagements", lambda: _ENGS)
     monkeypatch.setattr(tool.history, "record_snapshot", lambda *a, **k: [])
-    monkeypatch.setattr(spin, "get_publisher",
+    monkeypatch.setattr(tool, "get_publisher",
                         lambda: type("P", (), {"publish": lambda s, *a, **k: PublishResult(
                             "spin", "https://x.public.spin.axelerant.tech/", "Published to Spin: …")})())
     # Bypass the same-day cache so publish always runs
@@ -110,7 +109,7 @@ def test_publish_does_not_post_to_slack(monkeypatch):
 
     monkeypatch.setattr(tool, "_post_link", _raise)
     # Should not raise even with channel/thread params
-    out = tool.publish_portfolio_dashboard(channel="C1", thread_ts="1782.45", broadcast=True)
+    out = tool.publish_portfolio_dashboard(channel="C1", thread_ts="1782.45", broadcast=True, scheduled=True)
     assert "Published to Spin" in out
 
 
@@ -120,13 +119,13 @@ def test_publish_returns_url_in_detail(monkeypatch):
     monkeypatch.setattr(config, "jira_configured", lambda: False)
     monkeypatch.setattr(tool, "_engagements", lambda: _ENGS)
     monkeypatch.setattr(tool.history, "record_snapshot", lambda *a, **k: [])
-    monkeypatch.setattr(spin, "get_publisher",
+    monkeypatch.setattr(tool, "get_publisher",
                         lambda: type("P", (), {"publish": lambda s, *a, **k: PublishResult(
                             "spin", "https://x.public.spin.axelerant.tech/", "Published to Spin: https://x.public.spin.axelerant.tech/")})())
     # Bypass the same-day cache so publish always runs
     monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: None)
     monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
-    out = tool.publish_portfolio_dashboard()
+    out = tool.publish_portfolio_dashboard(scheduled=True)
     assert "https://x.public.spin.axelerant.tech/" in out
 
 
@@ -193,7 +192,7 @@ def test_portfolio_reuses_url_same_day(monkeypatch):
         raise AssertionError("_post_link must not be called on cache-hit path")
 
     monkeypatch.setattr(t, "_post_link", _no_post)
-    out = t.publish_portfolio_dashboard(channel="C1", thread_ts="1.2", broadcast=True)
+    out = t.publish_portfolio_dashboard(channel="C1", thread_ts="1.2", broadcast=True, scheduled=True)
     assert built["n"] == 0 and "https://cached" in out  # no rebuild, reused URL, no post
 
 
@@ -220,6 +219,29 @@ def test_get_portfolio_risk_data_returns_rows(monkeypatch):
     assert "PADI" in out and "Ironman" in out
     assert "high" in out and "8.0" in out  # numbers preserved, no rendering
     assert "<html" not in out.lower()       # data, not a page
+
+
+def test_portfolio_dashboard_refuses_adhoc(monkeypatch):
+    import bott.skills.portfolio.tool as t
+    monkeypatch.setattr(t.config, "memra_configured", lambda: True)
+    called = {"built": False}
+    monkeypatch.setattr(t, "_build_html", lambda top_n: (called.__setitem__("built", True), ("T", "<h>"))[1])
+    out = t.publish_portfolio_dashboard()  # ad-hoc, no scheduled flag
+    assert called["built"] is False
+    assert "get_portfolio_risk_data" in out and "publish_web_page" in out
+
+
+def test_portfolio_dashboard_builds_when_scheduled(monkeypatch):
+    import bott.skills.portfolio.tool as t
+    monkeypatch.setattr(t.config, "memra_configured", lambda: True)
+    monkeypatch.setattr(t, "_today", lambda: "2026-06-25")
+    monkeypatch.setattr(t.store, "get_setting", lambda *a, **k: None)
+    monkeypatch.setattr(t.store, "set_setting", lambda *a, **k: None)
+    monkeypatch.setattr(t, "_build_html", lambda top_n: ("Portfolio Risk Roll-up", "<html>x</html>"))
+    class R: mode="spin"; url="https://u"; detail="Published to Spin: https://u"
+    monkeypatch.setattr(t, "get_publisher", lambda: type("P", (), {"publish": lambda self, *a, **k: R()})(), raising=False)
+    out = t.publish_portfolio_dashboard(scheduled=True)
+    assert "https://u" in out
 
 
 def test_app_home_portfolio_wiring(monkeypatch, tmp_path):
