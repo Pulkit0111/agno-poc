@@ -16,6 +16,53 @@ from bott.shared.observability.logging_setup import get_logger
 log = get_logger("bott.skills.web_publish")
 
 
+def _brand_wrap(title: str, body_html: str) -> str:
+    """Wrap a bare HTML fragment in an Axelerant-branded full-document shell."""
+    safe_title = (title or "Page").replace("<", "&lt;").replace(">", "&gt;")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{safe_title}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+:root{{
+  --orange:#FF5C00;--navy:#0D1B2A;--navy2:#111827;
+  --off:#F1F3F5;--slate:#4B5563;--line:#e5e7eb;
+  --fh:'Inter',sans-serif;--fd:'Space Grotesk',sans-serif
+}}
+body{{font-family:var(--fh);background:var(--off);color:var(--navy2);min-height:100vh}}
+.ax-header{{
+  background:var(--navy);color:#fff;padding:14px 28px;
+  display:flex;align-items:center;gap:12px;
+  border-bottom:3px solid var(--orange)
+}}
+.ax-header .ax-logo{{
+  font-family:var(--fd);font-weight:700;font-size:1.15rem;letter-spacing:-.01em;
+  color:#fff;text-decoration:none
+}}
+.ax-header .ax-logo span{{color:var(--orange)}}
+.ax-header .ax-title{{
+  font-size:.875rem;font-weight:500;color:rgba(255,255,255,.65);
+  border-left:1px solid rgba(255,255,255,.2);padding-left:12px;margin-left:4px
+}}
+.ax-content{{max-width:960px;margin:32px auto;padding:0 24px 48px}}
+</style>
+</head>
+<body>
+<header class="ax-header">
+  <a class="ax-logo" href="#">Axelerant<span>.</span></a>
+  <span class="ax-title">{safe_title}</span>
+</header>
+<main class="ax-content">
+{body_html}
+</main>
+</body>
+</html>"""
+
+
 def _slug(name: str) -> str:
     s = re.sub(r"[^a-z0-9-]", "-", (name or "page").strip().lower()).strip("-") or "page"
     return f"bott-{s}"[:32].rstrip("-")
@@ -56,6 +103,9 @@ def publish_web_page(
             html = f.read()
     if not html.strip():
         return "Nothing to publish — give me HTML or a workspace .html file."
+    html_stripped = html.strip()
+    if not re.search(r"<!doctype|<html", html_stripped[:200], re.IGNORECASE):
+        html = _brand_wrap(name or "Page", html_stripped)
     slug, title = _slug(name), (name or "Page")
     try:
         result = get_publisher().publish(slug, title, html, channel=channel)
