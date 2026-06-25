@@ -44,9 +44,9 @@ def publish_web_page(
         name: A short title for the page (used for the URL and the heading).
         html: The full HTML source. Provide this OR workspace_file.
         workspace_file: Name of a .html file you wrote in your workspace to publish instead.
-        channel: Slack channel id to post the link to (optional).
-        thread_ts: post the link in this thread (optional).
-        broadcast: with thread_ts, also surface it on the channel (use true for ad-hoc chat).
+        channel: Accepted for back-compat but unused — the agent shares the link in its reply.
+        thread_ts: Accepted for back-compat but unused.
+        broadcast: Accepted for back-compat but unused.
     """
     if workspace_file and not html:
         path = os.path.join(config.bott_workspace_dir(), os.path.basename(workspace_file))
@@ -68,12 +68,8 @@ def publish_web_page(
             result = SlackDraftPublisher(token).publish(slug, title, html, channel=channel)
         except Exception as e2:  # noqa: BLE001
             return f"Couldn't publish the page ({e2})."
-    if result.mode == "spin" and result.url and channel:
-        try:
-            _post_link(channel=channel, text=f"🔗 *{title}* is live: {result.url}",
-                       thread_ts=thread_ts, broadcast=broadcast)
-        except Exception as e:  # noqa: BLE001 — published; posting is best-effort
-            log.warning("published page but link post failed: %s", e)
+    if result.url:
+        return f"Published: {result.url} — share this link with the user."
     return result.detail
 
 
