@@ -5,6 +5,12 @@ from typing import Callable
 
 
 def connector_tools() -> list[Callable]:
+    from .confluence_read import confluence_read_tools
     from .jira_read import jira_read_tools
+    from .slack_read import slack_read_tools
 
-    return list(jira_read_tools())
+    tools: list = []
+    tools += jira_read_tools()
+    tools += confluence_read_tools()
+    tools += slack_read_tools()
+    return tools

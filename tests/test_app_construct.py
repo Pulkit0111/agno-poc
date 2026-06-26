@@ -60,6 +60,25 @@ def test_agent_retains_more_history():
     assert (a.num_history_runs or 0) >= 15
 
 
+def test_agent_constructs_without_connector_creds(monkeypatch):
+    """build_bott_agent() must construct safely when no connector creds are present."""
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("SLACK_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("BOTT_POC_GITHUB_TOKEN", raising=False)
+    import bott.skills.connectors.jira_read as jr
+    import bott.skills.connectors.confluence_read as cr
+    from bott.shared import config as shared_config
+    monkeypatch.setattr(jr.config, "jira_configured", lambda: False)
+    monkeypatch.setattr(cr.config, "confluence_configured", lambda: False)
+    monkeypatch.setattr(shared_config, "_gh_cli_token", lambda: None)
+    import importlib
+    from bott.agents import bott_agent
+    importlib.reload(bott_agent)
+    a = bott_agent.build_bott_agent()
+    assert a.id == "bott"
+
+
 def test_app_constructs(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     from bott.interfaces import app

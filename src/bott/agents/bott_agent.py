@@ -25,6 +25,7 @@ from bott.shared.config import (
 from bott.shared.context import MemraClient, make_memra_tools
 from bott.shared.model import build_model
 from bott.skills.advisories import security_tools
+from bott.skills.connectors import connector_tools
 from bott.skills.dsm import dsm_tools
 from bott.skills.engagement_data import engagement_data_tools
 from bott.skills.portfolio import portfolio_tools
@@ -118,6 +119,7 @@ def build_bott_agent(db=None) -> Agent:
     tools.extend(portfolio_tools())  # Portfolio risk roll-up: Memra + Jira → leadership dashboard
     tools.extend(web_publish_tools())  # General Spin deploy: any HTML → public URL
     tools.extend(engagement_data_tools())  # Engagement status + people lookup (Memra-grounded DATA)
+    tools.extend(connector_tools())  # read-only shared connectors (Jira/Confluence/Slack-thread)
     if memra_configured():
         tools.extend(make_memra_tools(MemraClient()))
     slack_token = os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")
