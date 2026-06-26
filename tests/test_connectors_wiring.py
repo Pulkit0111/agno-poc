@@ -4,9 +4,8 @@ from bott.skills import connectors
 
 
 def test_aggregator_gates_all_off(monkeypatch):
-    import bott.skills.connectors.jira_read as jr
     import bott.skills.connectors.confluence_read as cr
-    import bott.skills.connectors.slack_read as sr
+    import bott.skills.connectors.jira_read as jr
     monkeypatch.setattr(jr.config, "jira_configured", lambda: False)
     monkeypatch.setattr(cr.config, "confluence_configured", lambda: False)
     monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
@@ -15,8 +14,8 @@ def test_aggregator_gates_all_off(monkeypatch):
 
 
 def test_aggregator_includes_slack_when_token_present(monkeypatch):
-    import bott.skills.connectors.jira_read as jr
     import bott.skills.connectors.confluence_read as cr
+    import bott.skills.connectors.jira_read as jr
     monkeypatch.setattr(jr.config, "jira_configured", lambda: False)
     monkeypatch.setattr(cr.config, "confluence_configured", lambda: False)
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-x")

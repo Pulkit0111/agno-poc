@@ -66,13 +66,14 @@ def test_agent_constructs_without_connector_creds(monkeypatch):
     monkeypatch.delenv("SLACK_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("BOTT_POC_GITHUB_TOKEN", raising=False)
-    import bott.skills.connectors.jira_read as jr
     import bott.skills.connectors.confluence_read as cr
+    import bott.skills.connectors.jira_read as jr
     from bott.shared import config as shared_config
     monkeypatch.setattr(jr.config, "jira_configured", lambda: False)
     monkeypatch.setattr(cr.config, "confluence_configured", lambda: False)
     monkeypatch.setattr(shared_config, "_gh_cli_token", lambda: None)
     import importlib
+
     from bott.agents import bott_agent
     importlib.reload(bott_agent)
     a = bott_agent.build_bott_agent()
