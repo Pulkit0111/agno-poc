@@ -23,6 +23,7 @@ dependencies = [
     "certifi==2026.5.20",
     "aiohttp>=3.10",
     "pygithub>=2.9.1",
+    "atlassian-python-api>=4.0.7",
 ]
 
 [project.optional-dependencies]

@@ -333,6 +333,27 @@ def jira_configured() -> bool:
     return bool(jira_base_url() and jira_email() and jira_api_token())
 
 
+def confluence_url() -> str | None:
+    """Confluence base — explicit CONFLUENCE_URL, else the Jira site + /wiki (same Atlassian Cloud)."""
+    v = os.getenv("CONFLUENCE_URL")
+    if v:
+        return v.rstrip("/")
+    base = jira_base_url()
+    return f"{base}/wiki" if base else None
+
+
+def confluence_username() -> str | None:
+    return os.getenv("CONFLUENCE_USERNAME") or jira_email()
+
+
+def confluence_api_key() -> str | None:
+    return os.getenv("CONFLUENCE_API_KEY") or jira_api_token()
+
+
+def confluence_configured() -> bool:
+    return bool(confluence_url() and confluence_username() and confluence_api_key())
+
+
 def jira_story_points_field() -> str | None:
     """Jira Cloud has ONE story-points custom field site-wide. Pin it here to skip
     auto-detection (e.g. JIRA_STORY_POINTS_FIELD=customfield_10016); when unset, the
