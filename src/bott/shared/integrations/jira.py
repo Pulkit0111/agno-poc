@@ -252,3 +252,18 @@ class JiraClient:
         if self.story_points_field:
             return f"{_ISSUE_FIELDS},{self.story_points_field}"
         return _ISSUE_FIELDS
+
+    def search_issues(self, query: str, limit: int = 15) -> list[dict]:
+        """Search issues by JQL, or free text (wrapped as a text~ JQL). Returns normalized
+        issue dicts. Read-only."""
+        q = (query or "").strip()
+        is_jql = any(op in q for op in ("=", "~", " AND ", " OR ", "ORDER BY", " IN "))
+        jql = q if is_jql else f'text ~ "{q}" ORDER BY updated DESC'
+        page = self._get("/rest/api/3/search",
+                         {"jql": jql, "maxResults": max(1, min(int(limit), 50)), "fields": _ISSUE_FIELDS})
+        return [normalize_issue(i, self.story_points_field) for i in page.get("issues", [])]
+
+    def get_issue(self, key: str) -> dict:
+        """Fetch one issue by key, normalized. Read-only."""
+        return normalize_issue(self._get(f"/rest/api/3/issue/{key}", {"fields": _ISSUE_FIELDS}),
+                               self.story_points_field)
