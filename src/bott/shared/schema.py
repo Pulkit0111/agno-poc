@@ -32,8 +32,8 @@ JOBS = Table(
     Column("dedup_key", Text),
     Column("error", Text),
     Column("created", Float, nullable=False),
-    Index("idx_jobs_pending", "status", "id"),
 )
+Index("idx_jobs_pending", JOBS.c.status, JOBS.c.id)
 
 # Human approval gate (shared/approvals.py owns the DML).
 APPROVALS = Table(

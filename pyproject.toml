@@ -28,6 +28,7 @@ dependencies = [
     "atlassian-python-api>=4.0.7",
     "croniter==6.2.2",
     "pytz==2026.2",
+    "alembic==1.18.5",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +50,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["migrations/"]
 
 [tool.ruff.lint]
 # Match the existing codebase style (already PEP8-ish); start lenient, tighten later.
