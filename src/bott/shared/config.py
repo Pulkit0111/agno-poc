@@ -308,11 +308,6 @@ def manager_base_url() -> str | None:
     return os.getenv("MANAGER_MODEL_BASE_URL") or None
 
 
-def manager_api_key() -> str | None:
-    """Key for the manager endpoint: an explicit override, else the standard OpenAI key."""
-    return os.getenv("MANAGER_MODEL_API_KEY") or os.getenv("OPENAI_API_KEY") or None
-
-
 # --- Jira (live sprint data for the sprint-report skill) ------------------------
 def jira_base_url() -> str | None:
     """Jira Cloud site, e.g. https://axelerant.atlassian.net (no trailing slash)."""

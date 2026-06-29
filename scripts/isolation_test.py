@@ -44,10 +44,10 @@ ALICE, BOB = "alice@axelerant.com", "bob@axelerant.com"
 # ---------------------------------------------------------------------------
 
 def _store_token(user_id: str, provider: str, plaintext: str) -> None:
+    from bott.shared.schema import init_schema
+    init_schema()
     box = SecretBox.from_env()
     with get_engine().begin() as c:
-        c.execute(text("CREATE TABLE IF NOT EXISTS connector_tokens "
-                       "(user_id TEXT, provider TEXT, token TEXT)"))
         c.execute(text("INSERT INTO connector_tokens(user_id,provider,token) "
                        "VALUES (:u,:p,:t)"),
                   {"u": user_id, "p": provider, "t": box.encrypt(plaintext)})

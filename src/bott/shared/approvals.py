@@ -15,19 +15,8 @@ log = get_logger("bott.approvals")
 
 
 def init_approvals() -> None:
-    pk = "SERIAL PRIMARY KEY" if get_engine().url.get_backend_name().startswith("postgre") else "INTEGER PRIMARY KEY AUTOINCREMENT"
-    with get_engine().begin() as c:
-        c.execute(text(f"""
-            CREATE TABLE IF NOT EXISTS approvals (
-                id {pk},
-                user_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                decided_by TEXT,
-                created DOUBLE PRECISION NOT NULL
-            )
-        """))
+    from bott.shared.schema import init_schema
+    init_schema()
 
 
 def create_request(user_id: str, action: str, summary: str) -> int:

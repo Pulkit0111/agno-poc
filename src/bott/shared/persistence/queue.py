@@ -27,28 +27,8 @@ def _is_postgres() -> bool:
 
 
 def init_queue() -> None:
-    ddl = """
-    CREATE TABLE IF NOT EXISTS jobs (
-        id INTEGER PRIMARY KEY {autoinc},
-        kind TEXT NOT NULL,
-        args TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        attempts INTEGER NOT NULL DEFAULT 0,
-        dedup_key TEXT,
-        error TEXT,
-        created DOUBLE PRECISION NOT NULL
-    )
-    """
-    autoinc = "" if _is_postgres() else "AUTOINCREMENT"
-    # Postgres needs SERIAL/identity; use a portable form per backend.
-    if _is_postgres():
-        ddl = ddl.replace("INTEGER PRIMARY KEY ", "SERIAL PRIMARY KEY ")
-    with get_engine().begin() as c:
-        c.execute(text(ddl.format(autoinc=autoinc)))
-        c.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_pending ON jobs(status, id)"
-        ))
+    from bott.shared.schema import init_schema
+    init_schema()
 
 
 def enqueue(kind: str, args: dict[str, Any], user_id: str,
