@@ -1,5 +1,3 @@
-import importlib
-
 from bott.shared import config
 
 

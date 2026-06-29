@@ -20,8 +20,8 @@ from bott.shared.config import (
     bott_model,
     memra_configured,
 )
-from bott.shared.identity import require_user_id
 from bott.shared.context import MemraClient, make_memra_tools
+from bott.shared.identity import require_user_id
 from bott.shared.model import build_model
 from bott.skills.advisories import security_tools
 from bott.skills.connectors import connector_tools

@@ -104,8 +104,12 @@ def main() -> None:
     # PR-review worker: runs the review engine for queued tasks (Slack mentions +
     # GitHub webhook) and posts verdicts. The handler lives in slack_app; the queue
     # primitives come straight from the store.
-    from bott.shared.persistence import queue
+    # Provision the Phase-2 foundation tables. NOTE: the Postgres job queue (shared/persistence/queue.py)
+    # is a split-ready SEAM — it is NOT yet the live PR-review path. The active worker below still runs on
+    # the SQLite store (shared/persistence/store.py). Cutting the PR-review worker over to the Postgres
+    # queue (and adding user_id to that path) is Phase-2 work.
     from bott.shared import approvals
+    from bott.shared.persistence import queue
     queue.init_queue()
     approvals.init_approvals()
 

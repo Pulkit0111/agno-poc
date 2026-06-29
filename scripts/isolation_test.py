@@ -25,6 +25,7 @@ os.environ.pop("DATABASE_URL", None)
 
 # Ensure BOTT_SECRET_KEY is set so the connector-token block runs standalone.
 from bott.shared.secrets import generate_key  # noqa: E402
+
 os.environ.setdefault("BOTT_SECRET_KEY", generate_key())
 
 from sqlalchemy import text  # noqa: E402
