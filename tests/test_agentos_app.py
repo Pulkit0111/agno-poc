@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 
 def _reload_app(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTOS_DB_PATH", str(tmp_path / "test.db"))
-    monkeypatch.setenv("REVIEW_DB_PATH", str(tmp_path / "store.db"))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     # Slack creds absent → the Slack interface + Home router stay unmounted (the app
     # constructs without them), which is what we want for a construction smoke test.

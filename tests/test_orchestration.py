@@ -75,6 +75,25 @@ def test_start_rereview_enqueues_rereview_task():
     assert job["user_id"] == "system@axelerant.com"
 
 
+def test_start_review_carries_run_context_user_id():
+    """Human-triggered reviews must carry the caller's user_id (not the system fallback),
+    so the queued job is attributed to the person who asked — the isolation-relevant path."""
+    from types import SimpleNamespace
+
+    token = set_review_target({"channel": "C1", "thread_ts": "t1", "trigger_ts": "x1"})
+    try:
+        start_review(
+            "https://github.com/octo/repo/pull/42",
+            run_context=SimpleNamespace(user_id="alice@axelerant.com", dependencies={}),
+        )
+    finally:
+        reset_review_target(token)
+
+    job = queue.claim_one()
+    assert job is not None
+    assert job["user_id"] == "alice@axelerant.com"  # caller's id, not system
+
+
 def test_start_review_without_target_queues_without_channel():
     msg = start_review("https://github.com/octo/repo/pull/42")
     assert "octo/repo#42" in msg
