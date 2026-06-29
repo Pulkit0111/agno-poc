@@ -418,3 +418,30 @@ def bott_shell_allowed_commands() -> list[str]:
     if raw:
         return [c.strip() for c in raw.split(",") if c.strip()]
     return list(_DEFAULT_SHELL_ALLOWLIST)
+
+
+# --- Foundation: model provider + per-role routing -----------------------------
+def model_provider() -> str:
+    """'codex' (dev proxy), 'bedrock', or 'openrouter' (prod). One global provider."""
+    return (os.getenv("MODEL_PROVIDER") or "codex").strip().lower()
+
+
+def role_model_id(role: str) -> str:
+    """Per-task model id. role='chat' (everyday) vs 'heavy' (implement/review).
+    Unknown roles fall back to the chat model."""
+    if role == "heavy":
+        return os.getenv("BOTT_HEAVY_MODEL") or bott_model()
+    return os.getenv("BOTT_CHAT_MODEL") or bott_model()
+
+
+def database_url() -> str | None:
+    return os.getenv("DATABASE_URL") or None
+
+
+def bott_secret_key() -> str | None:
+    """Fernet key for SecretBox (urlsafe base64, 32 bytes). Env in dev; vault/KMS later."""
+    return os.getenv("BOTT_SECRET_KEY") or None
+
+
+def openrouter_api_key() -> str | None:
+    return os.getenv("OPENROUTER_API_KEY") or None
