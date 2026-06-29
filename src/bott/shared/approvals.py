@@ -9,6 +9,9 @@ import time
 from sqlalchemy import text
 
 from bott.shared.db import get_engine
+from bott.shared.observability.logging_setup import get_logger
+
+log = get_logger("bott.approvals")
 
 
 def init_approvals() -> None:
@@ -38,9 +41,12 @@ def create_request(user_id: str, action: str, summary: str) -> int:
 
 def decide(approval_id: int, approved: bool, decided_by: str) -> None:
     with get_engine().begin() as c:
-        c.execute(text(
-            "UPDATE approvals SET status=:st, decided_by=:by WHERE id=:id"
+        res = c.execute(text(
+            "UPDATE approvals SET status=:st, decided_by=:by "
+            "WHERE id=:id AND status='pending'"
         ), {"st": "approved" if approved else "dismissed", "by": decided_by, "id": approval_id})
+        if res.rowcount == 0:
+            log.warning("approval %s not updated (not found or already decided)", approval_id)
 
 
 def status(approval_id: int) -> str:

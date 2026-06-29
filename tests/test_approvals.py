@@ -29,3 +29,8 @@ def test_wait_returns_immediately_when_decided(store):
     aid = approvals.create_request("u", "x", "y")
     approvals.decide(aid, approved=True, decided_by="u")
     assert approvals.wait_for_decision(aid, timeout=1.0, poll=0.05) == "approved"
+
+
+def test_wait_times_out_returns_pending(store):
+    aid = approvals.create_request("u", "x", "y")
+    assert approvals.wait_for_decision(aid, timeout=0.1, poll=0.05) == "pending"
