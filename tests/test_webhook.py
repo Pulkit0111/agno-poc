@@ -64,8 +64,10 @@ def test_opened_enqueues(client):
     a = json.loads(rows[0][0])
     assert a["source"] == "github" and a["number"] == 7 and a["post_github"] is True
     assert a["title"] == "feat: x" and a["author"] == "alice"
-    # webhook always uses the system user_id
-    assert rows[0][1] == "system@axelerant.com"
+    # Automated reviews carry a distinct synthetic actor (not a person, not the PR author —
+    # the author lives in the payload above). Distinct from the generic system fallback so
+    # audit can tell webhook-triggered reviews apart.
+    assert rows[0][1] == "system:github-webhook"
 
 
 def test_duplicate_delivery_skipped(client):

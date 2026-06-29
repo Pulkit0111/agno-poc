@@ -87,7 +87,7 @@ async def github_webhook(request: Request) -> Response:
         "channel": review_slack_channel(),  # mirror to Slack if configured
         "thread_ts": None, "trigger_ts": None,
         "post_github": True,
-    }, user_id="system@axelerant.com")
+    }, user_id="system:github-webhook")
     log.info("webhook: %s on %s/%s#%s -> review enqueued (delivery=%s)",
              action, owner, name, number, delivery)
     return Response(status_code=202, content="review enqueued")
