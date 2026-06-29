@@ -1,8 +1,7 @@
-"""SQLite-backed task queue + review trace store + thread index.
-
-Mirrors Bott's queue->worker->dispatch shape, scoped to the POC. The queue gives
-crash-visibility and serializes reviews; traces persist each review's output so a
-thread reply can drive an evidence-bound re-review.
+"""SQLite-backed task queue (legacy). The non-queue persistence (settings, dedup, review
+traces) has moved to shared/persistence/records.py backed by Postgres. This module retains
+only the queue primitives (Task, enqueue, next_pending, requeue, mark_done, recover_orphans,
+Worker, init_db) on SQLite until the queue cutover (Step B).
 """
 
 from __future__ import annotations
@@ -40,23 +39,6 @@ def init_db(db_file: Optional[str] = None) -> None:
                 created REAL NOT NULL,
                 error TEXT
             );
-            CREATE TABLE IF NOT EXISTS traces (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                channel TEXT, thread_ts TEXT,
-                owner TEXT, name TEXT, pr_number INTEGER,
-                original_verdict TEXT, final_verdict TEXT,
-                output_json TEXT, gate_json TEXT,
-                created REAL NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_traces_thread ON traces(channel, thread_ts, id);
-            CREATE TABLE IF NOT EXISTS github_deliveries (
-                delivery_id TEXT PRIMARY KEY,
-                created REAL NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS reviewed_commits (
-                repo_sha TEXT PRIMARY KEY,
-                created REAL NOT NULL
-            );
             """
         )
         # Migration: add attempts column to existing DBs.
@@ -64,66 +46,6 @@ def init_db(db_file: Optional[str] = None) -> None:
             c.execute("ALTER TABLE tasks ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # already present
-
-
-def _ensure_settings(c: sqlite3.Connection) -> None:
-    c.execute(
-        "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-    )
-
-
-def get_setting(key: str, default: Optional[str] = None, db_file: Optional[str] = None) -> Optional[str]:
-    """Read a shared setting (e.g. selected model). Cross-process: both the dashboard
-    and the Slack worker read/write the same row. Tolerant if the table doesn't exist."""
-    try:
-        with _conn(db_file) as c:
-            _ensure_settings(c)
-            row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-            return row["value"] if row else default
-    except sqlite3.Error:
-        return default
-
-
-def set_setting(key: str, value: str, db_file: Optional[str] = None) -> None:
-    with _lock, _conn(db_file) as c:
-        _ensure_settings(c)
-        c.execute(
-            "INSERT INTO settings(key, value) VALUES (?,?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, value),
-        )
-
-
-def seen_delivery(delivery_id: str, db_file: Optional[str] = None) -> bool:
-    """Record a GitHub webhook delivery id; return True if already seen (dedup)."""
-    if not delivery_id:
-        return False
-    with _lock, _conn(db_file) as c:
-        try:
-            c.execute(
-                "INSERT INTO github_deliveries(delivery_id, created) VALUES (?,?)",
-                (delivery_id, time.time()),
-            )
-            return False
-        except sqlite3.IntegrityError:
-            return True
-
-
-def seen_commit(owner: str, name: str, sha: str, db_file: Optional[str] = None) -> bool:
-    """Record an (owner/name, head-SHA) pair; return True if this exact commit was already
-    reviewed (dedup). Stops rapid repeated `synchronize` events re-reviewing one commit."""
-    if not (owner and name and sha):
-        return False
-    key = f"{owner}/{name}@{sha}".lower()
-    with _lock, _conn(db_file) as c:
-        try:
-            c.execute(
-                "INSERT INTO reviewed_commits(repo_sha, created) VALUES (?,?)",
-                (key, time.time()),
-            )
-            return False
-        except sqlite3.IntegrityError:
-            return True
 
 
 def recover_orphans(db_file: Optional[str] = None) -> int:
@@ -179,41 +101,6 @@ def mark_done(task_id: int, error: Optional[str] = None, db_file: Optional[str] 
             "UPDATE tasks SET status=?, error=? WHERE id=?",
             ("failed" if error else "done", error, task_id),
         )
-
-
-def save_trace(
-    *,
-    channel: str,
-    thread_ts: str,
-    owner: str,
-    name: str,
-    pr_number: int,
-    original_verdict: str,
-    final_verdict: str,
-    output_json: str,
-    gate_json: str,
-    db_file: Optional[str] = None,
-) -> int:
-    with _lock, _conn(db_file) as c:
-        cur = c.execute(
-            """INSERT INTO traces(channel, thread_ts, owner, name, pr_number,
-                 original_verdict, final_verdict, output_json, gate_json, created)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (
-                channel, thread_ts, owner, name, pr_number,
-                original_verdict, final_verdict, output_json, gate_json, time.time(),
-            ),
-        )
-        return int(cur.lastrowid)
-
-
-def latest_trace_for_thread(channel: str, thread_ts: str, db_file: Optional[str] = None) -> Optional[dict]:
-    with _conn(db_file) as c:
-        row = c.execute(
-            "SELECT * FROM traces WHERE channel=? AND thread_ts=? ORDER BY id DESC LIMIT 1",
-            (channel, thread_ts),
-        ).fetchone()
-        return dict(row) if row else None
 
 
 _MAX_ATTEMPTS = 3

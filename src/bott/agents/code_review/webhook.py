@@ -16,7 +16,8 @@ from fastapi import APIRouter, Request, Response
 
 from bott.shared.config import github_webhook_secret, review_slack_channel
 from bott.shared.observability.logging_setup import get_logger
-from bott.shared.persistence.store import enqueue, seen_commit, seen_delivery
+from bott.shared.persistence.records import seen_commit, seen_delivery
+from bott.shared.persistence.store import enqueue
 
 router = APIRouter()
 log = get_logger("review.webhook")

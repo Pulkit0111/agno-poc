@@ -15,7 +15,7 @@ from typing import Callable
 from bott.shared import config
 from bott.shared.integrations.spin import get_publisher
 from bott.shared.observability.logging_setup import get_logger
-from bott.shared.persistence import store
+from bott.shared.persistence import records
 from bott.skills.portfolio import aggregate, dashboard, history
 from bott.skills.sprint_report import render
 
@@ -199,7 +199,7 @@ def publish_portfolio_dashboard(
 
     # Same-day cache: if we already published today, reuse the URL without rebuilding.
     try:
-        raw = store.get_setting(_CACHE_KEY)
+        raw = records.get_setting(_CACHE_KEY)
         if raw:
             cached = json.loads(raw)
             if cached.get("date") == _today() and cached.get("url"):
@@ -231,7 +231,7 @@ def publish_portfolio_dashboard(
 
     if result.mode == "spin" and result.url:
         try:
-            store.set_setting(_CACHE_KEY, json.dumps({"date": _today(), "url": result.url}))
+            records.set_setting(_CACHE_KEY, json.dumps({"date": _today(), "url": result.url}))
         except Exception as e:  # noqa: BLE001 — cache write is best-effort
             log.warning("portfolio cache write failed: %s", e)
 

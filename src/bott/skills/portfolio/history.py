@@ -19,9 +19,9 @@ _CAP = 26  # weeks retained
 def load_history() -> list[dict]:
     """Past portfolio snapshot points, oldest-first. Empty list on any error."""
     try:
-        from bott.shared.persistence import store
+        from bott.shared.persistence import records
 
-        raw = store.get_setting(_KEY)
+        raw = records.get_setting(_KEY)
         data = json.loads(raw) if raw else []
         return data if isinstance(data, list) else []
     except Exception as e:  # noqa: BLE001 — history is best-effort
@@ -36,9 +36,9 @@ def record_snapshot(date_str: str, point: dict) -> list[dict]:
     hist.sort(key=lambda h: h.get("date", ""))
     hist = hist[-_CAP:]
     try:
-        from bott.shared.persistence import store
+        from bott.shared.persistence import records
 
-        store.set_setting(_KEY, json.dumps(hist))
+        records.set_setting(_KEY, json.dumps(hist))
     except Exception as e:  # noqa: BLE001 — never fail the dashboard over persistence
         log.warning("record portfolio history failed: %s", e)
     return hist

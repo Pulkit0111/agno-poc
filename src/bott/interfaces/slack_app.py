@@ -39,11 +39,11 @@ from bott.agents.code_review.core.pipeline import review_pr
 from bott.agents.code_review.core.rereview import build_prior_review, build_prior_review_text
 from bott.agents.code_review.core.verdict_gate import GateResult
 from bott.agents.code_review.rendering.slack import render_slack_review
-from bott.shared.persistence.store import (
-    Task,
+from bott.shared.persistence.records import (
     latest_trace_for_thread,
     save_trace,
 )
+from bott.shared.persistence.store import Task
 
 # Per-review budget from env (lean defaults so a run fits low OpenAI TPM tiers).
 REVIEW_BUDGET = default_budget()

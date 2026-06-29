@@ -7,7 +7,8 @@ def test_init_schema_creates_all_tables():
     engine = create_engine("sqlite://")  # in-memory
     init_schema(engine)
     names = set(inspect(engine).get_table_names())
-    assert {"jobs", "approvals", "connector_tokens"} <= names
+    assert {"jobs", "approvals", "connector_tokens",
+            "settings", "github_deliveries", "reviewed_commits", "review_traces"} <= names
 
 
 def test_connector_tokens_composite_pk():

@@ -35,18 +35,3 @@ def test_recover_orphans(temp_db):
     store.next_pending()  # -> running
     assert store.recover_orphans() == 1
     assert store.next_pending() is None  # orphan marked failed, not re-run
-
-
-def test_seen_delivery_dedup(temp_db):
-    assert store.seen_delivery("d1") is False
-    assert store.seen_delivery("d1") is True
-    assert store.seen_delivery("d2") is False
-
-
-def test_save_and_latest_trace(temp_db):
-    store.save_trace(channel="C1", thread_ts="t1", owner="o", name="r", pr_number=5,
-                     original_verdict="issues", final_verdict="issues",
-                     output_json="{}", gate_json="{}")
-    row = store.latest_trace_for_thread("C1", "t1")
-    assert row and row["pr_number"] == 5 and row["final_verdict"] == "issues"
-    assert store.latest_trace_for_thread("C1", "nope") is None

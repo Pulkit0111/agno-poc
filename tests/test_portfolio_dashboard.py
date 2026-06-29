@@ -81,8 +81,8 @@ def test_publish_builds_dashboard_and_returns_link(monkeypatch):
     monkeypatch.setattr(tool.history, "record_snapshot", lambda *a, **k: [])  # no real DB write
     monkeypatch.setattr(tool, "get_publisher", lambda: FakePub())
     # Bypass the same-day cache so publish always runs
-    monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: None)
-    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
+    monkeypatch.setattr(tool.records, "get_setting", lambda k, *a, **kw: None)
+    monkeypatch.setattr(tool.records, "set_setting", lambda *a, **k: None)
     out = tool.publish_portfolio_dashboard(channel="#leads", top_n=2, scheduled=True)
     assert "Published to Spin" in out
     assert captured["slug"] == "bott-portfolio-risk-rollup"
@@ -101,8 +101,8 @@ def test_publish_does_not_post_to_slack(monkeypatch):
                         lambda: type("P", (), {"publish": lambda s, *a, **k: PublishResult(
                             "spin", "https://x.public.spin.axelerant.tech/", "Published to Spin: …")})())
     # Bypass the same-day cache so publish always runs
-    monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: None)
-    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
+    monkeypatch.setattr(tool.records, "get_setting", lambda k, *a, **kw: None)
+    monkeypatch.setattr(tool.records, "set_setting", lambda *a, **k: None)
 
     def _raise(**k):
         raise AssertionError("_post_link must not be called")
@@ -123,8 +123,8 @@ def test_publish_returns_url_in_detail(monkeypatch):
                         lambda: type("P", (), {"publish": lambda s, *a, **k: PublishResult(
                             "spin", "https://x.public.spin.axelerant.tech/", "Published to Spin: https://x.public.spin.axelerant.tech/")})())
     # Bypass the same-day cache so publish always runs
-    monkeypatch.setattr(tool.store, "get_setting", lambda k, *a, **kw: None)
-    monkeypatch.setattr(tool.store, "set_setting", lambda *a, **k: None)
+    monkeypatch.setattr(tool.records, "get_setting", lambda k, *a, **kw: None)
+    monkeypatch.setattr(tool.records, "set_setting", lambda *a, **k: None)
     out = tool.publish_portfolio_dashboard(scheduled=True)
     assert "https://x.public.spin.axelerant.tech/" in out
 
@@ -164,11 +164,11 @@ def test_resolve_children_sets_channel_names(monkeypatch):
 
 
 def test_history_round_trip(monkeypatch):
-    from bott.shared.persistence import store
+    from bott.shared.persistence import records
     from bott.skills.portfolio import history
     kv: dict = {}
-    monkeypatch.setattr(store, "get_setting", lambda k, *a, **kw: kv.get(k))
-    monkeypatch.setattr(store, "set_setting", lambda k, v, *a, **kw: kv.__setitem__(k, v))
+    monkeypatch.setattr(records, "get_setting", lambda k, *a, **kw: kv.get(k))
+    monkeypatch.setattr(records, "set_setting", lambda k, v, *a, **kw: kv.__setitem__(k, v))
     history.record_snapshot("2026-06-01", {"high": 5, "medium": 8, "avg_sentiment": -0.1})
     history.record_snapshot("2026-06-08", {"high": 4, "medium": 9, "avg_sentiment": 0.0})
     history.record_snapshot("2026-06-08", {"high": 3, "medium": 9, "avg_sentiment": 0.1})  # upsert
@@ -183,7 +183,7 @@ def test_portfolio_reuses_url_same_day(monkeypatch):
     monkeypatch.setattr(t.config, "memra_configured", lambda: True)
     # pretend we already published today
     monkeypatch.setattr(t, "_today", lambda: "2026-06-24")
-    monkeypatch.setattr(t.store, "get_setting",
+    monkeypatch.setattr(t.records, "get_setting",
                         lambda k, *a, **kw: '{"date": "2026-06-24", "url": "https://cached"}')
     built = {"n": 0}
     monkeypatch.setattr(t, "_build_html", lambda top_n: (built.__setitem__("n", built["n"] + 1), ("T", "<html>"))[1])
@@ -235,8 +235,8 @@ def test_portfolio_dashboard_builds_when_scheduled(monkeypatch):
     import bott.skills.portfolio.tool as t
     monkeypatch.setattr(t.config, "memra_configured", lambda: True)
     monkeypatch.setattr(t, "_today", lambda: "2026-06-25")
-    monkeypatch.setattr(t.store, "get_setting", lambda *a, **k: None)
-    monkeypatch.setattr(t.store, "set_setting", lambda *a, **k: None)
+    monkeypatch.setattr(t.records, "get_setting", lambda *a, **k: None)
+    monkeypatch.setattr(t.records, "set_setting", lambda *a, **k: None)
     monkeypatch.setattr(t, "_build_html", lambda top_n: ("Portfolio Risk Roll-up", "<html>x</html>"))
     class R:
         mode = "spin"

@@ -21,7 +21,7 @@ from bott.shared import config
 from bott.shared.integrations.jira import JiraClient
 from bott.shared.integrations.spin import get_publisher
 from bott.shared.observability.logging_setup import get_logger
-from bott.shared.persistence import store
+from bott.shared.persistence import records
 from bott.skills.sprint_report import render
 
 log = get_logger("bott.skills.sprint_report")
@@ -318,7 +318,7 @@ def publish_sprint_report(
     # New-sprint guard: scheduled runs skip a sprint already reported (avoids duplicates
     # across any cadence). Ad-hoc runs (only_if_new=False) always publish.
     marker_key = f"sprint_report_last:{eng.project_key}"
-    if only_if_new and store.get_setting(marker_key) == str(d.sprint_id):
+    if only_if_new and records.get_setting(marker_key) == str(d.sprint_id):
         return f"Already reported {d.meta.sprint_label} for {eng.project_key}; skipping (no new sprint)."
 
     sources = {"delivered_stories": d.done_issues, "next_sprint_stories": d.next_issues,
@@ -344,7 +344,7 @@ def publish_sprint_report(
     # one-off delivery failure permanently suppresses the report.
     if result.mode == "spin" and result.url:
         try:
-            store.set_setting(marker_key, str(d.sprint_id))
+            records.set_setting(marker_key, str(d.sprint_id))
         except Exception as e:  # noqa: BLE001 — marker is best-effort
             log.warning("couldn't record last-reported sprint for %s: %s", eng.project_key, e)
 
