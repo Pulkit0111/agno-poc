@@ -20,6 +20,7 @@ from bott.shared.config import (
     bott_model,
     memra_configured,
 )
+from bott.shared.identity import require_user_id
 from bott.shared.context import MemraClient, make_memra_tools
 from bott.shared.model import build_model
 from bott.skills.advisories import security_tools
@@ -102,7 +103,8 @@ def build_skills() -> Skills:
     return Skills(loaders=[LocalSkills(config.bott_skills_dir())])
 
 
-def build_bott_agent(db=None) -> Agent:
+def build_agent(user_id: str, db=None) -> Agent:
+    user_id = require_user_id(user_id)
     model = build_model("chat")
 
     tools: list = []
@@ -155,3 +157,9 @@ def build_bott_agent(db=None) -> Agent:
         telemetry=False,
         markdown=False,
     )
+
+
+def build_bott_agent(db=None) -> Agent:
+    """Shared interface instance, scoped to the system identity. Per-run isolation still
+    rides on the Slack-supplied user_id; this is the single shared agent the interface holds."""
+    return build_agent(user_id="system@axelerant.com", db=db)

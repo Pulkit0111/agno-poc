@@ -104,6 +104,11 @@ def main() -> None:
     # PR-review worker: runs the review engine for queued tasks (Slack mentions +
     # GitHub webhook) and posts verdicts. The handler lives in slack_app; the queue
     # primitives come straight from the store.
+    from bott.shared.persistence import queue
+    from bott.shared import approvals
+    queue.init_queue()
+    approvals.init_approvals()
+
     from bott.interfaces.slack_app import handle_task
     from bott.shared.persistence import store
 
