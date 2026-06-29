@@ -22,8 +22,7 @@ from slack_sdk import WebClient
 
 from bott.shared import approvals
 from bott.shared.observability.logging_setup import get_logger
-from bott.shared.persistence import standup
-from bott.shared.persistence.store import enqueue
+from bott.shared.persistence import queue, standup
 from bott.skills.dsm import today_key
 
 from . import blocks, service
@@ -218,8 +217,9 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                 msg = payload.get("message") or {}
                 thread_ts = msg.get("thread_ts") or msg.get("ts")
                 if ch and thread_ts:
-                    enqueue("rereview", {"channel": ch, "thread_ts": thread_ts,
-                                         "trigger_ts": None, "reply_text": "(manual re-review requested)"})
+                    queue.enqueue("rereview", {"channel": ch, "thread_ts": thread_ts,
+                                               "trigger_ts": None, "reply_text": "(manual re-review requested)"},
+                                  user_id=user_id or "system@axelerant.com")
             elif cmd in ("approval_approve", "approval_dismiss"):
                 # Approve/Dismiss buttons surface when the agent needs human sign-off.
                 # action_id carries the decision; value carries the approval id.

@@ -19,7 +19,7 @@ from typing import Callable, Optional, TypedDict
 from agno.run.base import RunContext
 
 from bott.shared.config import bott_model
-from bott.shared.persistence import store
+from bott.shared.persistence import queue
 
 from .pr_ref import extract_pr_ref
 
@@ -71,7 +71,8 @@ def start_review(pr_url: str, run_context: Optional[RunContext] = None) -> str:
         return "I couldn't find a PR reference in that — ask the user for the GitHub PR link."
     owner, repo, number = ref
     target = _resolve_target(run_context)
-    store.enqueue(
+    user_id = getattr(run_context, "user_id", None) or "system@axelerant.com"
+    queue.enqueue(
         "review",
         {
             "owner": owner, "name": repo, "number": number,
@@ -79,6 +80,7 @@ def start_review(pr_url: str, run_context: Optional[RunContext] = None) -> str:
             "trigger_ts": target.get("trigger_ts"),
             "model_id": bott_model(),
         },
+        user_id=user_id,
     )
     return f"Queued a review of {owner}/{repo}#{number}."
 
@@ -92,13 +94,15 @@ def start_rereview(reply_text: str = "", run_context: Optional[RunContext] = Non
     target = _resolve_target(run_context)
     if not target.get("thread_ts"):
         return "Re-reviews only work in a Slack thread that already has a review."
-    store.enqueue(
+    user_id = getattr(run_context, "user_id", None) or "system@axelerant.com"
+    queue.enqueue(
         "rereview",
         {
             "channel": target.get("channel"), "thread_ts": target.get("thread_ts"),
             "trigger_ts": target.get("trigger_ts"), "reply_text": reply_text,
             "model_id": bott_model(),
         },
+        user_id=user_id,
     )
     return "Queued another pass."
 

@@ -16,8 +16,8 @@ from fastapi import APIRouter, Request, Response
 
 from bott.shared.config import github_webhook_secret, review_slack_channel
 from bott.shared.observability.logging_setup import get_logger
+from bott.shared.persistence import queue
 from bott.shared.persistence.records import seen_commit, seen_delivery
-from bott.shared.persistence.store import enqueue
 
 router = APIRouter()
 log = get_logger("review.webhook")
@@ -79,7 +79,7 @@ async def github_webhook(request: Request) -> Response:
     if head_sha and seen_commit(owner, name, head_sha):
         return Response(status_code=202, content="commit already reviewed")
 
-    enqueue("review", {
+    queue.enqueue("review", {
         "source": "github",
         "owner": owner, "name": name, "number": number,
         "title": pr.get("title") or "",
@@ -87,7 +87,7 @@ async def github_webhook(request: Request) -> Response:
         "channel": review_slack_channel(),  # mirror to Slack if configured
         "thread_ts": None, "trigger_ts": None,
         "post_github": True,
-    })
+    }, user_id="system@axelerant.com")
     log.info("webhook: %s on %s/%s#%s -> review enqueued (delivery=%s)",
              action, owner, name, number, delivery)
     return Response(status_code=202, content="review enqueued")

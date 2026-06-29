@@ -43,7 +43,6 @@ from bott.shared.persistence.records import (
     latest_trace_for_thread,
     save_trace,
 )
-from bott.shared.persistence.store import Task
 
 # Per-review budget from env (lean defaults so a run fits low OpenAI TPM tiers).
 REVIEW_BUDGET = default_budget()
@@ -128,8 +127,8 @@ def _checklist_blocks(number: int, verb: str, current_key: str, counts: dict) ->
 
 
 # ── worker handler ────────────────────────────────────────────────────────────
-def handle_task(task: Task) -> None:
-    a = task.args
+def handle_task(task: dict) -> None:
+    a = task["args"]
     channel, thread_ts, trigger_ts = a.get("channel"), a.get("thread_ts"), a.get("trigger_ts")
     source = a.get("source", "slack")  # "slack" or "github" (webhook auto-trigger)
 
@@ -138,8 +137,8 @@ def handle_task(task: Task) -> None:
     if channel and trigger_ts:
         _react(channel, trigger_ts, "eyes")
 
-    log.info("task %s: %s source=%s", task.id, task.kind, source)
-    if task.kind == "review":
+    log.info("task %s: %s source=%s", task["id"], task["kind"], source)
+    if task["kind"] == "review":
         owner, name, number = a["owner"], a["name"], a["number"]
         prior_review = prior_text = prior_verdict = None
     else:  # rereview (Slack-thread only)
@@ -160,7 +159,7 @@ def handle_task(task: Task) -> None:
     # Live progress is shown in Slack only when we have a channel (Slack-triggered, or
     # a webhook review with REVIEW_SLACK_CHANNEL configured). Webhook reviews with no
     # channel post only to GitHub.
-    verb = "Re-reviewing" if task.kind == "rereview" else "Reviewing"
+    verb = "Re-reviewing" if task["kind"] == "rereview" else "Reviewing"
     counts: dict[str, int] = {}
     state = {"key": "fetch"}
 

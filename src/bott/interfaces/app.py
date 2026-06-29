@@ -101,25 +101,22 @@ def main() -> None:
     if not _interfaces:
         log.warning("Slack interface NOT mounted — set SLACK_SIGNING_SECRET + SLACK_TOKEN.")
 
-    # PR-review worker: runs the review engine for queued tasks (Slack mentions +
-    # GitHub webhook) and posts verdicts. The handler lives in slack_app; the queue
-    # primitives come straight from the store.
-    # Provision the Phase-2 foundation tables. NOTE: the Postgres job queue (shared/persistence/queue.py)
-    # is a split-ready SEAM — it is NOT yet the live PR-review path. The active worker below still runs on
-    # the SQLite store (shared/persistence/store.py). Cutting the PR-review worker over to the Postgres
-    # queue (and adding user_id to that path) is Phase-2 work.
+    # PR-review worker: drains the Postgres job queue (Slack mentions + GitHub webhook).
+    import threading
+
     from bott.shared import approvals
     from bott.shared.persistence import queue
+
     queue.init_queue()
     approvals.init_approvals()
 
     from bott.interfaces.slack_app import handle_task
-    from bott.shared.persistence import store
 
-    store.init_db()
-    store.recover_orphans()
-    worker = store.Worker(handle_task)
-    worker.start()
+    _worker_stop = threading.Event()
+    _worker_thread = threading.Thread(
+        target=queue.worker_main, args=(handle_task,), kwargs={"stop": _worker_stop}, daemon=True
+    )
+    _worker_thread.start()
     log.info("PR-review worker started.")
 
     try:
@@ -129,7 +126,7 @@ def main() -> None:
             port=int(os.getenv("BOTT_PORT", "7777")),
         )
     finally:
-        worker.stop()
+        _worker_stop.set()
         if proxy is not None:
             proxy.stop()
 

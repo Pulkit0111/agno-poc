@@ -8,7 +8,7 @@ def test_start_review_uses_contextvar_target():
         {"channel": "C1", "thread_ts": "111.0", "trigger_ts": "111.0"}
     )
     try:
-        with patch.object(member.store, "enqueue") as enq:
+        with patch.object(member.queue, "enqueue") as enq:
             msg = member.start_review("owner/repo#7")
         assert "owner/repo#7" in msg
         kind, args = enq.call_args[0]
@@ -19,7 +19,7 @@ def test_start_review_uses_contextvar_target():
 
 
 def test_start_review_without_target_queues_no_channel():
-    with patch.object(member.store, "enqueue") as enq:
+    with patch.object(member.queue, "enqueue") as enq:
         member.start_review("https://github.com/o/r/pull/9")
     _, args = enq.call_args[0]
     assert args["channel"] is None and args["number"] == 9
