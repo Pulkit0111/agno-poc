@@ -1,36 +1,39 @@
-"""Single place that constructs the LLM, so provider/auth isn't hardcoded.
+"""Single place the LLM is built — provider is configuration, work is routed by task type.
 
-The caller passes the endpoint (`base_url`) and `api_key` for its role, so different roles
-can use different providers — e.g. the reviewer on a Codex-subscription proxy while the
-manager runs a cheap/fast model on the OpenAI API. With no `base_url` it talks to OpenAI
-(`api.openai.com`); any OpenAI-compatible endpoint (Azure, OpenRouter, a local model, or a
-Codex proxy) works too.
-"""
+Provider: codex (dev proxy) | bedrock | openrouter (prod). Role: 'chat' (everyday) vs
+'heavy' (implementation/review). Provider classes are lazy-imported so optional deps
+(boto3 for Bedrock) aren't required unless that provider is selected."""
 
 from __future__ import annotations
 
-from agno.models.openai import OpenAIChat
+from .config import (
+    _codex_proxy_base_url,
+    model_provider,
+    openrouter_api_key,
+    role_model_id,
+)
 
-from .config import DEFAULT_MODEL
+_COMMON = {"retries": 3, "exponential_backoff": True}
 
 
-def build_model(
-    model_id: str | None = None,
-    *,
-    base_url: str | None = None,
-    api_key: str | None = None,
-    **overrides,
-) -> OpenAIChat:
-    """Construct a chat model for a given role. `base_url`/`api_key` come from the caller's
-    role config; `overrides` win over the defaults (e.g. the reviewer bumps retries)."""
-    opts: dict = {"id": model_id or DEFAULT_MODEL, "retries": 3, "exponential_backoff": True}
-    if base_url:
-        opts["base_url"] = base_url
-    if api_key:
-        opts["api_key"] = api_key
-    elif base_url:
-        # A custom endpoint that carries its own auth (local proxy) still needs the SDK to
-        # send *something*; the value is ignored by such proxies.
-        opts["api_key"] = "sk-local-endpoint-no-key-required"
-    opts.update(overrides)
-    return OpenAIChat(**opts)
+def build_model(role: str = "chat", **overrides):
+    """Build the model for a task role under the configured provider.
+    `overrides` (e.g. retries, temperature) are forwarded to the underlying model."""
+    provider = model_provider()
+    model_id = role_model_id(role)
+
+    if provider == "codex":
+        from agno.models.openai import OpenAIChat
+        return OpenAIChat(
+            id=model_id,
+            base_url=_codex_proxy_base_url(),
+            api_key="sk-local-endpoint-no-key-required",
+            **{**_COMMON, **overrides},
+        )
+    if provider == "openrouter":
+        from agno.models.openrouter import OpenRouter
+        return OpenRouter(id=model_id, api_key=openrouter_api_key(), **{**_COMMON, **overrides})
+    if provider == "bedrock":
+        from agno.models.aws import AwsBedrock
+        return AwsBedrock(id=model_id, **overrides)
+    raise ValueError(f"Unknown MODEL_PROVIDER '{provider}' (use codex|bedrock|openrouter).")

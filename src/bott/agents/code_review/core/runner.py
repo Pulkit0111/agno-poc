@@ -16,8 +16,6 @@ from bott.shared.config import (
     DEFAULT_MODEL,
     Budget,
     calculate_cost,
-    model_api_key,
-    model_base_url,
     review_temperature,
 )
 from bott.shared.model import build_model
@@ -78,7 +76,7 @@ def run_review_agent(
         # Survive per-minute TPM limits (low account tier): the agentic loop sends a
         # large growing context, so transient 429s are expected.
         model=build_model(
-            model_id, base_url=model_base_url(), api_key=model_api_key(),
+            "heavy",
             retries=5, delay_between_retries=3,
             # Optional reproducibility knob; only passed when explicitly set (gpt-5 reasoning
             # models reject temperature != 1, so default is to omit it entirely).

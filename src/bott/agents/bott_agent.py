@@ -18,8 +18,6 @@ from bott.agents.personality import IDENTITY, VOICE
 from bott.shared import config
 from bott.shared.config import (
     bott_model,
-    manager_api_key,
-    manager_base_url,
     memra_configured,
 )
 from bott.shared.context import MemraClient, make_memra_tools
@@ -105,11 +103,7 @@ def build_skills() -> Skills:
 
 
 def build_bott_agent(db=None) -> Agent:
-    model = build_model(
-        effective_manager_model(),
-        base_url=manager_base_url(),
-        api_key=manager_api_key(),
-    )
+    model = build_model("chat")
 
     tools: list = []
     tools.extend(review_tools())  # PR review (queue → durable worker runs + posts)
