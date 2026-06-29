@@ -10,9 +10,14 @@ just a cron + a prompt + the scope.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
+from agno.run import RunContext
 from agno.scheduler.manager import ScheduleManager
+from agno.tools import tool
+
+from bott.shared.identity import IsolationError, require_user_id
 
 AGENT_RUN_ENDPOINT = "/agents/bott/runs"
 
@@ -330,3 +335,80 @@ def create_dsm_callsummary(db: Any, *, team_id: str, channel: str, cron: str, ti
             f"team='{team_id}' and channel='{channel}'. Do nothing else."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# NL scheduling tools — users create/list/remove their own recurring tasks
+# ---------------------------------------------------------------------------
+
+def _slug(text: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+    return s[:40] or "task"
+
+
+def _create_schedule_impl(db: Any, run_context: RunContext, cron: str, instruction: str) -> str:
+    try:
+        uid = require_user_id(getattr(run_context, "user_id", None))
+    except IsolationError:
+        return "I couldn't tell who you are, so I won't create a schedule."
+    if db is None:
+        return "Scheduling isn't available right now."
+    create_recurring_task(db, user_id=uid, task_name=_slug(instruction),
+                          instruction=instruction, cron=cron)
+    return f"Scheduled `{cron}` — {instruction}"
+
+
+def _list_my_schedules_impl(db: Any, run_context: RunContext) -> str:
+    try:
+        uid = require_user_id(getattr(run_context, "user_id", None))
+    except IsolationError:
+        return "I couldn't tell who you are."
+    if db is None:
+        return "Scheduling isn't available right now."
+    prefix = f"concierge:{uid}:"
+    mine = [s for s in ScheduleManager(db).list()
+            if (getattr(s, "name", "") or "").startswith(prefix)]
+    if not mine:
+        return "You have no recurring tasks."
+    return "\n".join(
+        f"- `{s.id}` {getattr(s, 'cron_expr', '')} — {getattr(s, 'name', '').split(':', 2)[-1]}"
+        for s in mine)
+
+
+def _remove_schedule_impl(db: Any, run_context: RunContext, schedule_id: str) -> str:
+    try:
+        uid = require_user_id(getattr(run_context, "user_id", None))
+    except IsolationError:
+        return "I couldn't tell who you are."
+    if db is None:
+        return "Scheduling isn't available right now."
+    mgr = ScheduleManager(db)
+    prefix = f"concierge:{uid}:"
+    owned = {s.id for s in mgr.list() if (getattr(s, "name", "") or "").startswith(prefix)}
+    if schedule_id not in owned:
+        return "That schedule isn't one of yours."
+    mgr.delete(schedule_id)
+    return f"Removed schedule `{schedule_id}`."
+
+
+def scheduling_tools(db: Any = None) -> list:
+    """NL schedule tools so users create/list/remove recurring tasks by talking. Each
+    resolves the caller's user_id from run_context (never a param) — isolation preserved."""
+
+    @tool(name="create_schedule")
+    def create_schedule(run_context: RunContext, cron: str, instruction: str) -> str:
+        """Create a recurring task by describing it. `cron` is a 5-field cron expression;
+        `instruction` is what Bott should do each time it fires."""
+        return _create_schedule_impl(db, run_context, cron, instruction)
+
+    @tool(name="list_my_schedules")
+    def list_my_schedules(run_context: RunContext) -> str:
+        """List the recurring tasks you created."""
+        return _list_my_schedules_impl(db, run_context)
+
+    @tool(name="remove_schedule")
+    def remove_schedule(run_context: RunContext, schedule_id: str) -> str:
+        """Remove one of YOUR recurring tasks by its id (from list_my_schedules)."""
+        return _remove_schedule_impl(db, run_context, schedule_id)
+
+    return [create_schedule, list_my_schedules, remove_schedule]
