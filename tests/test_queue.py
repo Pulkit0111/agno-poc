@@ -1,6 +1,7 @@
 import os
 
 import pytest
+from sqlalchemy import text
 
 from bott.shared import db
 from bott.shared.persistence import queue
@@ -16,6 +17,11 @@ def engine(monkeypatch, tmp_path):
         monkeypatch.setenv("AGENTOS_DB_PATH", str(tmp_path / "q.db"))
     db.get_engine(fresh=True)
     queue.init_queue()
+    # Start every test with an empty queue. SQLite gets a fresh tmp file per test, but a
+    # Postgres TEST_DATABASE_URL is shared across tests — without this, a prior test's
+    # uncompleted job leaks in (e.g. the dedup test's pending row) and breaks the count.
+    with db.get_engine().begin() as c:
+        c.execute(text("DELETE FROM jobs"))
     yield
 
 
