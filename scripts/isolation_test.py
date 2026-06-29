@@ -23,12 +23,41 @@ _tmp_db = tempfile.mktemp(suffix=".db")
 os.environ["AGENTOS_DB_PATH"] = _tmp_db
 os.environ.pop("DATABASE_URL", None)
 
+# Ensure BOTT_SECRET_KEY is set so the connector-token block runs standalone.
+from bott.shared.secrets import generate_key  # noqa: E402
+os.environ.setdefault("BOTT_SECRET_KEY", generate_key())
+
+from sqlalchemy import text  # noqa: E402
+
 from bott.agents.bott_agent import build_bott_agent  # noqa: E402
 from bott.shared.codex import start_model_backend  # noqa: E402
-from bott.shared.db import build_db  # noqa: E402
+from bott.shared.db import build_db, get_engine  # noqa: E402
+from bott.shared.secrets import SecretBox  # noqa: E402
 
 SECRET = "FALCON-9173"
 ALICE, BOB = "alice@axelerant.com", "bob@axelerant.com"
+
+
+# ---------------------------------------------------------------------------
+# Connector-token isolation helpers
+# ---------------------------------------------------------------------------
+
+def _store_token(user_id: str, provider: str, plaintext: str) -> None:
+    box = SecretBox.from_env()
+    with get_engine().begin() as c:
+        c.execute(text("CREATE TABLE IF NOT EXISTS connector_tokens "
+                       "(user_id TEXT, provider TEXT, token TEXT)"))
+        c.execute(text("INSERT INTO connector_tokens(user_id,provider,token) "
+                       "VALUES (:u,:p,:t)"),
+                  {"u": user_id, "p": provider, "t": box.encrypt(plaintext)})
+
+
+def _read_token(user_id: str, provider: str):
+    with get_engine().begin() as c:
+        row = c.execute(text("SELECT token FROM connector_tokens "
+                             "WHERE user_id=:u AND provider=:p"),
+                        {"u": user_id, "p": provider}).fetchone()
+    return SecretBox.from_env().decrypt(row[0]) if row else None
 
 
 def _content(resp) -> str:
@@ -79,6 +108,28 @@ def main() -> int:
     finally:
         if proxy is not None:
             proxy.stop()
+
+    # 5) Connector-token isolation (pure DB + SecretBox — no model backend needed).
+    _store_token(ALICE, "gmail", "alice-oauth-token")
+
+    if _read_token(ALICE, "gmail") != "alice-oauth-token":
+        failures.append("connector-token: Alice cannot read her own token")
+
+    if _read_token(BOB, "gmail") is not None:
+        failures.append("LEAK: Bob can read a token stored under Alice's id")
+
+    # Verify the stored value is ciphertext (encrypted at rest).
+    with get_engine().begin() as _c:
+        _raw = _c.execute(
+            text("SELECT token FROM connector_tokens WHERE user_id=:u AND provider=:p"),
+            {"u": ALICE, "p": "gmail"},
+        ).fetchone()
+    if _raw is None or _raw[0] == "alice-oauth-token":
+        failures.append("connector-token: token is stored as plaintext (encryption not applied)")
+
+    _ct_failures = [f for f in failures if "connector-token" in f or "LEAK: Bob can read" in f]
+    if not _ct_failures:
+        print("connector-token isolation: PASS")
 
     if failures:
         print("\n❌ ISOLATION GATE FAILED:")
