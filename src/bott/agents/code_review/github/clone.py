@@ -61,6 +61,33 @@ class CloneHandle:
         shutil.rmtree(self.path, ignore_errors=True)
 
 
+_BOT_NAME = "bott"
+_BOT_EMAIL = "bott@axelerant.com"
+
+
+def _clone_url(owner: str, name: str, token: str | None) -> str:
+    if token:
+        return f"https://x-access-token:{token}@github.com/{owner}/{name}.git"
+    return f"https://github.com/{owner}/{name}.git"
+
+
+def writable_clone(owner: str, name: str, *, token: str | None = None) -> CloneHandle:
+    """Full clone of the repo's default branch with a Bott git identity and push auth.
+    Use as a context manager; `.path` is the repo root, `rm -rf`'d on exit."""
+    url = _clone_url(owner, name, token)
+    tmp = tempfile.mkdtemp(prefix=_CLONE_PREFIX)
+    try:
+        r = _run(["git", "clone", "-q", url, tmp])
+        if r.returncode != 0:
+            raise CloneError(f"clone failed: {redact(r.stderr.strip())}")
+        for cfg in (["user.name", _BOT_NAME], ["user.email", _BOT_EMAIL]):
+            _run(["git", "config", *cfg], cwd=tmp)
+        return CloneHandle(tmp)
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+
+
 def shallow_clone(
     owner: str,
     name: str,

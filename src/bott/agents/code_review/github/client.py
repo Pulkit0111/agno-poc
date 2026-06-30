@@ -215,7 +215,28 @@ class GitHubClient:
             pass
         return out
 
-    # --- writes (phase 3) ---
+    # --- repo metadata ---
+    def default_branch(self, owner: str, name: str) -> str:
+        return self._get(f"/repos/{owner}/{name}").get("default_branch") or "main"
+
+    # --- PR writes (build-fix / phase 3) ---
+    def create_pull(
+        self,
+        owner: str,
+        name: str,
+        *,
+        title: str,
+        head: str,
+        base: str,
+        body: str,
+        draft: bool = True,
+    ) -> dict:
+        r = self._send("POST", f"/repos/{owner}/{name}/pulls", json={
+            "title": title, "head": head, "base": base, "body": body, "draft": draft,
+        })
+        r.raise_for_status()
+        return r.json()
+
     def post_review(
         self,
         owner: str,
