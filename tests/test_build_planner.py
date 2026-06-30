@@ -1,3 +1,5 @@
+import json
+
 from bott.agents.build_fix import planner, rendering
 from bott.agents.build_fix.core.models import ImplementPlan
 
@@ -16,10 +18,14 @@ def test_plan_blocks_have_approve_dismiss_buttons():
 def test_run_plan_job_refuses_repo_not_in_allowlist(monkeypatch):
     monkeypatch.setattr(planner, "allowed_post_repos", lambda: {"ok/repo"})
     posted = []
+    created = []  # sentinel: records any create_approval call
     out = planner.run_plan_job(
         {"owner": "bad", "name": "repo", "plan_text": "x", "channel": "C", "thread_ts": "t"},
-        post=lambda *a, **k: posted.append(a), create_approval=lambda **k: 1)
+        post=lambda *a, **k: posted.append(a),
+        create_approval=lambda **k: created.append(k) or 1)
     assert out["status"] == "refused_not_allowlisted"
+    assert out["approval_id"] is None
+    assert not created  # the write-gate: NO approval row created for a non-allowlisted repo
     assert posted  # a refusal message was posted
 
 
@@ -35,6 +41,5 @@ def test_run_plan_job_creates_approval_with_payload(monkeypatch):
         post=lambda *a, **k: None, create_approval=fake_create)
     assert out["approval_id"] == 42
     assert captured["action"] == "build:implement"
-    import json
     payload = json.loads(captured["payload"])
     assert payload["owner"] == "ok" and payload["name"] == "repo" and payload["plan_text"] == "add x"

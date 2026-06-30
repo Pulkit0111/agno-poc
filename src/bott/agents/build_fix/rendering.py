@@ -29,5 +29,5 @@ def result_blocks(result: ImplementResult) -> tuple[list, str]:
                 "not_run": "tests not run ⚠"}.get(result.tests, "")
         text = f"Opened a draft PR — {tail}\n{result.pr_url}"
     else:
-        text = f"No PR opened. {result.note}"
+        text = f"No PR opened. {result.note or ''}"
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}], text
