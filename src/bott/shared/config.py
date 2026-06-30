@@ -466,3 +466,25 @@ def _build_branch_name(plan_text: str) -> str:
     # That's fine: the goal is intra-process branch-name uniqueness, not cross-process determinism.
     suffix = format(abs(hash(plan_text)) % 0xFFFFFF, "x")
     return f"bott/{slug}-{suffix}"
+
+
+# --- Codex (org-level ChatGPT subscription) ------------------------------------
+def codex_client_id() -> str:
+    return os.getenv("CODEX_CLIENT_ID", "app_EMoamEEZ73f0CkXaXp7hrann")
+
+
+def codex_token_endpoint() -> str:
+    return os.getenv("CODEX_TOKEN_ENDPOINT", "https://auth.openai.com/api/accounts/oauth/token")
+
+
+def codex_backend_base_url() -> str:
+    return os.getenv("CODEX_BACKEND_BASE_URL", "https://chatgpt.com/backend-api/codex")
+
+
+def codex_refresh_margin_s() -> int:
+    return int(os.getenv("CODEX_REFRESH_MARGIN_S", "300"))
+
+
+def bott_admins() -> set[str]:
+    """Emails allowed to connect the org Codex account / override the model (csv)."""
+    return {e.strip().lower() for e in os.getenv("BOTT_ADMINS", "").split(",") if e.strip()}
