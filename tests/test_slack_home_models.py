@@ -25,8 +25,9 @@ def test_active_card_always_present(store):
 
 def test_override_admin_only(store):
     assert "not allowed" in m.apply_model_override("nobody@x.com", "model.provider", "openrouter").lower()
-    out = m.apply_model_override("admin@axelerant.com", "model.provider", "openrouter")
     from bott.shared.persistence.records import get_setting
+    assert get_setting("model.provider") is None  # non-admin must NOT have written the setting
+    out = m.apply_model_override("admin@axelerant.com", "model.provider", "openrouter")
     assert get_setting("model.provider") == "openrouter" and "openrouter" in out.lower()
 
 
@@ -34,6 +35,7 @@ def test_connect_codex_admin_only(store):
     import json
     bundle = json.dumps({"tokens": {"access_token": "a.b.c", "refresh_token": "r", "account_id": "acc"}})
     assert "not allowed" in m.connect_codex("nobody@x.com", bundle).lower()
-    out = m.connect_codex("admin@axelerant.com", bundle)
     from bott.shared import codex_tokens as ct
+    assert not ct.is_connected()  # non-admin must NOT have stored a token
+    out = m.connect_codex("admin@axelerant.com", bundle)
     assert ct.is_connected() and ("connected" in out.lower())

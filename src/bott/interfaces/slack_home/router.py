@@ -267,12 +267,18 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                         log.error("approval decision failed (id=%s): %s", approval_id_str, e)
             elif cmd == "models_connect_codex":
                 # Admin-only: open a modal to paste the org Codex auth.json.
+                actor_email = _resolve_email(user_id) if user_id else ""
+                if not models._is_admin(actor_email):
+                    return {"ok": True}   # button isn't shown to non-admins; ignore crafted payloads
                 try:
                     client.views_open(trigger_id=trigger_id, view=blocks.build_connect_codex_modal())
                 except Exception as e:  # noqa: BLE001
                     log.error("open connect_codex modal: %s", e)
             elif cmd == "models_set_provider":
                 # Admin-only: open a static-select modal to change the model provider.
+                actor_email = _resolve_email(user_id) if user_id else ""
+                if not models._is_admin(actor_email):
+                    return {"ok": True}   # button isn't shown to non-admins; ignore crafted payloads
                 try:
                     from bott.shared.persistence.records import get_setting
                     current = get_setting("model.provider")
