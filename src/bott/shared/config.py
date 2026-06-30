@@ -6,6 +6,7 @@ Secrets come from the environment (.env loaded by the entrypoints), never hardco
 from __future__ import annotations
 
 import os
+import re as _re
 import shutil
 from dataclasses import dataclass
 
@@ -440,3 +441,26 @@ def bott_secret_key() -> str | None:
 
 def openrouter_api_key() -> str | None:
     return os.getenv("OPENROUTER_API_KEY") or None
+
+
+# --- Build-fix: implement pipeline budget -------------------------------------
+@dataclass
+class ImplementBudget:
+    max_fix_attempts: int = 4
+    max_tool_calls: int = 40
+    timeout_s: int = 900
+
+
+def implement_budget() -> "ImplementBudget":
+    return ImplementBudget(
+        max_fix_attempts=int(os.getenv("BUILD_MAX_FIX_ATTEMPTS", "4")),
+        max_tool_calls=int(os.getenv("BUILD_MAX_TOOL_CALLS", "40")),
+        timeout_s=int(os.getenv("BUILD_TIMEOUT_S", "900")),
+    )
+
+
+def _build_branch_name(plan_text: str) -> str:
+    slug = _re.sub(r"[^a-z0-9]+", "-", (plan_text or "change").lower()).strip("-")[:32] or "change"
+    # short, collision-resistant suffix derived from the text (no Date/random in this process)
+    suffix = format(abs(hash(plan_text)) % 0xFFFFFF, "x")
+    return f"bott/{slug}-{suffix}"
