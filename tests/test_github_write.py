@@ -31,4 +31,4 @@ def test_writable_clone_sets_identity_and_is_a_repo(monkeypatch, tmp_path):
         assert (subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
                                cwd=h.path, capture_output=True, text=True).stdout.strip() == "true")
         name = _git(["config", "user.name"], h.path).stdout.strip()
-        assert name  # identity configured (non-empty)
+        assert name == "bott"  # the bot identity was actually written (not the global default)

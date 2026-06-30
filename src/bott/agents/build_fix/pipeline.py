@@ -82,6 +82,9 @@ def _push_and_pr(owner: str, name: str, clone_path: str, plan_text: str, note: s
 def implement_task(owner: str, name: str, plan_text: str, *, token: Optional[str] = None,
                    model_id: Optional[str] = None, post: bool = True,
                    on_progress: Optional[Callable[[str], None]] = None) -> ImplementResult:
+    # NOTE: `model_id` is RESERVED — the implement agent runs on the gateway's "heavy" role
+    # (build_model("heavy")), like the review engine, so this arg is not used to pick the model.
+    # Kept for signature stability / future per-task override.
     if on_progress:
         on_progress("implementing")
     handle: Optional[CloneHandle] = None

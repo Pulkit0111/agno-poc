@@ -80,8 +80,12 @@ def writable_clone(owner: str, name: str, *, token: str | None = None) -> CloneH
         r = _run(["git", "clone", "-q", url, tmp])
         if r.returncode != 0:
             raise CloneError(f"clone failed: {redact(r.stderr.strip())}")
+        # Set the bot identity so commits attribute to Bott. Check the result — a silent
+        # failure would leave a clone that commits under whatever (or no) global identity.
         for cfg in (["user.name", _BOT_NAME], ["user.email", _BOT_EMAIL]):
-            _run(["git", "config", *cfg], cwd=tmp)
+            cr = _run(["git", "config", *cfg], cwd=tmp)
+            if cr.returncode != 0:
+                raise CloneError(f"git config {cfg[0]} failed: {redact(cr.stderr.strip())}")
         return CloneHandle(tmp)
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
