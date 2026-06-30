@@ -293,12 +293,15 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
 def dispatch_approved_build(approval_id: int) -> None:
     """If approval_id is an approved build:* request, enqueue its implement job from the payload.
     Safe no-op for non-build or non-approved rows."""
-    import json
     row = approvals.get_request(approval_id)
     if not row or row.get("status") != "approved" or not str(row.get("action", "")).startswith("build:"):
         return
     payload = json.loads(row.get("payload") or "{}")
-    queue.enqueue("implement", payload, user_id=row.get("user_id") or "system@axelerant.com")
+    queue.enqueue(
+        "implement", payload,
+        user_id=row.get("user_id") or "system@axelerant.com",
+        dedup_key=f"implement:{approval_id}",
+    )
 
 
 def _val(values: dict, block_id: str) -> dict:
