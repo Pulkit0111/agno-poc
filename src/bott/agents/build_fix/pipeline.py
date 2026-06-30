@@ -21,7 +21,9 @@ log = get_logger("bott.build_fix.pipeline")
 
 
 def _diff_summary(clone_path: str) -> str:
-    r = _run(["git", "diff", "--stat"], cwd=clone_path)
+    """Any change the agent made — including NEW (untracked) files, which `git diff --stat`
+    misses. `git status --short` lists untracked (??) + modified entries."""
+    r = _run(["git", "status", "--short"], cwd=clone_path)
     return (r.stdout or "").strip()
 
 
