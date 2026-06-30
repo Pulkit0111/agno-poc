@@ -1,6 +1,6 @@
 import pytest
 
-from bott.agents.build_fix.refs import BuildRequest, parse_build_target
+from bott.agents.build_fix.refs import parse_build_target
 
 
 def test_github_issue_ref():
