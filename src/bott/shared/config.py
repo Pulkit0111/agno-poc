@@ -461,6 +461,8 @@ def implement_budget() -> "ImplementBudget":
 
 def _build_branch_name(plan_text: str) -> str:
     slug = _re.sub(r"[^a-z0-9]+", "-", (plan_text or "change").lower()).strip("-")[:32] or "change"
-    # short, collision-resistant suffix derived from the text (no Date/random in this process)
+    # short, unique-per-process suffix: Python's hash() is PRNG-seeded per process (PYTHONHASHSEED),
+    # so it is NOT stable across restarts — same text can produce a different suffix in a new process.
+    # That's fine: the goal is intra-process branch-name uniqueness, not cross-process determinism.
     suffix = format(abs(hash(plan_text)) % 0xFFFFFF, "x")
     return f"bott/{slug}-{suffix}"

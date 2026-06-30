@@ -29,7 +29,7 @@ def create_request(user_id: str, action: str, summary: str, payload: str | None 
 
 
 def get_request(approval_id: int) -> dict | None:
-    with get_engine().begin() as c:
+    with get_engine().connect() as c:
         row = c.execute(text(
             "SELECT id,user_id,action,summary,status,decided_by,payload,created "
             "FROM approvals WHERE id=:id"

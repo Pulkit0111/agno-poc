@@ -15,7 +15,7 @@ from bott.agents.build_fix.core.models import ImplementResult
 from bott.agents.code_review.github.clone import CloneHandle, _run, writable_clone
 from bott.shared import config
 from bott.shared.model import build_model
-from bott.shared.observability.logging_setup import get_logger
+from bott.shared.observability.logging_setup import get_logger, redact
 
 log = get_logger("bott.build_fix.pipeline")
 
@@ -70,7 +70,7 @@ def _push_and_pr(owner: str, name: str, clone_path: str, plan_text: str, note: s
     _run(["git", "commit", "-qm", f"bott: {plan_text[:60]}"], cwd=clone_path)
     push = _run(["git", "push", "-q", "origin", branch], cwd=clone_path)
     if push.returncode != 0:
-        raise RuntimeError(f"git push failed: {push.stderr.strip()}")
+        raise RuntimeError(f"git push failed: {redact(push.stderr.strip())}")
     with GitHubClient(token=token) as gh:
         base = gh.default_branch(owner, name)
         body = (f"{note}\n\n---\n🤖 Generated with [Claude Code](https://claude.com/claude-code)")

@@ -31,7 +31,7 @@ from bott.shared.config import (
     bott_model,
     default_budget,
 )
-from bott.shared.observability.logging_setup import get_logger
+from bott.shared.observability.logging_setup import get_logger, redact
 
 log = get_logger("review.slack")
 from bott.agents.code_review.core.models import ReviewOutput
@@ -126,6 +126,43 @@ def _checklist_blocks(number: int, verb: str, current_key: str, counts: dict) ->
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
 
+def _run_implement(a: dict, channel: str | None, thread_ts: str | None) -> None:
+    """Execute an approved implement job: resolve the GitHub App token, run the build/PR
+    pipeline, post the result. Extracted for unit-testability (it closes over no outer state).
+
+    Failure contract: always returns normally so the worker marks the job done and does NOT
+    enqueue an expensive retry. Errors are posted to the Slack thread and logged.
+    """
+    from bott.agents.build_fix.pipeline import implement_task
+    from bott.agents.build_fix.rendering import result_blocks
+
+    owner, name = a["owner"], a["name"]
+    gh_token = None
+    try:
+        gh_token = app_token_for(owner, name)
+    except Exception:  # noqa: BLE001
+        gh_token = None
+    if not gh_token:
+        if channel:
+            _post(channel, thread_ts, [{"type": "section", "text": {"type": "mrkdwn",
+                  "text": f"I can't open a PR on `{owner}/{name}` — the GitHub App needs to be "
+                          "installed there with write access (contents + pull requests)."}}],
+                  "GitHub App write access required.")
+        return
+    try:
+        res = implement_task(owner, name, a["plan_text"], token=gh_token, post=True)
+    except Exception as e:  # noqa: BLE001 — never retry the expensive implement job; report instead
+        log.error("implement job failed for %s/%s: %s", owner, name, e)
+        if channel:
+            _post(channel, thread_ts, [{"type": "section", "text": {"type": "mrkdwn",
+                  "text": f"I couldn't complete the build for `{owner}/{name}`: {redact(str(e))}"}}],
+                  "Build failed.")
+        return
+    if channel:
+        blocks, fallback = result_blocks(res)
+        _post(channel, thread_ts, blocks, fallback)
+
+
 # ── worker handler ────────────────────────────────────────────────────────────
 def handle_task(task: dict) -> None:
     a = task["args"]
@@ -149,17 +186,7 @@ def handle_task(task: dict) -> None:
         return
 
     if task["kind"] == "implement":
-        from bott.agents.build_fix.pipeline import implement_task
-        from bott.agents.build_fix.rendering import result_blocks
-        owner, name = a["owner"], a["name"]
-        try:
-            gh_token = app_token_for(owner, name)
-        except Exception:  # noqa: BLE001
-            gh_token = None
-        res = implement_task(owner, name, a["plan_text"], token=gh_token, post=True)
-        if channel:
-            blocks, fallback = result_blocks(res)
-            _post(channel, thread_ts, blocks, fallback)
+        _run_implement(a, channel, thread_ts)
         return
 
     if task["kind"] == "review":
