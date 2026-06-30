@@ -21,11 +21,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from slack_sdk import WebClient
 
 from bott.shared import approvals
+from bott.shared.config import bott_admins
 from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import queue, standup
 from bott.skills.dsm import today_key
 
-from . import blocks, service
+from . import blocks, models, service
 from .engagements import engagement_shortlist, sprint_board_options_with_reason
 
 log = get_logger("bott.slack_home.router")
@@ -49,11 +50,27 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
         if not verify_slack_signature(body, ts, sig, signing_secret=signing_secret):
             raise HTTPException(status_code=403, detail="Invalid signature")
 
+    def _resolve_email(user_id: str) -> str:
+        """Look up the Slack user's verified email from users.info. Falls back to empty string
+        (which will fail admin checks — safe default for non-admins)."""
+        try:
+            info = client.users_info(user=user_id)
+            return (info.get("user") or {}).get("profile", {}).get("email") or ""
+        except Exception as e:  # noqa: BLE001
+            log.warning("users_info failed for %s: %s", user_id, e)
+            return ""
+
     def publish_home(user_id: str | None) -> None:
         if not user_id:
             return
         try:
-            client.views_publish(user_id=user_id, view=blocks.build_home_view(service.list_rows(db)))
+            email = _resolve_email(user_id)
+            is_admin = email.lower() in bott_admins()
+            view = blocks.build_home_view(
+                service.list_rows(db),
+                models_blocks=models.models_section(is_admin=is_admin),
+            )
+            client.views_publish(user_id=user_id, view=view)
         except Exception as e:  # noqa: BLE001
             log.error("home publish failed for %s: %s", user_id, e)
 
@@ -248,6 +265,21 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                                 pass
                     except Exception as e:  # noqa: BLE001
                         log.error("approval decision failed (id=%s): %s", approval_id_str, e)
+            elif cmd == "models_connect_codex":
+                # Admin-only: open a modal to paste the org Codex auth.json.
+                try:
+                    client.views_open(trigger_id=trigger_id, view=blocks.build_connect_codex_modal())
+                except Exception as e:  # noqa: BLE001
+                    log.error("open connect_codex modal: %s", e)
+            elif cmd == "models_set_provider":
+                # Admin-only: open a static-select modal to change the model provider.
+                try:
+                    from bott.shared.persistence.records import get_setting
+                    current = get_setting("model.provider")
+                    client.views_open(trigger_id=trigger_id,
+                                      view=blocks.build_set_provider_modal(current=current))
+                except Exception as e:  # noqa: BLE001
+                    log.error("open set_provider modal: %s", e)
             return {"ok": True}
 
         if ptype == "view_submission":
@@ -264,6 +296,35 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             # Create the schedule in the BACKGROUND, then refresh Home. Creating a sprint
             # schedule hits Jira (board discovery), which can exceed Slack's ~3s view-submission
             # window — doing it inline makes Slack show "trouble connecting" even on success.
+            # Models modals are admin-gated and post a DM with the result; they don't
+            # modify the schedule list, but we refresh Home so the Models section updates.
+            if cb in ("models_connect_codex", "models_set_provider"):
+                actor_email = _resolve_email(user_id) if user_id else ""
+
+                def _do_models_submit(cb=cb, values=values, actor_email=actor_email,
+                                      user_id=user_id):
+                    try:
+                        if cb == "models_connect_codex":
+                            auth_text = (_val(values, "auth_json").get("value") or "").strip()
+                            result = models.connect_codex(actor_email, auth_text)
+                        else:  # models_set_provider
+                            selected = (_val(values, "provider").get("selected_option") or {})
+                            provider_val = selected.get("value") or ""
+                            result = models.apply_model_override(actor_email, "model.provider",
+                                                                 provider_val)
+                    except Exception as e:  # noqa: BLE001
+                        result = f"Error: {e}"
+                        log.error("models submission %s failed: %s", cb, e)
+                    if user_id:
+                        try:
+                            client.chat_postMessage(channel=user_id, text=result)
+                        except Exception:  # noqa: BLE001 — feedback DM is best-effort
+                            pass
+                    publish_home(user_id)
+
+                background_tasks.add_task(_do_models_submit)
+                return Response(status_code=200)
+
             def _do_submit(cb=cb, values=values, user_id=user_id):
                 try:
                     if cb == "create_delivery":

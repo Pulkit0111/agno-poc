@@ -45,11 +45,14 @@ def _channel_display(channel: str | None) -> str:
     return channel or "—"
 
 
-def build_home_view(rows: list[dict]) -> dict:
+def build_home_view(rows: list[dict], *, models_blocks: list[dict] | None = None) -> dict:
     """The App Home tab: one section per schedule with Run/Remove, then Add buttons.
 
     Each row dict carries: icon, label, channel, when, run_buttons (list of
     {text, action_id, value}) and remove_ids (list of schedule ids).
+
+    ``models_blocks`` (from ``models.models_section``) is appended after the schedules
+    panel when provided.
     """
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": "📅 Scheduled digests", "emoji": True}},
@@ -88,7 +91,53 @@ def build_home_view(rows: list[dict]) -> dict:
             ],
         }
     )
+    if models_blocks:
+        blocks.append({"type": "divider"})
+        blocks.append(
+            {"type": "header", "text": {"type": "plain_text", "text": "🤖 Models", "emoji": True}}
+        )
+        blocks.extend(models_blocks)
     return {"type": "home", "blocks": blocks}
+
+
+def build_connect_codex_modal() -> dict:
+    """Modal to paste the org Codex auth.json and submit it."""
+    return {
+        "type": "modal",
+        "callback_id": "models_connect_codex",
+        "title": {"type": "plain_text", "text": "Connect org Codex"},
+        "submit": {"type": "plain_text", "text": "Connect"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn",
+             "text": "Paste the full contents of your `~/.codex/auth.json` below."}},
+            _input("auth_json", "auth.json contents",
+                   {"type": "plain_text_input", "action_id": "v", "multiline": True,
+                    "placeholder": {"type": "plain_text", "text": '{"tokens": {"access_token": "...", ...}}'}}),
+        ],
+    }
+
+
+_PROVIDER_OPTIONS = [
+    ("Codex (ChatGPT)", "codex"),
+    ("Amazon Bedrock", "bedrock"),
+    ("OpenRouter", "openrouter"),
+]
+
+
+def build_set_provider_modal(current: str | None = None) -> dict:
+    """Modal to pick the active model provider."""
+    return {
+        "type": "modal",
+        "callback_id": "models_set_provider",
+        "title": {"type": "plain_text", "text": "Change model provider"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            _input("provider", "Provider",
+                   _static_select("v", _PROVIDER_OPTIONS, initial=current)),
+        ],
+    }
 
 
 def _static_select(action_id: str, options: list[tuple[str, str]], initial: str | None = None) -> dict:
