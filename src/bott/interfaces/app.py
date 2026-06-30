@@ -97,7 +97,9 @@ def main() -> None:
     # startup hooks on the app are ignored — we manage the proxy around serve() here.)
     # In codex mode the agent's model base_url already points at the proxy (via .env);
     # this just brings the proxy process up. In openai mode this is a no-op.
-    proxy = start_model_backend()
+    proxy = None
+    if os.getenv("CODEX_DEV_PROXY") == "1":
+        proxy = start_model_backend()
     if not _interfaces:
         log.warning("Slack interface NOT mounted — set SLACK_SIGNING_SECRET + SLACK_TOKEN.")
 

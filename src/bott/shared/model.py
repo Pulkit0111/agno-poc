@@ -1,13 +1,15 @@
 """Single place the LLM is built — provider is configuration, work is routed by task type.
 
-Provider: codex (dev proxy) | bedrock | openrouter (prod). Role: 'chat' (everyday) vs
+Provider: codex (org backend direct) | bedrock | openrouter (prod). Role: 'chat' (everyday) vs
 'heavy' (implementation/review). Provider classes are lazy-imported so optional deps
 (boto3 for Bedrock) aren't required unless that provider is selected."""
 
 from __future__ import annotations
 
+from bott.shared.codex_tokens import get_valid_token  # module-level so tests can patch it
+
 from .config import (
-    _codex_proxy_base_url,
+    codex_backend_base_url,
     model_provider,
     openrouter_api_key,
     role_model_id,
@@ -16,19 +18,30 @@ from .config import (
 _COMMON = {"retries": 3, "exponential_backoff": True}
 
 
+def _setting(key: str):
+    """Admin override from the Postgres settings store; None if unset/unavailable."""
+    try:
+        from bott.shared.persistence.records import get_setting
+        return get_setting(key)
+    except Exception:  # noqa: BLE001 — settings store optional at construction time
+        return None
+
+
 def build_model(role: str = "chat", **overrides):
     """Build the model for a task role under the configured provider.
     `overrides` (e.g. retries, temperature) are forwarded to the underlying model."""
-    provider = model_provider()
-    model_id = role_model_id(role)
+    provider = _setting("model.provider") or model_provider()
+    model_id = _setting(f"model.{role}") or role_model_id(role)
 
     if provider == "codex":
-        from agno.models.openai import OpenAIChat
-        return OpenAIChat(
+        from agno.models.openai import OpenAIResponses
+        tok = get_valid_token()                      # raises CodexNotConnected if unconnected
+        return OpenAIResponses(
             id=model_id,
-            base_url=_codex_proxy_base_url(),
-            api_key="sk-local-endpoint-no-key-required",
-            **{**_COMMON, **overrides},
+            base_url=codex_backend_base_url(),
+            api_key=tok.access_token,
+            default_headers={"ChatGPT-Account-ID": tok.account_id},
+            **overrides,
         )
     if provider == "openrouter":
         from agno.models.openrouter import OpenRouter
