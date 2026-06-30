@@ -34,6 +34,21 @@ from bott.shared.observability.logging_setup import get_logger
 log = get_logger("bott.app")
 
 _db = build_db()
+
+# When MODEL_PROVIDER=codex, the shared agent's model is built now and needs the org Codex
+# token. Seed it from the host's `~/.codex/auth.json` (dev/single-host convenience) if the
+# org account hasn't been connected via App Home yet. Never let this crash startup.
+from bott.shared.config import model_provider as _model_provider
+
+if _model_provider() == "codex":
+    try:
+        from bott.shared import codex_tokens
+        if not codex_tokens.is_connected():
+            if codex_tokens.bootstrap_from_local():
+                log.info("Seeded org Codex token from ~/.codex/auth.json.")
+    except Exception as e:  # noqa: BLE001 — bootstrap is best-effort; don't crash import
+        log.warning("Codex bootstrap skipped: %s", e)
+
 _agent = build_bott_agent(_db)
 
 # Slack interface is env-gated so the app constructs without Slack creds (for tests/CI).
@@ -95,8 +110,8 @@ if _slack_signing and _slack_token:
 def main() -> None:
     # Start the model backend BEFORE serving. (AgentOS owns the FastAPI lifespan, so
     # startup hooks on the app are ignored — we manage the proxy around serve() here.)
-    # In codex mode the agent's model base_url already points at the proxy (via .env);
-    # this just brings the proxy process up. In openai mode this is a no-op.
+    # Dev-only: CODEX_DEV_PROXY=1 starts the local npx proxy (legacy path); the default
+    # codex path uses the managed org token + direct adapter, no proxy.
     proxy = None
     if os.getenv("CODEX_DEV_PROXY") == "1":
         proxy = start_model_backend()

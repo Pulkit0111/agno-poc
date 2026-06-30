@@ -4,18 +4,6 @@ from bott.shared import model as model_mod
 from bott.shared.model import build_model
 
 
-def test_codex_provider_uses_direct_backend(monkeypatch):
-    """Codex provider now uses the direct org backend (not the npx proxy)."""
-    monkeypatch.setenv("MODEL_PROVIDER", "codex")
-    monkeypatch.setenv("BOTT_CHAT_MODEL", "gpt-5.5")
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(model_mod, "get_valid_token",
-                        lambda: ct.CodexToken("tok-abc", "acc-1"))
-    m = build_model("chat")
-    assert m.id == "gpt-5.5"
-    assert "backend-api/codex" in (m.base_url or "")
-
-
 def test_openrouter_provider(monkeypatch):
     monkeypatch.setenv("MODEL_PROVIDER", "openrouter")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")

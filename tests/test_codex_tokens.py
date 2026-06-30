@@ -66,6 +66,21 @@ def test_refresh_ahead_when_expired(store, monkeypatch):
     assert ct._load_bundle()["refresh_token"] == "rt-new"
 
 
+def test_bootstrap_from_local_seeds_org_token(store, tmp_path, monkeypatch):
+    import base64
+    import json
+    import time
+    af = tmp_path / "auth.json"
+    exp = int(time.time()) + 3600
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).rstrip(b"=").decode()
+    access = f"h.{payload}.x"
+    af.write_text(json.dumps({"tokens": {"access_token": access, "refresh_token": "r", "account_id": "acc"}}))
+    assert ct.is_connected() is False
+    assert ct.bootstrap_from_local(str(af)) is True
+    assert ct.is_connected() is True
+    assert ct.get_valid_token().account_id == "acc"
+
+
 @pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="needs Postgres")
 def test_concurrent_refresh_is_single_writer(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
