@@ -138,6 +138,30 @@ def handle_task(task: dict) -> None:
         _react(channel, trigger_ts, "eyes")
 
     log.info("task %s: %s source=%s", task["id"], task["kind"], source)
+
+    if task["kind"] == "plan":
+        from bott.agents.build_fix.planner import run_plan_job
+        from bott.agents.build_fix.planning import draft_plan_text
+        from bott.shared.approvals import create_request
+        a["plan_text"] = draft_plan_text(a)
+        a["user_id"] = task.get("user_id")
+        run_plan_job(a, post=_post, create_approval=create_request)
+        return
+
+    if task["kind"] == "implement":
+        from bott.agents.build_fix.pipeline import implement_task
+        from bott.agents.build_fix.rendering import result_blocks
+        owner, name = a["owner"], a["name"]
+        try:
+            gh_token = app_token_for(owner, name)
+        except Exception:  # noqa: BLE001
+            gh_token = None
+        res = implement_task(owner, name, a["plan_text"], token=gh_token, post=True)
+        if channel:
+            blocks, fallback = result_blocks(res)
+            _post(channel, thread_ts, blocks, fallback)
+        return
+
     if task["kind"] == "review":
         owner, name, number = a["owner"], a["name"], a["number"]
         prior_review = prior_text = prior_verdict = None

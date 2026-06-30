@@ -13,6 +13,7 @@ import os
 from agno.agent import Agent
 from agno.skills import LocalSkills, Skills
 
+from bott.agents.build_fix import build_tools
 from bott.agents.code_review.member import review_tools
 from bott.agents.personality import IDENTITY, VOICE
 from bott.shared import config
@@ -109,6 +110,7 @@ def build_agent(user_id: str, db=None) -> Agent:
     model = build_model("chat")
 
     tools: list = []
+    tools.extend(build_tools())   # Build & fix: plan → approve → implement → draft PR
     tools.extend(review_tools())  # PR review (queue → durable worker runs + posts)
     tools.extend(security_tools())  # Drupal security advisories (digest + chat follow-ups)
     tools.extend(dsm_tools())  # DSM standup: open collection / pre-read / post-call summary
