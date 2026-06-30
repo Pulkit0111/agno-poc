@@ -19,13 +19,22 @@ def init_approvals() -> None:
     init_schema()
 
 
-def create_request(user_id: str, action: str, summary: str) -> int:
+def create_request(user_id: str, action: str, summary: str, payload: str | None = None) -> int:
     with get_engine().begin() as c:
         res = c.execute(text(
-            "INSERT INTO approvals(user_id,action,summary,status,created) "
-            "VALUES (:u,:a,:s,'pending',:t) RETURNING id"
-        ), {"u": user_id, "a": action, "s": summary, "t": time.time()})
+            "INSERT INTO approvals(user_id,action,summary,status,payload,created) "
+            "VALUES (:u,:a,:s,'pending',:p,:t) RETURNING id"
+        ), {"u": user_id, "a": action, "s": summary, "p": payload, "t": time.time()})
         return int(res.fetchone()[0])
+
+
+def get_request(approval_id: int) -> dict | None:
+    with get_engine().begin() as c:
+        row = c.execute(text(
+            "SELECT id,user_id,action,summary,status,decided_by,payload,created "
+            "FROM approvals WHERE id=:id"
+        ), {"id": approval_id}).fetchone()
+        return dict(row._mapping) if row else None
 
 
 def decide(approval_id: int, approved: bool, decided_by: str) -> None:

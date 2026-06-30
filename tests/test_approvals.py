@@ -34,3 +34,16 @@ def test_wait_returns_immediately_when_decided(store):
 def test_wait_times_out_returns_pending(store):
     aid = approvals.create_request("u", "x", "y")
     assert approvals.wait_for_decision(aid, timeout=0.1, poll=0.05) == "pending"
+
+
+def test_create_request_stores_payload(store):
+    aid = approvals.create_request("u", "build:implement", "Open PR", payload='{"owner":"o"}')
+    row = approvals.get_request(aid)
+    assert row is not None
+    assert row["action"] == "build:implement"
+    assert row["payload"] == '{"owner":"o"}'
+    assert row["status"] == "pending"
+
+
+def test_get_request_missing_returns_none(store):
+    assert approvals.get_request(999999) is None

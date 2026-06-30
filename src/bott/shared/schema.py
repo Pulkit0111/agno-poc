@@ -45,6 +45,7 @@ APPROVALS = Table(
     Column("summary", Text, nullable=False),
     Column("status", Text, nullable=False, server_default=_sql_text("'pending'")),
     Column("decided_by", Text),
+    Column("payload", Text),  # JSON: parameters for the approved action (e.g. implement-job args)
     Column("created", Float, nullable=False),
 )
 
