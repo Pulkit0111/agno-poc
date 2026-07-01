@@ -29,7 +29,7 @@ def _require_admin(run_context) -> str | None:
         actor = require_user_id(getattr(run_context, "user_id", None))
     except IsolationError:
         return "I couldn't tell who you are."
-    if actor not in config.bott_admins():
+    if actor.lower() not in config.bott_admins():
         return "Only an admin can manage the skill library."
     return None
 
@@ -76,7 +76,7 @@ def _list_skills_impl(skills, run_context) -> str:
         r = rows.get(n)
         if r:
             tag = "pinned" if r["pinned"] else "authored"
-            lines.append(f"- {n} [{tag} · by {r['authored_by']} · used {r['usage_count']}]")
+            lines.append(f"- {n} [{tag} · by {r['authored_by'] or 'unknown'} · used {r['usage_count']}]")
         else:
             lines.append(f"- {n} [built-in]")
     return "Skills:\n" + "\n".join(lines)

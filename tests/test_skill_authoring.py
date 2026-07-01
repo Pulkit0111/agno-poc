@@ -87,6 +87,14 @@ def test_pin_admin_gated(dbenv, monkeypatch):
     assert store.get_skill("s")["pinned"] == 0
 
 
+def test_pin_admin_case_insensitive(dbenv, monkeypatch):
+    monkeypatch.setattr(sa.config, "bott_admins", lambda: {"admin@x.com"})  # stored lowercase
+    store.upsert_skill("s", "s", "d", "c", "a@x.com", now=1.0)
+    out = sa._pin_impl(_ctx("Admin@X.com"), "s", True)  # uppercase actor
+    assert "pinned" in out.lower()
+    assert store.get_skill("s")["pinned"] == 1
+
+
 def test_tools_family_gates_on_skills():
     assert sa.skill_authoring_tools(skills=None) == []
     tools = sa.skill_authoring_tools(skills=_Skills([]))
