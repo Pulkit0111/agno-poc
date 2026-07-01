@@ -399,8 +399,9 @@ def spin_api_token() -> str | None:
 
 
 def spin_public_zone() -> str:
-    """The zone public deploys are served on: <subdomain>.<zone>/."""
-    return os.getenv("SPIN_PUBLIC_ZONE", "public.spin.axelerant.tech")
+    """The zone public deploys are served on: <subdomain>.<zone>/. A blank env value falls
+    back to the default (a set-but-empty SPIN_PUBLIC_ZONE previously produced `<slug>.` URLs)."""
+    return os.getenv("SPIN_PUBLIC_ZONE") or "public.spin.axelerant.tech"
 
 
 def spin_configured() -> bool:

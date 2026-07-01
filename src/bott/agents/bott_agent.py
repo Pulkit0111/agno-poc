@@ -125,7 +125,14 @@ def build_agent(user_id: str, db=None) -> Agent:
     if slack_token:
         from agno.tools.slack import SlackTools
 
-        tools.append(SlackTools(token=slack_token))
+        # Read/search Slack, but do NOT let the agent SEND messages: the Slack interface
+        # already posts the agent's reply to the thread. Giving it send tools made it post
+        # the answer AND a redundant "Done — I replied…" message (the double-post seen in chat).
+        tools.append(SlackTools(
+            token=slack_token,
+            enable_send_message=False,
+            enable_send_message_thread=False,
+        ))
 
     github_token = config.github_token()
     if github_token:
