@@ -52,6 +52,8 @@ if _model_provider() == "codex":
 
 try:
     from bott.shared.persistence import skills_store
+    from bott.shared.schema import init_schema
+    init_schema()  # ensure tables exist at import (main()'s init_queue/init_approvals run later)
     _n = skills_store.materialize_to_fs(config.bott_skills_dir())
     log.info("materialized %d authored skill(s) from DB", _n)
 except Exception as e:  # noqa: BLE001

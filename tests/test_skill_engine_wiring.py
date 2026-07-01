@@ -23,3 +23,15 @@ def test_build_agent_includes_skill_authoring(dbenv, monkeypatch):
 
 def test_materialize_on_empty_db_is_noop(dbenv):
     assert store.materialize_to_fs(str(dbenv / "lib")) == 0
+
+
+def test_startup_sequence_restores_authored_skill_to_fs(dbenv, monkeypatch):
+    # Simulate: a skill was authored in a PRIOR run (row in DB), then the container restarted
+    # (empty skills dir). The startup sequence (init_schema already done by fixture) must
+    # materialize it back to the FS so LocalSkills can load it.
+    store.upsert_skill("prior-skill", "prior-skill", "d",
+                       "---\nname: prior-skill\ndescription: d\n---\nbody", "a@x.com", now=1.0)
+    lib = dbenv / "lib"
+    n = store.materialize_to_fs(str(lib))
+    assert n == 1
+    assert (lib / "prior-skill" / "SKILL.md").exists()
