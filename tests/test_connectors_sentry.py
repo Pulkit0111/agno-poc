@@ -70,10 +70,26 @@ def test_tool_error_is_readable_and_redacted(monkeypatch):
     monkeypatch.setattr(sentry_read.config, "sentry_configured", lambda: True)
 
     class _Boom:
-        def list_issues(self, **k):
+        def list_issues(self, *a, **k):
             raise RuntimeError("token=sk-secret failed")
 
     monkeypatch.setattr(sentry_read, "_client", lambda: _Boom())
+
+    # Spy on redact: record calls but delegate to the real implementation.
+    real_redact = sentry_read.redact
+    redact_calls = []
+
+    def spy_redact(s):
+        redact_calls.append(s)
+        return real_redact(s)
+
+    monkeypatch.setattr(sentry_read, "redact", spy_redact)
+
     out = sentry_read.sentry_list_issues()
     assert "sk-secret" not in out
     assert "sentry" in out.lower()  # readable message names the system
+    # Prove redact() was actually called with the raw error string.
+    assert redact_calls, "redact() was never called"
+    assert any("sk-secret" in call for call in redact_calls), (
+        f"redact() was not called with the raw error text; calls: {redact_calls}"
+    )
