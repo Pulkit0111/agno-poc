@@ -90,3 +90,24 @@ def test_drive_calendar_wired_when_configured(monkeypatch):
     names = {getattr(t, "name", getattr(t, "__name__", "")) for t in connectors.connector_tools()}
     assert {"drive_search", "drive_read_file", "calendar_list_events",
             "calendar_get_event", "calendar_list_calendars"} <= names
+
+
+def test_sentry_registered_and_listed():
+    from bott.skills.connectors.register_all import register_all
+    from bott.skills.connectors.registry import REGISTRY
+    register_all()
+    assert "sentry" in REGISTRY.list_names()["org"]
+
+
+def test_sentry_wired_when_configured(monkeypatch):
+    import bott.skills.connectors.confluence_read as cr
+    import bott.skills.connectors.jira_read as jr
+    import bott.skills.connectors.sentry_read as sr
+    monkeypatch.setattr(jr.config, "jira_configured", lambda: False)
+    monkeypatch.setattr(cr.config, "confluence_configured", lambda: False)
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("SLACK_TOKEN", raising=False)
+    monkeypatch.setattr(sr.config, "sentry_configured", lambda: True)
+    from bott.skills import connectors
+    names = {getattr(t, "__name__", getattr(t, "name", "")) for t in connectors.connector_tools()}
+    assert {"sentry_list_issues", "sentry_get_issue", "sentry_issue_events"} <= names

@@ -12,6 +12,7 @@ from bott.skills.connectors.drive import drive_read_tools
 from bott.skills.connectors.gmail import gmail_read_tools
 from bott.skills.connectors.jira_read import jira_read_tools
 from bott.skills.connectors.registry import REGISTRY, FunctionConnector
+from bott.skills.connectors.sentry_read import sentry_read_tools
 from bott.skills.connectors.slack_read import slack_read_tools
 
 
@@ -28,6 +29,7 @@ def register_all() -> None:
     REGISTRY.register(FunctionConnector("confluence", "org_credential", confluence_read_tools))
     REGISTRY.register(FunctionConnector("slack", "org_credential", slack_read_tools))
     REGISTRY.register(FunctionConnector("memra", "org_credential", _memra_tools))
+    REGISTRY.register(FunctionConnector("sentry", "org_credential", sentry_read_tools))
     REGISTRY.register(FunctionConnector("gmail", "domain_delegated", gmail_read_tools))
     REGISTRY.register(FunctionConnector("drive", "domain_delegated", drive_read_tools))
     REGISTRY.register(FunctionConnector("calendar", "domain_delegated", calendar_read_tools))
