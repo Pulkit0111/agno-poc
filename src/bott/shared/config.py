@@ -350,6 +350,17 @@ def confluence_configured() -> bool:
     return bool(confluence_url() and confluence_username() and confluence_api_key())
 
 
+def google_service_account_path() -> str | None:
+    """Path to the Google service-account JSON key used for domain-wide delegation."""
+    return os.getenv("GOOGLE_SERVICE_ACCOUNT_PATH") or None
+
+
+def google_delegation_configured() -> bool:
+    """True when a service-account key file is configured and present on disk."""
+    p = google_service_account_path()
+    return bool(p) and os.path.exists(p)
+
+
 def jira_story_points_field() -> str | None:
     """Jira Cloud has ONE story-points custom field site-wide. Pin it here to skip
     auto-detection (e.g. JIRA_STORY_POINTS_FIELD=customfield_10016); when unset, the
