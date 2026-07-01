@@ -35,12 +35,19 @@ log = get_logger("bott.app")
 
 _db = build_db()
 
+# Foundation schema MUST exist before anything reads it at import — the Codex token lookup
+# below and the skills materialize both hit tables (connector_tokens, skills). On a fresh or
+# pre-gateway DB these tables won't exist yet (main()'s init_queue/init_approvals run later),
+# so create them here first. init_schema is idempotent.
+from bott.shared import config
+from bott.shared.config import model_provider as _model_provider
+from bott.shared.schema import init_schema as _init_schema
+
+_init_schema()
+
 # When MODEL_PROVIDER=codex, the shared agent's model is built now and needs the org Codex
 # token. Seed it from the host's `~/.codex/auth.json` (dev/single-host convenience) if the
 # org account hasn't been connected via App Home yet. Never let this crash startup.
-from bott.shared import config
-from bott.shared.config import model_provider as _model_provider
-
 if _model_provider() == "codex":
     try:
         from bott.shared import codex_tokens
@@ -52,8 +59,6 @@ if _model_provider() == "codex":
 
 try:
     from bott.shared.persistence import skills_store
-    from bott.shared.schema import init_schema
-    init_schema()  # ensure tables exist at import (main()'s init_queue/init_approvals run later)
     _n = skills_store.materialize_to_fs(config.bott_skills_dir())
     log.info("materialized %d authored skill(s) from DB", _n)
 except Exception as e:  # noqa: BLE001
