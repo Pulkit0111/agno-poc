@@ -17,9 +17,7 @@ from bott.agents.build_fix import build_tools
 from bott.agents.code_review.member import review_tools
 from bott.agents.personality import IDENTITY, VOICE
 from bott.shared import config
-from bott.shared.config import (
-    bott_model,
-)
+from bott.shared.config import bott_model
 from bott.shared.identity import require_user_id
 from bott.shared.model import build_model
 from bott.skills.advisories import security_tools

@@ -140,3 +140,19 @@ def test_client_unavailable_returns_generic_message(monkeypatch):
     monkeypatch.setattr(gmail, "GmailTools", None)
     out = gmail._gmail_search_impl(SimpleNamespace(user_id="a@axelerant.com"), "hi")
     assert out == "Couldn't reach Gmail right now."
+
+
+def test_real_gmailtools_constructs_readonly(monkeypatch):
+    """Guards against the compose/modify-scope ValueError: construct the REAL GmailTools
+    (auth is lazy, so no network/file needed) and assert only read-only tools register."""
+    import pytest
+    if gmail.GmailTools is None:
+        pytest.skip("google libs not installed")
+    monkeypatch.setattr(gmail.config, "google_service_account_path", lambda: "/tmp/sa.json")
+    gt = gmail._impersonated(SimpleNamespace(user_id="a@axelerant.com"))  # must NOT raise
+    fns = set(gt.functions)
+    assert "search_emails" in fns and "get_thread" in fns
+    forbidden = {"send_email", "create_draft_email", "send_email_reply", "update_draft",
+                 "send_draft", "apply_label", "remove_label", "trash_message",
+                 "star_email", "mark_email_as_read", "get_message", "search_threads"}
+    assert not (fns & forbidden), f"non-readonly tools registered: {fns & forbidden}"
