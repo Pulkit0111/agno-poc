@@ -6,7 +6,9 @@ from __future__ import annotations
 
 from bott.shared.config import memra_configured
 from bott.shared.context import MemraClient, make_memra_tools
+from bott.skills.connectors.calendar import calendar_read_tools
 from bott.skills.connectors.confluence_read import confluence_read_tools
+from bott.skills.connectors.drive import drive_read_tools
 from bott.skills.connectors.gmail import gmail_read_tools
 from bott.skills.connectors.jira_read import jira_read_tools
 from bott.skills.connectors.registry import REGISTRY, FunctionConnector
@@ -27,3 +29,5 @@ def register_all() -> None:
     REGISTRY.register(FunctionConnector("slack", "org_credential", slack_read_tools))
     REGISTRY.register(FunctionConnector("memra", "org_credential", _memra_tools))
     REGISTRY.register(FunctionConnector("gmail", "domain_delegated", gmail_read_tools))
+    REGISTRY.register(FunctionConnector("drive", "domain_delegated", drive_read_tools))
+    REGISTRY.register(FunctionConnector("calendar", "domain_delegated", calendar_read_tools))
