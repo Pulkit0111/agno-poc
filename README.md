@@ -3,38 +3,42 @@
 **Bott** is a conversational engineering teammate that lives in Slack. It's a single
 [Agno](https://github.com/agno-agi/agno) **agent** with a personality and a set of
 specialized **skills** (tools) — not a team of agents. You talk to it like a colleague in
-a DM or by `@mention`; it answers from real context, reviews pull requests, and runs
-scheduled flows on a cadence. It runs as one [AgentOS](https://github.com/agno-agi/agno)
-app (FastAPI), and every interaction is scoped per user (`user_id`) and conversation
-(`session_id`) so no one's data bleeds into anyone else's.
+a DM or by `@mention`; it answers from real context, reads your connected systems,
+reviews and fixes code, and runs scheduled flows on a cadence. It runs as one
+[AgentOS](https://github.com/agno-agi/agno) app (FastAPI) backed entirely by **Postgres**,
+and every interaction is scoped per user (`user_id`) and conversation (`session_id`) so no
+one's data bleeds into anyone else's.
 
-This is a **Slack-only POC** to validate Agno as the platform. One agent, several skills,
-isolation at the session/user level — no router, no team, no separate apps.
+One agent, many skills, isolation at the session/user level — no router, no team, no
+separate apps. Slack is the only frontend; everything is reachable by natural language.
 
 ## What it does
 
-Five use cases, all served by the one agent:
+All served by the one agent:
 
-- **PR Reviews** — `@mention` a GitHub PR (or follow up in-thread for a re-review), or let
-  the GitHub webhook auto-review on PR open / ready-for-review. The agent enqueues the
-  work; a durable worker fetches the PR, shallow-clones the repo, investigates with
-  file/search/history tools, runs a 10-precondition **verdict gate**, and posts a rendered
-  review to GitHub (when the repo is allow-listed) and mirrors it to Slack.
-- **DSM (daily standup)** — form-driven and threaded: at the open time a channel message
-  with an **"Add my update"** button collects async updates; a **pre-read** summary posts
-  in the thread before the call; after the call a **summary** (from Memra meeting notes)
-  posts in the same thread. Scoped per team.
-- **Delivery Synthesis** — a scheduled per-engagement digest (status, top risks, what's
-  going well, next steps) grounded in Memra context and posted to the engagement's channel.
-- **Personal Concierge** — per-user action items from per-user memory; each user only ever
-  sees their own items.
-- **Security Advisories** — a scheduled Drupal security-advisory digest (severity-grouped,
-  CVEs, fix versions), also answerable on demand in chat.
+- **Connectors (read-only)** — one modular registry of outside systems. *Org-credential:*
+  Jira, Confluence, Slack, [Memra](https://memra.team) (org context), and **Sentry**.
+  *Domain-delegated (per-user):* **Gmail, Drive, Calendar** — the agent reads *your own*
+  mail/files/calendar via a Google Workspace service account that impersonates the verified
+  Slack caller (read-only; "only my data" is enforced structurally).
+- **Build & Fix** — describe a change, point at a GitHub issue or a Jira ticket, and Bott
+  drafts a plan, posts it for **approval**, then (on approve) clones the repo, implements
+  until tests pass, and opens a **draft PR**. Write access is gated by a repo allowlist.
+- **PR review** — `@mention` a PR (or let the GitHub webhook auto-review on open); a durable
+  worker clones, investigates, runs a verdict gate, posts to GitHub (allow-listed repos) and
+  mirrors to Slack.
+- **Sentry triage** — `triage this Sentry issue in owner/repo`: Bott reads the incident +
+  recent events, diagnoses the root cause, proposes a fix, and on approval flows it straight
+  into Build & Fix (→ draft PR).
+- **Self-authored skills + curator** — teach Bott a new reusable workflow in plain language
+  (`author_skill`); it's saved durably in Postgres, loads immediately, and survives restarts.
+  Admins curate the library (`list_skills` / `pin` / `retire`).
+- **Delivery & reporting** — DSM (daily standup), per-engagement delivery synthesis, personal
+  concierge, Drupal security-advisory digest, sprint reports, and a portfolio risk roll-up —
+  grounded in Memra context, posted to Slack (some published to a hosted URL via Spin).
 
-Schedules are managed from a **Slack App Home** control panel (add / run-now / remove).
-**Context comes from [Memra](https://memra.team)** — a read-only layer over MCP
-(engagements, people, delivery, risks, meeting notes); the agent prefers cited context
-over guessing.
+Schedules and admin actions are managed from a **Slack App Home** control panel; approvals
+use **Approve / Dismiss** buttons in-thread.
 
 ## Architecture
 
@@ -42,37 +46,40 @@ over guessing.
 Slack (Events API)  ─┐
 GitHub webhook      ─┼─►  AgentOS app (FastAPI)  ──►  Bott agent (one agent, many skills)
 Scheduler (cron)    ─┘         │                          │
-                               │                          ├─ Memra tools (read-only context)
-                               │                          ├─ PR-review tools (enqueue)
-                               │                          ├─ Slack tools (post)
-                               │                          └─ agentic memory (per user_id)
+                               │                          ├─ Connectors (registry): read-only
+                               │                          │    org-cred + domain-delegated
+                               │                          ├─ Build & Fix / triage (enqueue)
+                               │                          ├─ Skills (author/curate) + memory
+                               │                          └─ Slack posting
                                │
-                               └─►  durable worker  ──►  review pipeline → verdict gate
-                                     (SQLite queue)        → GitHub review + Slack mirror
+                               └─►  durable worker(s)  ──►  plan / implement / review / triage
+                                     (Postgres queue,        → approval gate → GitHub PR
+                                      FOR UPDATE SKIP LOCKED)  → Slack mirror
 ```
 
-- **One agent, not a team.** `agents/bott_agent.py` builds a single `Agent` with the
-  skill tools attached. Isolation lives at `user_id`/`session_id`, which the Slack
-  interface supplies on every run (`resolve_user_identity=True` → `user_id` = the user's
-  email). Per-user memory uses Agno **agentic memory** (the agent stores/recalls only when
-  it decides to, so trivial chit-chat shows no "thinking" trace).
-- **Slack over the Events API** (HTTP, not Socket Mode). Chat runs on Agno's built-in
-  `agno.os.interfaces.slack.Slack` (mounted at `/slack/chat`); a thin gateway at
-  `/slack/events` handles `app_home_opened` and forwards chat events to it. The interface
-  passes `channel_id`/`thread_ts` into each run as dependencies so the review tools know
-  where to post. The **App Home** control panel (`interfaces/slack_home/`) handles the
-  schedule buttons + modals at `/slack/interactivity`.
-- **Reviews run out-of-band.** The review tools only *enqueue*; the durable worker
-  (`interfaces/slack_app.py`) runs the pipeline, posts live progress + the verdict, and
-  persists the trace. Reviews are slow (clone + LLM), so they never block a chat turn.
-- **Scheduler.** `scheduler=True` on AgentOS; `skills/scheduling.py` registers delivery /
-  DSM / concierge / security schedules (created from the App Home panel) that fire the
-  agent's run endpoint. Each schedule embeds `user_id`/`session_id` in its payload, so
-  scheduled runs stay scoped just like live ones.
-- **Pluggable model backend** (`shared/codex.py`). For the single-user POC, models run on
-  the owner's ChatGPT/Codex subscription with **no API key** via a local OpenAI-compatible
-  proxy that the app auto-starts and self-heals. For multi-user production, flip
-  `MODEL_BACKEND=openai` and use a sanctioned key. See *Model backend* below.
+- **One agent, not a team.** `agents/bott_agent.py` builds a single `Agent` from the skill
+  tools. Isolation lives at `user_id`/`session_id`, supplied by the Slack interface on every
+  run (`resolve_user_identity=True` → `user_id` = the user's email). Per-user agentic memory.
+- **Postgres is the only datastore.** Jobs, approvals, encrypted connector tokens, settings,
+  authored skills, sessions/memory, and review traces all live in Postgres. The job queue
+  uses `FOR UPDATE SKIP LOCKED` (split-ready worker). Secrets are encrypted at rest
+  (Fernet / `BOTT_SECRET_KEY`); logs are secret-redacting.
+- **Pluggable model gateway** (`shared/model.py`, `build_model(role)`). Three providers:
+  **codex** (an **org-level** ChatGPT/Codex subscription — one shared OAuth token, centrally
+  refreshed, no per-user keys; direct OpenAI-compatible adapter that re-resolves the token so
+  a long-lived agent never holds a stale one), **bedrock**, and **openrouter**. A settings
+  override (Postgres) beats env. Admins connect/switch models from App Home.
+- **Connector registry** (`skills/connectors/`). Every connector declares an **auth pattern**
+  (org-credential / domain-delegated / per-user-OAuth) and registers through `register_all.py`;
+  `build_agent` wires them via `REGISTRY.all_tools()`. For delegated connectors, *whose*
+  account is read is bound to the verified `run_context.user_id` — never a tool argument.
+- **Approval gate.** World-changing actions (open a PR, implement a fix) are never taken
+  directly: a plan/diagnosis is posted with Approve/Dismiss; only an approved, **allow-listed**
+  row is turned into an `implement` job (the single implement path).
+- **Slack over the Events API** (HTTP, not Socket Mode). Chat runs on Agno's built-in Slack
+  interface (mounted at `/slack/chat`); a thin gateway at `/slack/events` handles
+  `app_home_opened` and forwards chat events. App Home buttons/modals + approvals post to
+  `/slack/interactivity`.
 
 ### Layout
 
@@ -80,123 +87,87 @@ Scheduler (cron)    ─┘         │                          │
 src/bott/
 ├── agents/
 │   ├── bott_agent.py       # THE agent — one agent + skill tools (assembled here)
-│   ├── personality.py      # Bott's voice/identity (single source of truth)
-│   └── code_review/        # PR-review skill
-│       ├── member.py       #   enqueue tools (start_review / start_rereview)
-│       ├── webhook.py      #   GitHub PR webhook → enqueue
-│       ├── pr_ref.py       #   PR-reference parsing
-│       ├── cli.py          #   `pr-review` dry-run
-│       ├── core/           #   pipeline, runner, verdict_gate, rereview, models, types
-│       ├── github/         #   client, app_auth (App JWT → installation token), clone, fetch
-│       ├── agent/          #   prompt, tools (Agno Toolkit), diff_hunks, noise
-│       └── rendering/      #   github.py, slack.py (verdict rendering)
+│   ├── personality.py      # Bott's voice/identity
+│   ├── build_fix/          # plan → approve → implement → draft PR
+│   ├── code_review/        # PR review (enqueue + durable pipeline + verdict gate)
+│   └── triage/             # Sentry triage → diagnose → approve → Build & Fix
 ├── skills/
-│   ├── scheduling.py       # schedule helpers: delivery synthesis, DSM, concierge, security
-│   ├── advisories.py       # Drupal security-advisory digest (fetch + render + post)
-│   └── dsm.py              # standup: open collection / pre-read / post-call summary
+│   ├── connectors/         # registry + jira/confluence/slack/memra/sentry (org),
+│   │                       #   gmail/drive/calendar (domain-delegated, read-only)
+│   ├── skill_authoring.py  # author_skill + curator (list/pin/retire, admin-gated)
+│   ├── scheduling.py       # delivery / DSM / concierge / security schedules
+│   ├── advisories.py, dsm.py, engagement_data.py, sprint_report/, portfolio/, web_publish.py
+│   ├── workspace_tools.py  # coding/python/session-search + skill_manage
+│   └── library/            # curated SKILL.md library (+ authored skills materialized here)
 ├── shared/
-│   ├── config.py           # env, model selection, budget caps, gate thresholds, DB paths
-│   ├── codex.py            # Codex-subscription proxy: auto-start + supervise (or openai backend)
-│   ├── model.py            # single place the model is built
+│   ├── config.py           # env, model selection, gates, thresholds
+│   ├── model.py            # build_model(role) — the 3-provider gateway
+│   ├── codex_tokens.py, codex_model.py   # org Codex token manager + re-resolving adapter
+│   ├── schema.py           # SQLAlchemy Core: the single source of truth for tables
+│   ├── approvals.py, identity.py, secrets.py
+│   ├── persistence/        # queue.py, records.py, skills_store.py, standup.py
+│   ├── integrations/       # jira.py, sentry.py, spin.py (REST clients)
 │   ├── context/memra.py    # Memra client + read-only MCP tools (cited)
-│   ├── persistence/        # store.py (review queue + traces), standup.py (DSM rounds)
-│   └── observability/      # logging_setup.py (secret-redacting logs)
+│   └── observability/      # secret-redacting logging
 └── interfaces/
-    ├── app.py              # the AgentOS app: agent + Slack + scheduler + webhook (`bott-app`)
-    ├── slack_app.py        # durable PR-review worker + Slack posting (imported by app.py)
-    └── slack_home/         # Slack App Home control panel: schedules + buttons + modals
+    ├── app.py              # the AgentOS app: agent + Slack + scheduler + worker (`bott-app`)
+    ├── slack_app.py        # durable worker: plan / implement / review / triage
+    └── slack_home/         # Slack App Home control panel + approvals + webhook
 tests/                      # pytest suite (deterministic unit tests)
-scripts/
-├── isolation_test.py       # two-user isolation gate (the make-or-break check)
-├── setup_schedules.py      # register the delivery/DSM/concierge schedules
-├── eval_reviews.py         # score review verdicts against a manifest (live, spends tokens)
-└── set_app_webhook.py      # point the GitHub App's webhook at the current public URL
 ```
 
 ## Setup
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"        # or: uv sync   (uv.lock pins exact versions)
+uv sync                        # installs deps into .venv  (or: python -m venv .venv && pip install -e ".[dev]")
 cp .env.example .env           # then fill in the vars below
+createdb bott                  # Postgres; set DATABASE_URL to point at it
 ```
 
-Requires **agno ≥ 2.2.2** (the isolation fix for CVE-2025-64168); the lockfile pins a
-current version.
+Requires **agno ≥ 2.2.2** (the isolation fix for CVE-2025-64168); the lockfile pins a current
+version. Tables are created automatically on first run.
 
 ## Run
 
 ```bash
-bott-app                       # the whole POC: agent + Slack + scheduler + webhook worker
+uv run bott-app                # the whole app: agent + Slack + scheduler + worker
                                # (equivalently: python -m bott.interfaces.app)
 
-pr-review owner/repo/123       # CLI dry-run of a single review (posts nothing by default)
+pr-review owner/repo/123       # CLI dry-run of a single review (posts nothing)
 ```
 
-On startup `bott-app` brings up the model backend (the Codex proxy, in the default
-`codex` backend), starts the PR-review worker, mounts the Slack interface (if Slack creds
-are present) and the GitHub webhook router, and serves on `BOTT_PORT` (default `7777`).
+On startup `bott-app` initializes the schema, seeds the org Codex token (from
+`~/.codex/auth.json` if present), materializes authored skills to the library, starts the
+durable worker, mounts the Slack interface (if creds are present) and the GitHub webhook, and
+serves on `BOTT_PORT` (default `7777`).
 
 ### Public URL (Slack events + GitHub webhook)
 
-Both Slack's Events API and the GitHub webhook need to reach the app over HTTPS. Use a
-**named** `cloudflared` tunnel with a stable hostname routed to `http://localhost:7777`,
-and register:
+Slack's Events API and the GitHub webhook reach the app over HTTPS. Point a tunnel/host at
+`http://localhost:7777` and register:
 
-- the Slack app's **Event Subscriptions** request URL → `https://<host>/slack/events`
-  (this gateway handles `app_home_opened` and forwards chat events to Agno's interface at
-  `/slack/chat/events`; subscribe to `message.im`, `app_mention`, and `app_home_opened`)
-- the Slack app's **Interactivity** request URL → `https://<host>/slack/interactivity`
-  (the App Home buttons + modals), and turn on the **App Home** tab
-- the GitHub App's webhook → `https://<host>/webhook/github`
-  (`python scripts/set_app_webhook.py https://<host>/webhook/github` repoints it; it reuses
-  `GITHUB_WEBHOOK_SECRET` so signatures still verify).
-
-A `pull_request` opened/ready_for_review event then auto-reviews the PR, posts the review
-(if the repo is in `ALLOWED_POST_REPOS`), and mirrors it to `REVIEW_SLACK_CHANNEL`.
-
-### Scheduled flows
-
-```bash
-python scripts/setup_schedules.py      # edit the engagement/team/user rows first
-```
-
-Schedules persist in the DB; the running app's scheduler fires them. To test one without
-waiting for cron, trigger it on demand — `ScheduleManager(db).trigger(<id>)` or
-`POST /schedules/<id>/trigger`.
+- Slack **Event Subscriptions** → `https://<host>/slack/events` (subscribe to `message.im`,
+  `app_mention`, `app_home_opened`); enable the **App Home** tab.
+- Slack **Interactivity** → `https://<host>/slack/interactivity`.
+- GitHub App webhook → `https://<host>/webhook/github`.
 
 ## Configuration
 
-All settings come from the environment (see `.env.example`). Key vars:
+All settings come from the environment (see `.env.example`). Key groups:
 
-- **Slack:** `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` (Events API). `resolve_user_identity`
-  maps Slack users to emails for `user_id`.
-- **GitHub App + webhook:** `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` / `_PATH`,
-  `GITHUB_WEBHOOK_SECRET`, `ALLOWED_POST_REPOS` (repos the bot may post to),
-  `REVIEW_SLACK_CHANNEL` (where webhook reviews mirror).
-- **Memra:** `MEMRA_CLIENT_ID`, `MEMRA_CLIENT_SECRET`, `MEMRA_TOKEN_ENDPOINT`,
-  `MEMRA_MCP_ENDPOINT`, `MEMRA_SCOPE`.
-- **Models:** `MODEL_BACKEND` (`codex` | `openai`), `REVIEW_MODEL` / `MANAGER_MODEL`,
-  `REVIEW_MODEL_BASE_URL` / `MANAGER_MODEL_BASE_URL`, `OPENAI_API_KEY` (openai backend),
-  `REVIEW_MAX_*` budget caps, the `REVIEW_*` gate thresholds.
-- **DBs:** `REVIEW_DB_PATH` (worker queue + traces), `AGENTOS_DB_PATH` (sessions/memory).
-  SQLite by default; a Postgres `docker-compose.yml` is included as an option.
-
-## Model backend
-
-The model is built in one place (`shared/model.py`), so the app isn't tied to OpenAI + an
-API key.
-
-- **Codex subscription (default, POC, no API key):** `MODEL_BACKEND=codex`. The app
-  auto-starts a local proxy (`npx openai-oauth`, port `10531`) that reuses your
-  `~/.codex/auth.json` and exposes an OpenAI-compatible endpoint, then points the agent at
-  it and supervises it (respawns on crash/hang). Run `npx @openai/codex login` once first.
-  **Single-user only** — it reuses one ChatGPT login and rides Codex's undocumented
-  backend (ToS-gray, account-flagging risk). Fine for a personal POC; not for production.
-- **Sanctioned OpenAI key (multi-user production):** `MODEL_BACKEND=openai` + a real
-  `OPENAI_API_KEY`. No proxy.
-- **Any OpenAI-compatible endpoint** (Azure / OpenRouter / self-hosted / Ollama): set
-  `REVIEW_MODEL_BASE_URL` (+ `REVIEW_MODEL_API_KEY` if it needs one).
+- **Core:** `DATABASE_URL` (Postgres), `BOTT_SECRET_KEY` (Fernet), `BOTT_ADMINS`
+  (comma-separated admin emails), `ALLOWED_EMAIL_DOMAIN` (default `axelerant.com`).
+- **Model:** `MODEL_PROVIDER` (`codex` | `bedrock` | `openrouter`, default `codex`),
+  `BOTT_CHAT_MODEL` / `BOTT_HEAVY_MODEL`, `OPENROUTER_API_KEY` / AWS creds as applicable. The
+  org Codex token is connected once (host `~/.codex/auth.json` or App Home → Connect Codex).
+- **Slack:** `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`.
+- **GitHub App (build/review/triage PRs):** `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` /
+  `_PATH`, `GITHUB_WEBHOOK_SECRET`, `ALLOWED_POST_REPOS` (allowlist), `REVIEW_SLACK_CHANNEL`.
+- **Connectors:** Jira (`JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN`), Confluence (falls back
+  to Jira), Sentry (`SENTRY_ORG_SLUG`/`SENTRY_API_TOKEN`), Google delegation
+  (`GOOGLE_SERVICE_ACCOUNT_PATH` + domain-wide delegation for the `gmail/drive/calendar
+  .readonly` scopes), Memra (`MEMRA_*`), Spin (`SPIN_*`). Each is independent — leave any
+  unset and that connector simply stays off.
 
 ## Test & validate
 
@@ -204,10 +175,8 @@ API key.
 pytest                              # deterministic unit suite (no tokens spent)
 ruff check src tests scripts
 
-python scripts/isolation_test.py    # two-user isolation gate — plants a secret as user A,
-                                    # proves user B can't read it (memory/session/history).
-                                    # LIVE (spends tokens). Make-or-break for concierge.
-
-python scripts/eval_reviews.py      # score review verdicts vs scripts/eval_cases.json.
-                                    # LIVE (clones + reviews PRs) — run on demand, not in CI.
+python scripts/isolation_test.py    # two-user isolation gate (LIVE — spends tokens):
+                                    # plants a secret as user A, proves user B can't read it.
+python scripts/eval_reviews.py      # score review verdicts vs a manifest (LIVE, on demand).
+python scripts/eval_codex.py        # verify the org Codex backend end-to-end (LIVE, on demand).
 ```
