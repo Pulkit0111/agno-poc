@@ -70,6 +70,9 @@ def make_codex_model(model_id: str, access_token: str, account_id: str, **overri
     refresh still calls get_valid_token() internally — this factory does NOT.
     This is the preferred low-level entry-point: callers control where the seed token
     comes from (enables test patch-points in higher-level modules)."""
+    # The ChatGPT/Codex backend rejects the Responses API `store=true` ("Store must be set
+    # to false"); it does not persist responses. Force it off (callers may still override).
+    overrides.setdefault("store", False)
     return _get_codex_model_class()(
         id=model_id,
         base_url=config.codex_backend_base_url(),
