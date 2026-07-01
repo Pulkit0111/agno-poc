@@ -21,3 +21,40 @@ def test_aggregator_includes_slack_when_token_present(monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-x")
     names = {getattr(t, "__name__", "") for t in connectors.connector_tools()}
     assert "read_slack_thread" in names
+
+
+def test_gmail_registered_and_listed(monkeypatch):
+    from bott.skills.connectors.register_all import register_all
+    from bott.skills.connectors.registry import REGISTRY
+    register_all()
+    assert "gmail" in REGISTRY.list_names()["user"]
+    assert {"jira", "confluence", "slack", "memra"} <= set(REGISTRY.list_names()["org"])
+
+
+def test_gmail_wired_when_configured(monkeypatch):
+    import bott.skills.connectors.confluence_read as cr
+    import bott.skills.connectors.gmail as gmail
+    import bott.skills.connectors.jira_read as jr
+    monkeypatch.setattr(jr.config, "jira_configured", lambda: False)
+    monkeypatch.setattr(cr.config, "confluence_configured", lambda: False)
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("SLACK_TOKEN", raising=False)
+    monkeypatch.setattr(gmail.config, "google_delegation_configured", lambda: True)
+    monkeypatch.setattr(gmail.config, "google_service_account_path", lambda: "/tmp/sa.json")
+
+    class _Stub:
+        def __init__(self, **k): pass
+
+    monkeypatch.setattr(gmail, "GmailTools", _Stub)
+    from bott.skills import connectors
+    names = {getattr(t, "name", getattr(t, "__name__", "")) for t in connectors.connector_tools()}
+    assert "gmail_search" in names and "gmail_read_thread" in names
+
+
+def test_register_all_idempotent():
+    from bott.skills.connectors.register_all import register_all
+    from bott.skills.connectors.registry import REGISTRY
+    register_all()
+    n = len(REGISTRY.all_connectors())
+    register_all()
+    assert len(REGISTRY.all_connectors()) == n

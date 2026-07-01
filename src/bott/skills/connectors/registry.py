@@ -65,6 +65,10 @@ class Registry:
         return {"org": [c.name for c in self.org_connectors()],
                 "user": [c.name for c in self.user_connectors()]}
 
+    def _reset(self) -> None:
+        """Clear all registered connectors. Only for test isolation."""
+        self._items.clear()
+
 
 # Process-wide registry the agent builder reads.
 REGISTRY = Registry()

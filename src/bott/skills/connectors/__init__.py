@@ -1,16 +1,12 @@
-"""Read-only shared connectors (Jira, Confluence, Slack-thread). Each tool is gated on its
-credentials; build_bott_agent wires whatever is available."""
+"""Connector wiring. The REGISTRY is the single source of truth; connector_tools() is kept
+as a back-compat shim that registers all connectors then returns their flattened tools."""
 
 from typing import Callable
 
 
 def connector_tools() -> list[Callable]:
-    from .confluence_read import confluence_read_tools
-    from .jira_read import jira_read_tools
-    from .slack_read import slack_read_tools
+    from .register_all import register_all
+    from .registry import REGISTRY
 
-    tools: list = []
-    tools += jira_read_tools()
-    tools += confluence_read_tools()
-    tools += slack_read_tools()
-    return tools
+    register_all()
+    return REGISTRY.all_tools()
