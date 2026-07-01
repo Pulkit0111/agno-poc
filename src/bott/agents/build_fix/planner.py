@@ -18,8 +18,17 @@ def run_plan_job(args: dict, *, post: Callable, create_approval: Callable) -> di
     `post(channel, thread_ts, blocks, fallback)` and `create_approval(user_id, action,
     summary, payload)` are injected so this is unit-testable offline. `args` must include
     owner/name/plan_text/channel/thread_ts/user_id (plan_text is produced upstream)."""
-    owner, name = args["owner"], args["name"]
+    owner = args.get("owner")
+    name = args.get("name") or args.get("repo")
     channel, thread_ts = args.get("channel"), args.get("thread_ts")
+    if not owner or not name:
+        if channel:
+            post(channel, thread_ts,
+                 [{"type": "section", "text": {"type": "mrkdwn",
+                   "text": "I couldn't tell which repo to build on — give me an `owner/repo`"
+                           " (e.g. `Pulkit0111/bott-pr-review-harness`)."}}],
+                 "Couldn't resolve target repo.")
+        return {"status": "no_repo", "approval_id": None}
     if f"{owner}/{name}".lower() not in allowed_post_repos():
         if channel:
             post(channel, thread_ts,
