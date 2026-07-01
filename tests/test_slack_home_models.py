@@ -39,3 +39,43 @@ def test_connect_codex_admin_only(store):
     assert not ct.is_connected()  # non-admin must NOT have stored a token
     out = m.connect_codex("admin@axelerant.com", bundle)
     assert ct.is_connected() and ("connected" in out.lower())
+
+
+def test_models_section_admin_has_set_models_button(store):
+    """Admin view must include the models_set_models action button."""
+    blocks = m.models_section(is_admin=True)
+    action_ids = [
+        el.get("action_id")
+        for b in blocks
+        for el in b.get("elements", [])
+    ]
+    assert "models_set_models" in action_ids
+
+
+def test_models_section_non_admin_no_set_models_button(store):
+    """Non-admin view must NOT include the models_set_models action button."""
+    blocks = m.models_section(is_admin=False)
+    action_ids = [
+        el.get("action_id")
+        for b in blocks
+        for el in b.get("elements", [])
+    ]
+    assert "models_set_models" not in action_ids
+
+
+def test_set_models_both_keys_written(store):
+    """Submitting both chat+heavy calls apply_model_override for each key (admin-gated)."""
+    from bott.shared.persistence.records import get_setting
+
+    # Non-admin must not write anything.
+    out = m.apply_model_override("nobody@x.com", "model.chat", "gpt-5.5")
+    assert "not allowed" in out.lower()
+    assert get_setting("model.chat") is None
+
+    # Admin successfully writes both chat and heavy.
+    r1 = m.apply_model_override("admin@axelerant.com", "model.chat", "gpt-5.5")
+    r2 = m.apply_model_override("admin@axelerant.com", "model.heavy", "gpt-5.5-codex")
+    assert get_setting("model.chat") == "gpt-5.5"
+    assert get_setting("model.heavy") == "gpt-5.5-codex"
+    assert "gpt-5.5" in r1
+    assert "gpt-5.5-codex" in r2

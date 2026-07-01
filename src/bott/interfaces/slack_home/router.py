@@ -286,6 +286,23 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                                       view=blocks.build_set_provider_modal(current=current))
                 except Exception as e:  # noqa: BLE001
                     log.error("open set_provider modal: %s", e)
+            elif cmd == "models_set_models":
+                # Admin-only: open a dual static-select modal to change chat + heavy model ids.
+                actor_email = _resolve_email(user_id) if user_id else ""
+                if not models._is_admin(actor_email):
+                    return {"ok": True}   # button isn't shown to non-admins; ignore crafted payloads
+                try:
+                    from bott.shared import config as _cfg
+                    chat_cur = models._active()["chat"]
+                    heavy_cur = models._active()["heavy"]
+                    client.views_open(
+                        trigger_id=trigger_id,
+                        view=blocks.build_set_models_modal(
+                            chat_cur, heavy_cur, list(_cfg.FALLBACK_CODEX_MODELS)
+                        ),
+                    )
+                except Exception as e:  # noqa: BLE001
+                    log.error("open set_models modal: %s", e)
             return {"ok": True}
 
         if ptype == "view_submission":
@@ -304,7 +321,7 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             # window — doing it inline makes Slack show "trouble connecting" even on success.
             # Models modals are admin-gated and post a DM with the result; they don't
             # modify the schedule list, but we refresh Home so the Models section updates.
-            if cb in ("models_connect_codex", "models_set_provider"):
+            if cb in ("models_connect_codex", "models_set_provider", "models_set_models"):
                 actor_email = _resolve_email(user_id) if user_id else ""
 
                 def _do_models_submit(cb=cb, values=values, actor_email=actor_email,
@@ -313,11 +330,17 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                         if cb == "models_connect_codex":
                             auth_text = (_val(values, "auth_json").get("value") or "").strip()
                             result = models.connect_codex(actor_email, auth_text)
-                        else:  # models_set_provider
+                        elif cb == "models_set_provider":
                             selected = (_val(values, "provider").get("selected_option") or {})
                             provider_val = selected.get("value") or ""
                             result = models.apply_model_override(actor_email, "model.provider",
                                                                  provider_val)
+                        else:  # models_set_models
+                            chat_val = ((values.get("chat") or {}).get("v", {}).get("selected_option") or {}).get("value") or ""
+                            heavy_val = ((values.get("heavy") or {}).get("v", {}).get("selected_option") or {}).get("value") or ""
+                            r1 = models.apply_model_override(actor_email, "model.chat", chat_val)
+                            r2 = models.apply_model_override(actor_email, "model.heavy", heavy_val)
+                            result = f"{r1}\n{r2}"
                     except Exception as e:  # noqa: BLE001
                         result = f"Error: {e}"
                         log.error("models submission %s failed: %s", cb, e)

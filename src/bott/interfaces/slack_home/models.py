@@ -31,6 +31,8 @@ def models_section(is_admin: bool) -> list[dict]:
              "action_id": "models_connect_codex"},
             {"type": "button", "text": {"type": "plain_text", "text": "Change provider"},
              "action_id": "models_set_provider"},
+            {"type": "button", "text": {"type": "plain_text", "text": "Change models"},
+             "action_id": "models_set_models"},
         ]})
     return blocks
 

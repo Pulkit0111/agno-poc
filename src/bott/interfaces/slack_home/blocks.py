@@ -159,6 +159,24 @@ def _input(block_id: str, label: str, element: dict, *, optional: bool = False) 
     }
 
 
+def build_set_models_modal(chat_current: str, heavy_current: str, options: list[str]) -> dict:
+    """Modal with two static-selects to pick the chat and heavy model ids."""
+    opts = [(m, m) for m in options]
+    return {
+        "type": "modal",
+        "callback_id": "models_set_models",
+        "title": {"type": "plain_text", "text": "Change models"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            _input("chat", "Chat model",
+                   _static_select("v", opts, initial=chat_current if chat_current in options else None)),
+            _input("heavy", "Heavy model (implement/review)",
+                   _static_select("v", opts, initial=heavy_current if heavy_current in options else None)),
+        ],
+    }
+
+
 def build_delivery_modal(engagements: list[dict], default_channel: str | None = None,
                          loading: bool = False) -> dict:
     """Add-delivery form. `engagements` is the curated shortlist [{id, account, band}].
