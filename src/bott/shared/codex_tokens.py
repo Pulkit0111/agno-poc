@@ -141,7 +141,9 @@ def bootstrap_from_local(path: str = "~/.codex/auth.json") -> bool:
     p = os.path.expanduser(path)
     if not os.path.exists(p):
         return False
-    toks = (json.load(open(p)).get("tokens") or {})
+    with open(p, encoding="utf-8") as f:
+        data = json.load(f)
+    toks = (data.get("tokens") or {})
     if not (toks.get("access_token") and toks.get("refresh_token") and toks.get("account_id")):
         return False
     store_bundle(toks)

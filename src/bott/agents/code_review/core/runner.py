@@ -16,6 +16,7 @@ from bott.shared.config import (
     DEFAULT_MODEL,
     Budget,
     calculate_cost,
+    model_provider,
     review_temperature,
 )
 from bott.shared.model import build_model
@@ -85,7 +86,7 @@ def run_review_agent(
         tools=[ReviewTools(clone_path, essentials)],
         system_message=system_prompt,
         output_schema=ReviewOutput,
-        use_json_mode=use_json_mode,
+        use_json_mode=(use_json_mode or model_provider() == "codex"),
         tool_call_limit=budget.max_tool_calls,
         tool_hooks=[_progress_hook] if on_tool else None,
         telemetry=False,

@@ -110,3 +110,4 @@ def test_concurrent_refresh_is_single_writer(monkeypatch, tmp_path):
         t.join()
     assert len(calls) == 1          # exactly ONE network refresh across 3 concurrent callers
     assert len(out) == 3            # all three got a token
+    assert ct._load_bundle()["refresh_token"] == "rt-new"

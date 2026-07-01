@@ -9,7 +9,6 @@ from __future__ import annotations
 from bott.shared.codex_tokens import get_valid_token  # module-level so tests can patch it
 
 from .config import (
-    codex_backend_base_url,
     model_provider,
     openrouter_api_key,
     role_model_id,
@@ -34,15 +33,9 @@ def build_model(role: str = "chat", **overrides):
     model_id = _setting(f"model.{role}") or role_model_id(role)
 
     if provider == "codex":
-        from agno.models.openai import OpenAIResponses
-        tok = get_valid_token()                      # raises CodexNotConnected if unconnected
-        return OpenAIResponses(
-            id=model_id,
-            base_url=codex_backend_base_url(),
-            api_key=tok.access_token,
-            default_headers={"ChatGPT-Account-ID": tok.account_id},
-            **overrides,
-        )
+        from bott.shared.codex_model import make_codex_model
+        tok = get_valid_token()                      # model.get_valid_token — preserves test/conftest patch-point
+        return make_codex_model(model_id, tok.access_token, tok.account_id, **overrides)
     if provider == "openrouter":
         from agno.models.openrouter import OpenRouter
         return OpenRouter(id=model_id, api_key=openrouter_api_key(), **{**_COMMON, **overrides})

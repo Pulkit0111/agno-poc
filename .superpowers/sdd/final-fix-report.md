@@ -1,87 +1,51 @@
-# FINAL-REVIEW Fix Wave Report
+# CodexModel Gateway Final Fix Wave Report
 
-**Date:** 2026-06-30  
+**Date:** 2026-07-01
 **Branch:** main (in-place)
 
 ---
 
 ## Fixes Applied
 
-### Fix 1 — Token leak: redact git push error (pipeline.py)
-- Added `redact` to the import from `bott.shared.observability.logging_setup` in `pipeline.py`.
-- Changed `raise RuntimeError(f"git push failed: {push.stderr.strip()}")` to use `redact(push.stderr.strip())`.
-- File: `src/bott/agents/build_fix/pipeline.py`
+### A — Refactored codex_model.py — seedable constructor
+Added `make_codex_model(model_id, access_token, account_id, **overrides)` that builds a CodexModel seeded with an already-fetched token (does NOT call `get_valid_token` itself). Updated `build_codex_model` to delegate to `make_codex_model` after fetching the token.
+- File: `src/bott/shared/codex_model.py`
 
-### Fix 2 — Silent failure + 3x retry prevention (slack_app.py)
-- Extracted the implement-branch body into a new `_run_implement(a, channel, thread_ts)` helper at module level. This keeps `handle_task` clean and makes the logic independently unit-testable.
-- Wrapped `implement_task(...)` in try/except. On exception: logs the error, posts honest failure to Slack, returns normally (so `worker_main` marks job done, no retry).
-- `handle_task` now delegates to `_run_implement` via a single call.
+### B — Repointed build_model's codex branch to return CodexModel
+`src/bott/shared/model.py` now imports `make_codex_model` from `codex_model` and calls it with the token fetched via `model.get_valid_token` (module-level). The test patch-point (`monkeypatch.setattr(model_mod, "get_valid_token", …)` in `test_model_gateway.py` + the autouse conftest stub on `_model_mod.get_valid_token`) still takes effect correctly. Removed now-unused `codex_backend_base_url` import (ruff F401).
 
-### Fix 3 — No-token guard, honest trust model (slack_app.py)
-- Added an explicit `if not gh_token:` guard in `_run_implement`: posts the "GitHub App needs write access" message to the thread and returns without attempting a build.
-- Added `redact` to `_post`'d error text so no token leaks into Slack.
-- File: `src/bott/interfaces/slack_app.py`
+**Patch-point verification**: `test_codex_provider_builds_adapter` and all gateway tests passed after the repoint — the monkeypatch on `model_mod.get_valid_token` intercepted the call before `make_codex_model` was invoked.
+- File: `src/bott/shared/model.py`
 
-### Fix 4 — Invariant comment (router.py)
-- Added a 4-line `# INVARIANT:` comment immediately above `queue.enqueue("implement", ...)` in `dispatch_approved_build` in `router.py`.
-- File: `src/bott/interfaces/slack_home/router.py`
+### C — Regression test — tests/test_codex_model.py (new file)
+Two tests:
+- `test_codex_model_reresolves_token_on_rotation`: seeds model with tok-A, patches `cm.get_valid_token` to return tok-B, calls `_refresh_if_rotated()`, asserts `api_key == "tok-B"` and `client is None`.
+- `test_codex_model_no_invalidation_when_token_stable`: verifies cached client is NOT invalidated when token is unchanged.
+- File: `tests/test_codex_model.py`
 
-### Fix 5a — Cheap minor: approvals.py get_request (approvals.py)
-- Changed `get_engine().begin()` → `get_engine().connect()` in `get_request` (pure SELECT, no write transaction needed).
-- Row-to-dict still works under `connect()` since `._mapping` is available on any SQLAlchemy row object.
-- File: `src/bott/shared/approvals.py`
+### D — use_json_mode on codex review agent
+Imported `model_provider` from config; changed `use_json_mode=use_json_mode` to `use_json_mode=(use_json_mode or model_provider() == "codex")`. CLI override still works.
+- File: `src/bott/agents/code_review/core/runner.py`
 
-### Fix 5b — Cheap minor: config.py branch name comment (config.py)
-- Updated the misleading "determinism" comment in `_build_branch_name`. New comment explains Python's `hash()` is per-process PRNG-seeded (`PYTHONHASHSEED`), so the suffix is NOT stable across restarts — this is fine for intra-process uniqueness, not cross-process determinism.
-- No behavior change.
-- File: `src/bott/shared/config.py`
-
-### Fix 6 — Doc reconciliation: PAT fallback (spec doc)
-- Added a "No PAT fallback for writes" paragraph to Section 9 (Prerequisite) of the build-fix design spec.
-- Clarifies: the read-only review path's gh-CLI/PAT fallback does NOT apply to pushing branches or opening PRs. The write path requires the GitHub App with `contents:write` + `pull_requests:write`; absent that, the job posts an honest error and stops.
-- File: `docs/superpowers/specs/2026-06-30-bott-build-fix-design.md`
+### E — Minors
+- `codex_tokens.py` `bootstrap_from_local`: replaced bare `json.load(open(p))` with `with open(p, encoding="utf-8") as f: data = json.load(f)`.
+- `tests/test_codex_tokens.py` PG concurrency test: added `assert ct._load_bundle()["refresh_token"] == "rt-new"`.
 
 ---
 
-## Tests Added
-
-**File:** `tests/test_build_wiring.py` (2 new tests appended)
-
-**Approach chosen:** Extracted `_run_implement` helper and unit-tested it directly. This was the lowest-risk approach — `handle_task` is entangled with Slack reactions, progress updates, and review/rereview logic that requires extensive mocking. The helper closes over no outer state, so it's directly testable with monkeypatching.
-
-The lazy imports of `implement_task` and `result_blocks` inside `_run_implement` are intercepted via `sys.modules` injection (standard pytest monkeypatch), so tests run fully offline.
-
-### test_run_implement_no_token_posts_no_access_and_does_not_call_implement
-- `app_token_for` returns `None`.
-- Asserts: `implement_task` is NOT called; exactly one Slack post with "write access" language.
-
-### test_run_implement_exception_posts_failure_and_does_not_propagate
-- `app_token_for` returns a fake token; `implement_task` raises `RuntimeError`.
-- Asserts: function returns normally (no propagation); one Slack post with "couldn't complete" language.
-
----
-
-## Verification
+## Test Results
 
 | Check | Result |
 |---|---|
-| `pytest -q` | **353 passed, 1 skipped** (was 351; 2 new tests added) |
+| Targeted tests (4 files, -v) | 18 passed, 1 skipped (PG needs TEST_DATABASE_URL) |
+| Full suite `pytest -q` | **365 passed, 2 skipped** (was 363; +2 new codex_model tests) |
 | `ruff check src tests scripts` | **All checks passed!** |
-| App construct check | **ok True** |
+| App construct (openrouter) | **ok True** (bare codex path requires live DB+token — same as before) |
 
----
+## Patch-Point Status
 
-## Files Changed
-
-1. `src/bott/agents/build_fix/pipeline.py` — Fix 1 (redact push error)
-2. `src/bott/interfaces/slack_app.py` — Fix 2+3 (extract helper, no-token guard, try/except)
-3. `src/bott/interfaces/slack_home/router.py` — Fix 4 (invariant comment)
-4. `src/bott/shared/approvals.py` — Fix 5a (connect instead of begin)
-5. `src/bott/shared/config.py` — Fix 5b (comment correction)
-6. `docs/superpowers/specs/2026-06-30-bott-build-fix-design.md` — Fix 6 (no PAT fallback note)
-7. `tests/test_build_wiring.py` — 2 new tests
-8. `.superpowers/sdd/final-fix-report.md` — this report
+The conftest autouse fixture patches `_model_mod.get_valid_token`; individual gateway tests patch `model_mod.get_valid_token`. Both continue to intercept the call in `build_model` before `make_codex_model` is invoked — no test was broken by the repoint.
 
 ## Deferred
 
-Nothing deferred. All 6 fixes applied, tests passing, suite green, ruff clean, app constructs.
+Nothing deferred. All items A–E completed and verified.
