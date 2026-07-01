@@ -49,6 +49,84 @@ def _make_codex_model_class():
             self._refresh_if_rotated()
             return super().get_async_client()
 
+        # The ChatGPT/Codex backend REQUIRES the Responses API to stream ("Stream must be set
+        # to true") — the parent's non-streaming invoke()/ainvoke() send stream=false and 400.
+        # We stream on the wire, capture the terminal `response.completed` event's full
+        # Response, and hand it to the parent's own parser — so callers still get one
+        # aggregated ModelResponse (Slack UX unchanged, no incremental edits).
+        def _stream_kwargs(self, messages, response_format, tools, tool_choice, compress_tool_results):
+            params = self.get_request_params(
+                messages=messages, response_format=response_format, tools=tools, tool_choice=tool_choice
+            )
+            params.pop("background", None)  # background mode is invalid with streaming
+            return {
+                "model": self.id,
+                "input": self._format_messages(messages, compress_tool_results, tools=tools),
+                "stream": True,
+                **params,
+            }
+
+        # The Codex backend delivers text/tool-calls as stream events and leaves the terminal
+        # `response.completed` payload empty — so we accumulate the deltas through Agno's own
+        # delta parser (`_parse_provider_response_delta`) and merge them into one ModelResponse.
+        def _merge_delta(self, final, delta):
+            if delta.content:
+                final.content = (final.content or "") + delta.content
+            if getattr(delta, "reasoning_content", None):
+                final.reasoning_content = (final.reasoning_content or "") + delta.reasoning_content
+            if delta.tool_calls:
+                final.tool_calls = (final.tool_calls or []) + list(delta.tool_calls)
+            if getattr(delta, "citations", None):
+                final.citations = delta.citations
+            if getattr(delta, "provider_data", None):
+                final.provider_data = {**(final.provider_data or {}), **delta.provider_data}
+            if getattr(delta, "extra", None):
+                final.extra = final.extra or {}
+                for k, v in delta.extra.items():
+                    if isinstance(v, list):
+                        final.extra.setdefault(k, []).extend(v)
+                    else:
+                        final.extra[k] = v
+
+        def invoke(self, messages, assistant_message, response_format=None, tools=None,
+                   tool_choice=None, run_response=None, compress_tool_results=False):  # type: ignore[override]
+            from agno.exceptions import ModelProviderError
+            from agno.models.response import ModelResponse
+            assistant_message.metrics.start_timer()
+            final = ModelResponse(content="")
+            tool_use: dict = {}
+            try:
+                for event in self.get_client().responses.create(
+                    **self._stream_kwargs(messages, response_format, tools, tool_choice, compress_tool_results)
+                ):
+                    delta, tool_use = self._parse_provider_response_delta(event, assistant_message, tool_use)
+                    self._merge_delta(final, delta)
+            except Exception as exc:  # noqa: BLE001 — surface as Agno's provider error
+                raise ModelProviderError(message=str(exc), model_name=self.name, model_id=self.id) from exc
+            finally:
+                assistant_message.metrics.stop_timer()
+            return final
+
+        async def ainvoke(self, messages, assistant_message, response_format=None, tools=None,
+                          tool_choice=None, run_response=None, compress_tool_results=False):  # type: ignore[override]
+            from agno.exceptions import ModelProviderError
+            from agno.models.response import ModelResponse
+            assistant_message.metrics.start_timer()
+            final = ModelResponse(content="")
+            tool_use: dict = {}
+            try:
+                stream = await self.get_async_client().responses.create(
+                    **self._stream_kwargs(messages, response_format, tools, tool_choice, compress_tool_results)
+                )
+                async for event in stream:
+                    delta, tool_use = self._parse_provider_response_delta(event, assistant_message, tool_use)
+                    self._merge_delta(final, delta)
+            except Exception as exc:  # noqa: BLE001
+                raise ModelProviderError(message=str(exc), model_name=self.name, model_id=self.id) from exc
+            finally:
+                assistant_message.metrics.stop_timer()
+            return final
+
     return CodexModel
 
 
