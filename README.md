@@ -5,9 +5,9 @@
 specialized **skills** (tools) — not a team of agents. You talk to it like a colleague in
 a DM or by `@mention`; it answers from real context, reads your connected systems,
 reviews and fixes code, and runs scheduled flows on a cadence. It runs as one
-[AgentOS](https://github.com/agno-agi/agno) app (FastAPI) backed entirely by **Postgres**,
-and every interaction is scoped per user (`user_id`) and conversation (`session_id`) so no
-one's data bleeds into anyone else's.
+[AgentOS](https://github.com/agno-agi/agno) app (FastAPI) backed by **Postgres** in
+production (**SQLite** by default for local dev), and every interaction is scoped per user
+(`user_id`) and conversation (`session_id`) so no one's data bleeds into anyone else's.
 
 One agent, many skills, isolation at the session/user level — no router, no team, no
 separate apps. Slack is the only frontend; everything is reachable by natural language.
@@ -60,8 +60,9 @@ Scheduler (cron)    ─┘         │                          │
 - **One agent, not a team.** `agents/bott_agent.py` builds a single `Agent` from the skill
   tools. Isolation lives at `user_id`/`session_id`, supplied by the Slack interface on every
   run (`resolve_user_identity=True` → `user_id` = the user's email). Per-user agentic memory.
-- **Postgres is the only datastore.** Jobs, approvals, encrypted connector tokens, settings,
-  authored skills, sessions/memory, and review traces all live in Postgres. The job queue
+- **One datastore.** Jobs, approvals, encrypted connector tokens, settings, authored skills,
+  sessions/memory, and review traces all live in one DB — **Postgres** in production
+  (`DATABASE_URL`), **SQLite** as the zero-config local default. The job queue
   uses `FOR UPDATE SKIP LOCKED` (split-ready worker). Secrets are encrypted at rest
   (Fernet / `BOTT_SECRET_KEY`); logs are secret-redacting.
 - **Pluggable model gateway** (`shared/model.py`, `build_model(role)`). Three providers:
@@ -121,11 +122,11 @@ tests/                      # pytest suite (deterministic unit tests)
 ```bash
 uv sync                        # installs deps into .venv  (or: python -m venv .venv && pip install -e ".[dev]")
 cp .env.example .env           # then fill in the vars below
-createdb bott                  # Postgres; set DATABASE_URL to point at it
+# Optional (production): set DATABASE_URL to a Postgres instance. Unset = local SQLite.
 ```
 
 Requires **agno ≥ 2.2.2** (the isolation fix for CVE-2025-64168); the lockfile pins a current
-version. Tables are created automatically on first run.
+version. Tables are created automatically on first run (SQLite locally, or your Postgres).
 
 ## Run
 
@@ -155,8 +156,8 @@ Slack's Events API and the GitHub webhook reach the app over HTTPS. Point a tunn
 
 All settings come from the environment (see `.env.example`). Key groups:
 
-- **Core:** `DATABASE_URL` (Postgres), `BOTT_SECRET_KEY` (Fernet), `BOTT_ADMINS`
-  (comma-separated admin emails), `ALLOWED_EMAIL_DOMAIN` (default `axelerant.com`).
+- **Core:** `DATABASE_URL` (Postgres; unset → local SQLite), `BOTT_SECRET_KEY` (Fernet),
+  `BOTT_ADMINS` (comma-separated admin emails), `ALLOWED_EMAIL_DOMAIN` (default `axelerant.com`).
 - **Model:** `MODEL_PROVIDER` (`codex` | `bedrock` | `openrouter`, default `codex`),
   `BOTT_CHAT_MODEL` / `BOTT_HEAVY_MODEL`, `OPENROUTER_API_KEY` / AWS creds as applicable. The
   org Codex token is connected once (host `~/.codex/auth.json` or App Home → Connect Codex).
