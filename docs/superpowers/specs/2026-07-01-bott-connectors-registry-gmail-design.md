@@ -119,6 +119,30 @@ def _impersonated(run_context):
         scopes=[GMAIL_READONLY],
     )
 
+# Impls are module-level (like scheduling.py) so tests exercise them directly with a
+# SimpleNamespace(user_id=...) context, bypassing the @tool wrapper.
+def _gmail_search_impl(run_context, query: str, limit: int = 10) -> str:
+    try:
+        gt = _impersonated(run_context)  # raises IsolationError on blank identity
+    except IsolationError:
+        return _NO_IDENTITY  # fail closed — never construct GmailTools, never a default mailbox
+    try:
+        return gt.search_emails(query, limit)
+    except Exception as e:  # noqa: BLE001
+        log.error("gmail search failed: %s", redact(str(e)))
+        return "Couldn't reach Gmail right now."
+
+def _gmail_read_thread_impl(run_context, thread_id: str) -> str:
+    try:
+        gt = _impersonated(run_context)
+    except IsolationError:
+        return _NO_IDENTITY
+    try:
+        return gt.get_thread(thread_id)
+    except Exception as e:  # noqa: BLE001
+        log.error("gmail read_thread failed: %s", redact(str(e)))
+        return "Couldn't reach Gmail right now."
+
 def gmail_read_tools() -> list[Callable]:
     # Factory-level gating, matching jira/confluence/slack: no tools unless delegation
     # is configured AND the Google client libs imported.
@@ -129,28 +153,12 @@ def gmail_read_tools() -> list[Callable]:
     def gmail_search(run_context: RunContext, query: str, limit: int = 10) -> str:
         """Search YOUR Gmail (read-only). `query` is Gmail search syntax
         (e.g. 'from:alice newer_than:7d'). Returns matching messages."""
-        try:
-            gt = _impersonated(run_context)  # raises IsolationError on blank identity
-        except IsolationError:
-            return _NO_IDENTITY  # fail closed — never fall back to a default mailbox
-        try:
-            return gt.search_emails(query, limit)
-        except Exception as e:  # noqa: BLE001
-            log.error("gmail search failed: %s", redact(str(e)))
-            return "Couldn't reach Gmail right now."
+        return _gmail_search_impl(run_context, query, limit)
 
     @tool(name="gmail_read_thread")
     def gmail_read_thread(run_context: RunContext, thread_id: str) -> str:
         """Read one of YOUR Gmail threads by id (read-only)."""
-        try:
-            gt = _impersonated(run_context)  # raises IsolationError on blank identity
-        except IsolationError:
-            return _NO_IDENTITY  # fail closed — never fall back to a default mailbox
-        try:
-            return gt.get_thread(thread_id)
-        except Exception as e:  # noqa: BLE001
-            log.error("gmail read_thread failed: %s", redact(str(e)))
-            return "Couldn't reach Gmail right now."
+        return _gmail_read_thread_impl(run_context, thread_id)
 
     return [gmail_search, gmail_read_thread]
 ```
