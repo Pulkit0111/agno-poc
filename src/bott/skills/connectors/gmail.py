@@ -30,6 +30,8 @@ _NO_IDENTITY = "I couldn't tell who you are, so I won't read any mail."
 def _impersonated(run_context):
     """Build a GmailTools impersonating the VERIFIED caller. The caller is
     run_context.user_id ONLY — never a model param or GOOGLE_DELEGATED_USER."""
+    if GmailTools is None:
+        raise RuntimeError("Gmail client unavailable (Google libs not installed).")
     email = require_user_id(getattr(run_context, "user_id", None))  # raises IsolationError if blank
     return GmailTools(
         service_account_path=config.google_service_account_path(),
@@ -43,6 +45,9 @@ def _gmail_search_impl(run_context, query: str, limit: int = 10) -> str:
         gt = _impersonated(run_context)
     except IsolationError:
         return _NO_IDENTITY  # fail closed — never construct GmailTools, never a default mailbox
+    except Exception as e:  # noqa: BLE001 — e.g. RuntimeError when Google libs absent
+        log.error("gmail search failed: %s", redact(str(e)))
+        return "Couldn't reach Gmail right now."
     try:
         return gt.search_emails(query, limit)
     except Exception as e:  # noqa: BLE001
@@ -55,6 +60,9 @@ def _gmail_read_thread_impl(run_context, thread_id: str) -> str:
         gt = _impersonated(run_context)
     except IsolationError:
         return _NO_IDENTITY
+    except Exception as e:  # noqa: BLE001 — e.g. RuntimeError when Google libs absent
+        log.error("gmail read_thread failed: %s", redact(str(e)))
+        return "Couldn't reach Gmail right now."
     try:
         return gt.get_thread(thread_id)
     except Exception as e:  # noqa: BLE001
