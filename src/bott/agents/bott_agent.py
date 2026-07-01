@@ -27,6 +27,7 @@ from bott.skills.dsm import dsm_tools
 from bott.skills.engagement_data import engagement_data_tools
 from bott.skills.portfolio import portfolio_tools
 from bott.skills.scheduling import scheduling_tools
+from bott.skills.skill_authoring import skill_authoring_tools
 from bott.skills.sprint_report import sprint_report_tools
 from bott.skills.web_publish import web_publish_tools
 from bott.skills.workspace_tools import build_workspace_tools
@@ -137,6 +138,7 @@ def build_agent(user_id: str, db=None) -> Agent:
 
     skills = build_skills()
     tools.extend(build_workspace_tools(db=db, skills=skills))
+    tools.extend(skill_authoring_tools(skills=skills))
 
     return Agent(
         id="bott",

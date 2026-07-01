@@ -38,6 +38,7 @@ _db = build_db()
 # When MODEL_PROVIDER=codex, the shared agent's model is built now and needs the org Codex
 # token. Seed it from the host's `~/.codex/auth.json` (dev/single-host convenience) if the
 # org account hasn't been connected via App Home yet. Never let this crash startup.
+from bott.shared import config
 from bott.shared.config import model_provider as _model_provider
 
 if _model_provider() == "codex":
@@ -48,6 +49,13 @@ if _model_provider() == "codex":
                 log.info("Seeded org Codex token from ~/.codex/auth.json.")
     except Exception as e:  # noqa: BLE001 — bootstrap is best-effort; don't crash import
         log.warning("Codex bootstrap skipped: %s", e)
+
+try:
+    from bott.shared.persistence import skills_store
+    _n = skills_store.materialize_to_fs(config.bott_skills_dir())
+    log.info("materialized %d authored skill(s) from DB", _n)
+except Exception as e:  # noqa: BLE001
+    log.warning("skill materialize skipped: %s", e)
 
 _agent = build_bott_agent(_db)
 
