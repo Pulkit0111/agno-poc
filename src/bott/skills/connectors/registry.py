@@ -11,6 +11,7 @@ from typing import Callable
 class Connector:
     name: str = ""
     scope: str = ""  # "org" | "user"
+    auth: str = ""   # "org_credential" | "domain_delegated" | "user_oauth"
 
     def tools(self) -> list[Callable]:
         raise NotImplementedError
@@ -24,6 +25,20 @@ class UserConnector(Connector):
     scope = "user"
 
 
+class FunctionConnector(Connector):
+    """Wraps an existing tools-list factory as a registry entry. Internals untouched.
+    Gating stays inside the factory, so tools() reflects current config on every call."""
+
+    def __init__(self, name: str, auth: str, tools_fn: Callable[[], list[Callable]]):
+        self.name = name
+        self.auth = auth
+        self.scope = "user" if auth in ("domain_delegated", "user_oauth") else "org"
+        self._tools_fn = tools_fn
+
+    def tools(self) -> list[Callable]:
+        return self._tools_fn()
+
+
 class Registry:
     def __init__(self) -> None:
         self._items: list[Connector] = []
@@ -33,6 +48,12 @@ class Registry:
 
     def all_connectors(self) -> list[Connector]:
         return list(self._items)
+
+    def all_tools(self) -> list[Callable]:
+        out: list[Callable] = []
+        for c in self._items:
+            out.extend(c.tools())
+        return out
 
     def org_connectors(self) -> list[Connector]:
         return [c for c in self._items if c.scope == "org"]
