@@ -43,8 +43,8 @@ Related: architecture doc §6 (connector taxonomy — 3 auth patterns). This sli
 
 **Evolve `registry.py`:**
 - Add `auth: str = ""` to `Connector`, one of `"org_credential" | "domain_delegated" | "user_oauth"`. Keep `scope` (derived: `domain_delegated`/`user_oauth` → `"user"`, else `"org"`).
-- Add `Registry.all_tools() -> list[Callable]`: flatten every registered connector's `tools()` in registration order.
-- Change `Registry.list_names()` to group by **auth pattern**: `{"org_credential": [...], "domain_delegated": [...], "user_oauth": [...]}` (only non-empty groups). This powers an accurate "what can you connect to?" answer.
+- Add `Registry.all_tools() -> list[Callable]`: flatten every registered connector's `tools()` in registration order (called live, so per-connector factory gating is re-evaluated each call).
+- Keep `Registry.list_names()` scope-based (`{"org": [...], "user": [...]}`) — unchanged, so the registry lists every registered connector (Gmail included) with no churn to existing consumers/tests. The richer `auth` grouping is available directly off each connector's `.auth`.
 - Add a generic adapter so existing connectors become one-liners:
 
 ```python
@@ -98,9 +98,18 @@ Memra's `if memra_configured()` block is removed from `build_agent` (now handled
 **The crux — per-call impersonation bound to the verified caller.** `delegated_user` is a *constructor* param on `GmailTools`, and the shared chat agent is built once — so a statically-built `GmailTools(delegated_user=X)` (or a `GOOGLE_DELEGATED_USER` env var) would freeze the connector to one person. Instead, the wrapper builds a fresh `GmailTools` per call, impersonating the run's verified identity:
 
 ```python
-GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly"
+# Module-level guarded import: importing this Agno submodule RAISES if the Google client
+# libs are absent, so we swallow it here and gate on GmailTools being non-None. Tests patch
+# this module attribute with a stub, so the import guard is transparent to them.
+try:
+    from agno.tools.google.gmail import GmailTools
+except Exception:  # noqa: BLE001 — libs missing → connector self-disables
+    GmailTools = None
 
-def _impersonated(run_context) -> GmailTools:
+GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly"
+_NO_IDENTITY = "I couldn't tell who you are, so I won't read any mail."
+
+def _impersonated(run_context):
     """Build a GmailTools impersonating the VERIFIED caller. Never trusts a model param
     or GOOGLE_DELEGATED_USER for the mailbox — the caller is run_context.user_id only."""
     email = require_user_id(getattr(run_context, "user_id", None))  # raises IsolationError if blank
@@ -111,12 +120,15 @@ def _impersonated(run_context) -> GmailTools:
     )
 
 def gmail_read_tools() -> list[Callable]:
+    # Factory-level gating, matching jira/confluence/slack: no tools unless delegation
+    # is configured AND the Google client libs imported.
+    if GmailTools is None or not config.google_delegation_configured():
+        return []
+
     @tool(name="gmail_search")
     def gmail_search(run_context: RunContext, query: str, limit: int = 10) -> str:
         """Search YOUR Gmail (read-only). `query` is Gmail search syntax
         (e.g. 'from:alice newer_than:7d'). Returns matching messages."""
-        if not config.google_delegation_configured():
-            return _UNCONFIGURED
         try:
             gt = _impersonated(run_context)  # raises IsolationError on blank identity
         except IsolationError:
@@ -130,8 +142,6 @@ def gmail_read_tools() -> list[Callable]:
     @tool(name="gmail_read_thread")
     def gmail_read_thread(run_context: RunContext, thread_id: str) -> str:
         """Read one of YOUR Gmail threads by id (read-only)."""
-        if not config.google_delegation_configured():
-            return _UNCONFIGURED
         try:
             gt = _impersonated(run_context)  # raises IsolationError on blank identity
         except IsolationError:
@@ -145,7 +155,7 @@ def gmail_read_tools() -> list[Callable]:
     return [gmail_search, gmail_read_thread]
 ```
 
-- **`_UNCONFIGURED`** = `"Gmail isn't set up yet — a Workspace admin needs to configure domain-wide delegation."`; **`_NO_IDENTITY`** = `"I couldn't tell who you are, so I won't read any mail."` (matches the `scheduling.py` fail-closed convention).
+- **Factory-level gating** (matches jira/confluence/slack): `gmail_read_tools()` returns `[]` when `GmailTools` failed to import (Google libs missing) or delegation isn't configured. The registry entry still exists (registered unconditionally in `register_all`), so `list_names()` still lists `gmail`. `_NO_IDENTITY` = `"I couldn't tell who you are, so I won't read any mail."` (matches the `scheduling.py` fail-closed convention).
 - **Read-only scope only** (`gmail.readonly`). Only search + read-thread are exposed. No send/draft/modify method is ever called.
 - **No mailbox parameter.** The only identity source is `run_context.user_id` (the verified Slack email via `resolve_user_identity`). A blank/missing identity fails closed with `_NO_IDENTITY` — the code never constructs `GmailTools` and never falls back to a default mailbox.
 - **Per-call construction** (reads the SA JSON + builds the service each call). Acceptable for read-frequency v1; a creds-info cache is a possible later optimization (YAGNI now).
@@ -186,23 +196,24 @@ Until both are done, the connector registers but every call returns `_UNCONFIGUR
 
 Google's client is mocked throughout the automated suite (no live Workspace). Tests assert on the **impersonation binding and wiring**, not on real mail.
 
-**Isolation gate (the headline):**
-- `gmail_search`/`gmail_read_thread` invoked with a `run_context` for user A construct `GmailTools` with `delegated_user == "a@axelerant.com"`; with B's `run_context`, `delegated_user == "b@axelerant.com"`. Assert via a patched `GmailTools` (or patched `_impersonated`) capturing the constructor kwargs. Proves impersonation tracks `run_context.user_id`.
+**Isolation gate (the headline):** (patch `config.google_delegation_configured` → `True` so the factory yields the wrappers; patch `GmailTools` to a stub capturing constructor kwargs)
+- `gmail_search`/`gmail_read_thread` invoked with a `run_context` for user A construct `GmailTools` with `delegated_user == "a@axelerant.com"`; with B's `run_context`, `delegated_user == "b@axelerant.com"`. Proves impersonation tracks `run_context.user_id`.
 - **No mailbox parameter path:** the tool signatures expose only `query`/`thread_id`/`limit` — assert there is no parameter that sets the mailbox (the model cannot request another user's mail).
 - **Fail closed:** a `run_context` with `user_id=None`/blank returns `_NO_IDENTITY` and **never constructs `GmailTools`** (assert the patched constructor was not called) — no fallback mailbox.
 
 **Connector / registry:**
-- `all_tools()` returns the flattened tools of all registered connectors in registration order.
-- `list_names()` groups by auth pattern; `gmail` under `domain_delegated`, Jira/Confluence/Slack/Memra under `org_credential`.
+- `all_tools()` returns the flattened tools of all registered connectors in registration order (evaluated live).
+- `list_names()` (unchanged, scope-based) lists `gmail` under `"user"` and Jira/Confluence/Slack/Memra under `"org"`. The existing `test_connector_registry.py` (asserts the `{"org","user"}` shape) stays green.
+- `FunctionConnector` carries the right `auth` (`gmail` → `domain_delegated`; others → `org_credential`) and derives `scope`.
 - `register_all()` is idempotent (calling twice doesn't double-register).
-- Existing connectors still surface their same tool callables through the registry (no behavior change).
+- Existing connectors still surface their same tool callables through the registry (no behavior change). The existing `test_connectors_wiring.py` stays green: with Gmail/Memra unconfigured they contribute `[]`, so `connector_tools()` still returns `[]` when all off and still includes `read_slack_thread` when the Slack token is present.
 - Memra's registry entry returns `[]` when `memra_configured()` is false and does not instantiate `MemraClient`.
 
 **Wiring:**
 - `build_agent` includes the Gmail wrappers in its toolset (via the registry). Existing tools remain present; count/regression check that nothing was dropped.
 
 **Not-configured path:**
-- With `google_delegation_configured()` false, both Gmail tools return `_UNCONFIGURED` and never construct `GmailTools`.
+- With `google_delegation_configured()` false, `gmail_read_tools()` returns `[]` (no Gmail tools wired), while the `gmail` connector remains registered and listed by `list_names()`.
 
 **Deferred (operator, like the Codex live eval):** a real Workspace round-trip proving an end-to-end "only my mail" read — needs the admin to create + authorize the SA. Tracked as a follow-up gate, not part of this slice's automated suite.
 
@@ -226,5 +237,5 @@ Google's client is mocked throughout the automated suite (no live Workspace). Te
 ## 9. Risks / open points
 
 - **Per-call GmailTools construction cost** — reads SA JSON + builds a service each call. Fine for v1 read volume; revisit with a creds-info cache if it ever matters.
-- **`GOOGLE_DELEGATED_USER` env var** — must remain unset in every environment; if set, `GmailTools` would use it when we (defensively) always pass `delegated_user` explicitly, so our explicit per-call arg wins. Documented so no one "helpfully" sets it.
-- **`list_names()` shape change** — the old `{"org","user"}` shape is replaced. Registry is currently unused, so no consumer breaks; noted for completeness.
+- **`GOOGLE_DELEGATED_USER` env var** — must remain unset in every environment; we always pass `delegated_user` explicitly per call, so our explicit arg wins even if it were set. Documented so no one "helpfully" sets it.
+- **Global `REGISTRY` mutation across tests** — `register_all()` populates the process-wide `REGISTRY` once (idempotent guard). Because `FunctionConnector.tools()` calls its factory live, gating still reflects the current env/monkeypatch on every `all_tools()` call, so shared global state doesn't leak stale gating between tests. Tests needing a clean registry construct their own `Registry()` instance.
