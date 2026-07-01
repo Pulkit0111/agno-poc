@@ -13,10 +13,12 @@ def test_codex_model_reresolves_token_on_rotation(monkeypatch):
     # Seed with tok-A so the first refresh sees tok-B as a rotation.
     m = cm.make_codex_model("gpt-5.5", "tok-A", "acc")
     assert m._last_token_str == "tok-A"
-    m.client = object()          # pretend a client is cached
+    m.client = object()          # pretend sync + async clients are cached
+    m.async_client = object()
     m._refresh_if_rotated()      # token rotates: get_valid_token returns tok-B
     assert m.api_key == "tok-B"          # api_key updated to the fresh token
-    assert m.client is None              # cached client invalidated so it rebuilds
+    assert m.default_headers == {"ChatGPT-Account-ID": "acc"}  # account header refreshed
+    assert m.client is None and m.async_client is None  # BOTH cached clients invalidated
 
 
 def test_codex_model_no_invalidation_when_token_stable(monkeypatch):

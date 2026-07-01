@@ -27,6 +27,9 @@ def test_codex_provider_builds_adapter(monkeypatch):
     m = model_mod.build_model("chat")
     assert m.id == "gpt-5.5"
     assert "backend-api/codex" in (m.base_url or "")
+    # must be the token-re-resolving CodexModel, not a plain OpenAIResponses (which would
+    # freeze the token on the long-lived shared chat agent) — regression guard
+    assert type(m).__name__ == "CodexModel"
 
 
 def test_codex_not_connected_propagates(monkeypatch):
