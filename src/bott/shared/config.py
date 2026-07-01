@@ -350,6 +350,25 @@ def confluence_configured() -> bool:
     return bool(confluence_url() and confluence_username() and confluence_api_key())
 
 
+# --- Sentry (read-only incident/error data) ------------------------------------
+def sentry_base_url() -> str | None:
+    """Sentry instance base (default SaaS)."""
+    v = os.getenv("SENTRY_BASE_URL", "https://sentry.io")
+    return v.rstrip("/") if v else None
+
+
+def sentry_org_slug() -> str | None:
+    return os.getenv("SENTRY_ORG_SLUG") or None
+
+
+def sentry_api_token() -> str | None:
+    return os.getenv("SENTRY_API_TOKEN") or None
+
+
+def sentry_configured() -> bool:
+    return bool(sentry_org_slug() and sentry_api_token())
+
+
 def google_service_account_path() -> str | None:
     """Path to the Google service-account JSON key used for domain-wide delegation."""
     return os.getenv("GOOGLE_SERVICE_ACCOUNT_PATH") or None
