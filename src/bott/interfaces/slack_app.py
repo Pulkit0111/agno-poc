@@ -185,6 +185,12 @@ def handle_task(task: dict) -> None:
         run_plan_job(a, post=_post, create_approval=create_request)
         return
 
+    if task["kind"] == "triage":
+        from bott.agents.triage.triage import run_triage_job
+        from bott.shared.approvals import create_request
+        run_triage_job(a, post=_post, create_approval=create_request)
+        return
+
     if task["kind"] == "implement":
         _run_implement(a, channel, thread_ts)
         return

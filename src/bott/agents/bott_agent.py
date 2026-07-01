@@ -16,6 +16,7 @@ from agno.skills import LocalSkills, Skills
 from bott.agents.build_fix import build_tools
 from bott.agents.code_review.member import review_tools
 from bott.agents.personality import IDENTITY, VOICE
+from bott.agents.triage import triage_tools
 from bott.shared import config
 from bott.shared.config import bott_model
 from bott.shared.identity import require_user_id
@@ -110,6 +111,7 @@ def build_agent(user_id: str, db=None) -> Agent:
     tools: list = []
     tools.extend(build_tools())   # Build & fix: plan → approve → implement → draft PR
     tools.extend(review_tools())  # PR review (queue → durable worker runs + posts)
+    tools.extend(triage_tools())  # Sentry triage: diagnose → approve → implement
     tools.extend(security_tools())  # Drupal security advisories (digest + chat follow-ups)
     tools.extend(dsm_tools())  # DSM standup: open collection / pre-read / post-call summary
     tools.extend(sprint_report_tools())  # Sprint report: live Jira → designed HTML → Spin

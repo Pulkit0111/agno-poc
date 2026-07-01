@@ -358,16 +358,20 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
 
 
 def dispatch_approved_build(approval_id: int) -> None:
-    """If approval_id is an approved build:* request, enqueue its implement job from the payload.
-    Safe no-op for non-build or non-approved rows."""
+    """Enqueues the implement job for an approved `build:*` OR `triage:*` row.
+
+    Both stages (build plan, sentry triage) are payload producers that enforce the write
+    allowlist BEFORE creating their approval, so this remains the only implement path and
+    every implement is allowlisted. Safe no-op for non-build/triage or non-approved rows.
+    """
     row = approvals.get_request(approval_id)
-    if not row or row.get("status") != "approved" or not str(row.get("action", "")).startswith("build:"):
+    if not row or row.get("status") != "approved" or not str(row.get("action", "")).startswith(("build:", "triage:")):
         return
     payload = json.loads(row.get("payload") or "{}")
     # INVARIANT: this is the ONLY path that enqueues an "implement" job. It is reachable only
-    # from an APPROVED, allowlisted, payload-bearing approvals row (the plan stage is the sole
-    # payload producer + allowlist gate). Do not add another enqueue("implement") path without
-    # re-checking the allowlist there.
+    # from an APPROVED, allowlisted, payload-bearing approvals row (the build plan stage AND
+    # the sentry triage stage are the sole payload producers + allowlist gates). Do not add
+    # another enqueue("implement") path without re-checking the allowlist there.
     queue.enqueue(
         "implement", payload,
         user_id=row.get("user_id") or "system@axelerant.com",
