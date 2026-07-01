@@ -104,6 +104,24 @@ REVIEW_TRACES = Table(
 Index("idx_traces_thread", REVIEW_TRACES.c.channel, REVIEW_TRACES.c.thread_ts, REVIEW_TRACES.c.id)
 
 
+# Authored skills (skills_store.py owns the DML). Source of truth for runtime-authored
+# skills; materialized to the SKILL.md FS cache at startup. Curated in-repo skills have NO row.
+SKILLS = Table(
+    "skills",
+    METADATA,
+    Column("slug", Text, primary_key=True),
+    Column("name", Text, nullable=False),
+    Column("description", Text, nullable=False),
+    Column("content", Text, nullable=False),
+    Column("authored_by", Text),
+    Column("pinned", Integer, nullable=False, server_default=_sql_text("0")),
+    Column("usage_count", Integer, nullable=False, server_default=_sql_text("0")),
+    Column("created", Float, nullable=False),
+    Column("updated", Float, nullable=False),
+    Column("last_used", Float),
+)
+
+
 def init_schema(engine=None) -> None:
     """Create all foundation tables if absent (idempotent). The dev/test fast path;
     production schema EVOLUTION goes through Alembic, which targets this same METADATA."""
