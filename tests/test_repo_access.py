@@ -136,16 +136,29 @@ class TestListRepos:
         assert "allowlist" in out.lower()
         assert "ALLOWED_POST_REPOS" in out
 
-    def test_write_access_annotated_when_token_returned(self, monkeypatch):
+    def test_write_access_when_contents_write_granted(self, monkeypatch):
         monkeypatch.setattr(ra.config, "allowed_post_repos", lambda: {"owner/repo"})
-        monkeypatch.setattr(ra, "app_token_for", lambda owner, name: "ghs_faketoken")
+        monkeypatch.setattr(ra, "app_permissions_for",
+                            lambda owner, name: {"contents": "write", "pull_requests": "write"})
         out = ra.list_repos()
         assert "owner/repo" in out
         assert "write" in out.lower()
+        assert "read-only" not in out.lower()
 
-    def test_no_access_annotated_when_token_none(self, monkeypatch):
+    def test_read_only_when_app_installed_without_write(self, monkeypatch):
+        """The bott-pr-review-harness case: the App is installed (permissions returned) but
+        contents is read-only, so a push 403s. It must NOT be reported as write access."""
         monkeypatch.setattr(ra.config, "allowed_post_repos", lambda: {"owner/repo"})
-        monkeypatch.setattr(ra, "app_token_for", lambda owner, name: None)
+        monkeypatch.setattr(ra, "app_permissions_for",
+                            lambda owner, name: {"contents": "read", "pull_requests": "read"})
+        out = ra.list_repos()
+        assert "owner/repo" in out
+        assert "read-only" in out.lower()
+        assert "✓ write" not in out
+
+    def test_no_access_when_permissions_none(self, monkeypatch):
+        monkeypatch.setattr(ra.config, "allowed_post_repos", lambda: {"owner/repo"})
+        monkeypatch.setattr(ra, "app_permissions_for", lambda owner, name: None)
         out = ra.list_repos()
         assert "owner/repo" in out
         assert "no App access" in out
@@ -155,13 +168,16 @@ class TestListRepos:
             ra.config, "allowed_post_repos",
             lambda: {"org/alpha", "org/beta"},
         )
-        monkeypatch.setattr(ra, "app_token_for", lambda owner, name: "tok" if name == "alpha" else None)
+        monkeypatch.setattr(
+            ra, "app_permissions_for",
+            lambda owner, name: {"contents": "write"} if name == "alpha" else {"contents": "read"},
+        )
         out = ra.list_repos()
         assert "org/alpha" in out
         assert "org/beta" in out
-        # alpha has write; beta has no access
+        # alpha has write; beta is installed but read-only
         assert "write" in out.lower()
-        assert "no App access" in out
+        assert "read-only" in out.lower()
 
 
 # ---------------------------------------------------------------------------

@@ -32,14 +32,17 @@ def build_model(role: str = "chat", **overrides):
     provider = _setting("model.provider") or model_provider()
     model_id = _setting(f"model.{role}") or role_model_id(role)
 
+    # _COMMON (retries + exponential backoff) applies to EVERY provider: a transient provider
+    # 5xx must be retried, not surfaced to the user as "error, try again later". Callers can
+    # still override via `overrides`.
     if provider == "codex":
         from bott.shared.codex_model import make_codex_model
         tok = get_valid_token()                      # model.get_valid_token — preserves test/conftest patch-point
-        return make_codex_model(model_id, tok.access_token, tok.account_id, **overrides)
+        return make_codex_model(model_id, tok.access_token, tok.account_id, **{**_COMMON, **overrides})
     if provider == "openrouter":
         from agno.models.openrouter import OpenRouter
         return OpenRouter(id=model_id, api_key=openrouter_api_key(), **{**_COMMON, **overrides})
     if provider == "bedrock":
         from agno.models.aws import AwsBedrock
-        return AwsBedrock(id=model_id, **overrides)
+        return AwsBedrock(id=model_id, **{**_COMMON, **overrides})
     raise ValueError(f"Unknown MODEL_PROVIDER '{provider}' (use codex|bedrock|openrouter).")

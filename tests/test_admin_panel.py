@@ -250,22 +250,22 @@ def test_admin_section_admin_job_counts_summary(monkeypatch, store):
     assert "pending" in full_text
 
 
-def test_build_home_view_with_admin_blocks():
-    """build_home_view renders admin_blocks after the models section."""
+def test_build_home_view_with_system_blocks():
+    """build_home_view renders the admin System panel (system_blocks) when provided."""
     from bott.interfaces.slack_home import blocks as _blocks
 
     admin_blk = [{"type": "section", "text": {"type": "mrkdwn", "text": "admin panel here"}}]
-    view = _blocks.build_home_view([], admin_blocks=admin_blk)
+    view = _blocks.build_home_view([], system_blocks=admin_blk)
 
     assert view["type"] == "home"
     full_text = str(view["blocks"])
     assert "admin panel here" in full_text
 
 
-def test_build_home_view_no_admin_blocks_for_non_admin():
-    """When admin_blocks is empty/None, the view must NOT contain admin content."""
+def test_build_home_view_no_system_blocks_for_non_admin():
+    """When system_blocks is empty/None, the view must NOT contain admin content."""
     from bott.interfaces.slack_home import blocks as _blocks
 
-    view = _blocks.build_home_view([], admin_blocks=[])
+    view = _blocks.build_home_view([], system_blocks=[])
     full_text = str(view["blocks"])
     assert "admin panel here" not in full_text

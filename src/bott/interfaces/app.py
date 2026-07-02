@@ -94,6 +94,13 @@ if _slack_signing and _slack_token:
     except Exception as e:  # noqa: BLE001 — never let a Slack mount failure crash the app
         log.error("Slack interface failed to mount (%s); continuing without it.", e)
 
+    # Guard Agno's Slack send path: a reply to a read-only / not-joined channel raises, the
+    # error fallback posts to the same channel and raises again, and that second raise is
+    # uncaught (ASGI 500 + log flood). Swallow non-postable-channel errors instead.
+    from bott.interfaces.slack_hardening import install_slack_send_guard
+
+    install_slack_send_guard()
+
 agent_os = AgentOS(
     id="bott-os",
     name="Bott",

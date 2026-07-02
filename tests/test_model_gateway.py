@@ -42,6 +42,31 @@ def test_codex_provider_builds_adapter(monkeypatch):
     assert type(m).__name__ == "CodexModel"
 
 
+def test_codex_model_carries_retry_policy(monkeypatch):
+    """Regression: the codex path was built with no retries (retries=0), so a transient
+    provider 500 surfaced to the user immediately as 'error, try again later' instead of
+    being retried. Every provider path must carry the shared retry policy."""
+    _no_setting_override(monkeypatch)
+    monkeypatch.setenv("MODEL_PROVIDER", "codex")
+    monkeypatch.setenv("BOTT_CHAT_MODEL", "gpt-5.5")
+    from bott.shared import codex_tokens as ct
+    monkeypatch.setattr(model_mod, "get_valid_token",
+                        lambda: ct.CodexToken("tok-abc", "acc-1"))
+    m = model_mod.build_model("chat")
+    assert m.retries >= 3
+    assert m.exponential_backoff is True
+
+
+def test_openrouter_model_still_carries_retry_policy(monkeypatch):
+    _no_setting_override(monkeypatch)
+    monkeypatch.setenv("MODEL_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+    monkeypatch.setenv("BOTT_CHAT_MODEL", "x/y")
+    m = model_mod.build_model("chat")
+    assert m.retries >= 3
+    assert m.exponential_backoff is True
+
+
 def test_codex_not_connected_propagates(monkeypatch):
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")

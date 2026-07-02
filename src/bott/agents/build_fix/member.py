@@ -30,7 +30,7 @@ def start_build(target: str, run_context: Optional[RunContext] = None) -> str:
         "channel": t["channel"], "thread_ts": t["thread_ts"],
         "model_id": bott_model(),
     }, user_id=user_id)
-    return "Queued — I'll read the context, draft a plan, and post it here for your approval."
+    return "On it — I'll read the context, draft a plan, and post it here for your approval."
 
 
 def build_tools() -> list[Callable]:

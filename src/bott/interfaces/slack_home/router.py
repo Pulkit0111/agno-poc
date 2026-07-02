@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import httpx
 from agno.os.interfaces.slack.security import verify_slack_signature
@@ -23,10 +24,11 @@ from slack_sdk import WebClient
 from bott.shared import approvals
 from bott.shared.config import bott_admins
 from bott.shared.observability.logging_setup import get_logger
+from bott.shared.persistence import action_items as ai_store
 from bott.shared.persistence import queue, standup
 from bott.skills.dsm import today_key
 
-from . import admin, blocks, models, service
+from . import admin, blocks, connectors_panel, models, quick_actions, service
 from .engagements import engagement_shortlist, sprint_board_options_with_reason
 
 log = get_logger("bott.slack_home.router")
@@ -53,27 +55,76 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
     def _resolve_email(user_id: str) -> str:
         """Look up the Slack user's verified email from users.info. Falls back to empty string
         (which will fail admin checks — safe default for non-admins)."""
+        return _resolve_identity(user_id)[0]
+
+    def _resolve_identity(user_id: str) -> tuple[str, str]:
+        """(verified email, first name) from users.info. Empty strings on failure."""
         try:
             info = client.users_info(user=user_id)
-            return (info.get("user") or {}).get("profile", {}).get("email") or ""
+            user = info.get("user") or {}
+            prof = user.get("profile", {}) or {}
+            email = prof.get("email") or ""
+            name = user.get("real_name") or prof.get("display_name") or prof.get("first_name") or ""
+            return email, name.split(" ")[0] if name else ""
         except Exception as e:  # noqa: BLE001
             log.warning("users_info failed for %s: %s", user_id, e)
-            return ""
+            return "", ""
+
+    def _my_action_items(email: str) -> list[dict]:
+        """The caller's OPEN concierge items as [{id, text}] — scoped by email (=user_id)."""
+        if not email:
+            return []
+        try:
+            return [{"id": r["id"], "text": r["text"]}
+                    for r in ai_store.list_items(email) if r.get("status") == "open"]
+        except Exception as e:  # noqa: BLE001
+            log.warning("action items load failed for %s: %s", email, e)
+            return []
 
     def publish_home(user_id: str | None) -> None:
         if not user_id:
             return
         try:
-            email = _resolve_email(user_id)
+            email, name = _resolve_identity(user_id)
             is_admin = email.lower() in bott_admins()
             view = blocks.build_home_view(
                 service.list_rows(db),
+                viewer_name=name or None,
+                connectors_blocks=connectors_panel.connectors_section(),
+                action_items=_my_action_items(email),
+                # Models + System are admin-only — the section builders return [] for members.
                 models_blocks=models.models_section(is_admin=is_admin),
-                admin_blocks=admin.admin_section(is_admin=is_admin),
+                system_blocks=admin.admin_section(is_admin=is_admin),
             )
             client.views_publish(user_id=user_id, view=view)
         except Exception as e:  # noqa: BLE001
             log.error("home publish failed for %s: %s", user_id, e)
+
+    def run_quick_action_and_dm(user_id: str, action_id: str) -> None:
+        """Run a no-arg quick action and DM the caller the result (background task)."""
+        text = quick_actions.run_quick_action(action_id)
+        if text and user_id:
+            try:
+                client.chat_postMessage(channel=user_id, text=text)
+            except Exception as e:  # noqa: BLE001
+                log.error("quick action DM failed: %s", e)
+
+    def run_quick_ask_and_dm(user_id: str, kind: str, engagement: str) -> None:
+        """Run an engagement-scoped quick action (Ask / Sprint) and DM the caller the result."""
+        try:
+            if kind == "sprint":
+                from bott.skills.sprint_report.tool import sprint_snapshot
+                text = sprint_snapshot(engagement)
+            else:
+                from bott.skills.engagement_data import get_engagement_status
+                text = get_engagement_status(engagement)
+        except Exception as e:  # noqa: BLE001
+            text = f"Couldn't run that just now — {e}"
+        if user_id:
+            try:
+                client.chat_postMessage(channel=user_id, text=text)
+            except Exception as e:  # noqa: BLE001
+                log.error("quick ask DM failed: %s", e)
 
     def run_now(user_id: str | None, schedule_id: str | None) -> None:
         if not schedule_id:
@@ -164,7 +215,48 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             action = (payload.get("actions") or [{}])[0]
             cmd = (action.get("action_id") or "").split(":", 1)[0]
             trigger_id = payload.get("trigger_id")
-            if cmd == "add_delivery":
+            if cmd == "add_schedule":
+                # One button → a picker whose buttons reuse the per-type add_* handlers below.
+                try:
+                    client.views_open(trigger_id=trigger_id, view=blocks.build_schedule_picker_modal())
+                except Exception as e:  # noqa: BLE001
+                    log.error("open schedule picker: %s", e)
+            elif cmd in ("qa_security", "qa_pr_trends", "qa_portfolio"):
+                # Self-contained quick action: ack, then run + DM the result off the request path.
+                if user_id:
+                    try:
+                        client.chat_postMessage(channel=user_id,
+                                                text="⏳ On it — I'll DM you the result shortly.")
+                    except Exception:  # noqa: BLE001 — ack is best-effort
+                        pass
+                    background_tasks.add_task(run_quick_action_and_dm, user_id, cmd)
+            elif cmd == "qa_ask":
+                try:
+                    client.views_open(trigger_id=trigger_id, view=blocks.build_quick_ask_modal("ask"))
+                except Exception as e:  # noqa: BLE001
+                    log.error("open quick ask: %s", e)
+            elif cmd == "qa_sprint":
+                try:
+                    client.views_open(trigger_id=trigger_id, view=blocks.build_quick_ask_modal("sprint"))
+                except Exception as e:  # noqa: BLE001
+                    log.error("open quick sprint: %s", e)
+            elif cmd == "ai_done":
+                email = _resolve_email(user_id) if user_id else ""
+                try:
+                    ai_store.complete_item(email, int(action.get("value") or 0), time.time())
+                except Exception as e:  # noqa: BLE001
+                    log.error("action item done failed: %s", e)
+                background_tasks.add_task(publish_home, user_id)
+            elif cmd == "ai_snooze":
+                # No date picker on the Home button — snooze a day so it drops off the open list.
+                email = _resolve_email(user_id) if user_id else ""
+                try:
+                    now = time.time()
+                    ai_store.snooze_item(email, int(action.get("value") or 0), now + 86400, now)
+                except Exception as e:  # noqa: BLE001
+                    log.error("action item snooze failed: %s", e)
+                background_tasks.add_task(publish_home, user_id)
+            elif cmd == "add_delivery":
                 try:
                     # Open instantly with a placeholder (no Memra in the 3s trigger window),
                     # then fill the engagement list via views.update keyed by view_id.
@@ -293,15 +385,17 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                 if not models._is_admin(actor_email):
                     return {"ok": True}   # button isn't shown to non-admins; ignore crafted payloads
                 try:
-                    from bott.shared import config as _cfg
-                    chat_cur = models._active()["chat"]
-                    heavy_cur = models._active()["heavy"]
-                    client.views_open(
-                        trigger_id=trigger_id,
-                        view=blocks.build_set_models_modal(
-                            chat_cur, heavy_cur, list(_cfg.FALLBACK_CODEX_MODELS)
-                        ),
-                    )
+                    active = models._active()
+                    provider = active["provider"]
+                    options = models.available_models(provider)
+                    if not options:
+                        # Keys missing for bedrock/openrouter — explain instead of an empty picker.
+                        _, hint = models.provider_key_status(provider)
+                        view = blocks.build_notice_modal(
+                            "Add keys first", f"Can't list `{provider}` models yet — {hint}.")
+                    else:
+                        view = blocks.build_set_models_modal(active["chat"], active["heavy"], options)
+                    client.views_open(trigger_id=trigger_id, view=view)
                 except Exception as e:  # noqa: BLE001
                     log.error("open set_models modal: %s", e)
             return {"ok": True}
@@ -316,6 +410,14 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                     _submit_standup(view, payload.get("user") or {})
                 except Exception as e:  # noqa: BLE001
                     log.error("standup submission failed: %s", e)
+                return Response(status_code=200)
+            # Engagement-scoped quick action (Ask / Sprint): run in the background, DM the result.
+            if cb == "quick_ask":
+                meta = json.loads(view.get("private_metadata") or "{}")
+                kind = meta.get("kind") or "ask"
+                engagement = (_val(values, "engagement").get("value") or "").strip()
+                if engagement and user_id:
+                    background_tasks.add_task(run_quick_ask_and_dm, user_id, kind, engagement)
                 return Response(status_code=200)
             # Create the schedule in the BACKGROUND, then refresh Home. Creating a sprint
             # schedule hits Jira (board discovery), which can exceed Slack's ~3s view-submission

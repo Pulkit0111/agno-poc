@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-from bott.agents.code_review.github.app_auth import app_token_for
+from bott.agents.code_review.github.app_auth import app_permissions_for, app_token_for
 from bott.agents.code_review.github.client import GitHubClient
 from bott.shared import config
 from bott.shared.observability.logging_setup import get_logger, redact
@@ -59,11 +59,18 @@ def list_repos() -> str:
             continue
         owner, name = parsed
         try:
-            tok = app_token_for(owner, name)
+            perms = app_permissions_for(owner, name)
         except Exception as exc:  # noqa: BLE001
-            log.warning("app_token_for %s failed: %s", slug, redact(str(exc)))
-            tok = None
-        badge = "✓ write" if tok else "no App access"
+            log.warning("app_permissions_for %s failed: %s", slug, redact(str(exc)))
+            perms = None
+        # A mintable token only proves the App is installed — write requires contents:write.
+        # A read-only installation would 403 on push, so report it honestly.
+        if perms is None:
+            badge = "no App access"
+        elif perms.get("contents") == "write":
+            badge = "✓ write"
+        else:
+            badge = "read-only (no push — App lacks contents:write)"
         lines.append(f"  • {owner}/{name}  [{badge}]")
     return "\n".join(lines)
 

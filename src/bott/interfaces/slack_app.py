@@ -127,6 +127,30 @@ def _checklist_blocks(number: int, verb: str, current_key: str, counts: dict) ->
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
 
+def build_failure_message(owner: str, name: str, err: str) -> str:
+    """Turn a raw build/push error into a teammate-grade message: what went wrong + the next
+    concrete step, and never any internal plumbing (queues, git internals, worker state)."""
+    repo = f"`{owner}/{name}`"
+    e = (err or "").lower()
+    if "write access" in e or "not granted" in e or "403" in e:
+        return (f"I couldn't open a PR on {repo} — the GitHub App doesn't have *write* access "
+                f"there. Ask an admin to grant it `contents: write` and `pull_requests: write` "
+                f"on that repo, then ask me again.")
+    if "not found" in e or "404" in e:
+        return (f"I couldn't find {repo}, or the GitHub App isn't installed on it. Install the "
+                f"App (with write access) on that repo and ask me again.")
+    if any(t in e for t in ("could not resolve host", "timed out", "timeout", "connection reset",
+                            "temporary failure")):
+        return (f"I hit a transient network problem reaching GitHub while building {repo}. "
+                f"Give it a moment and ask me to try again.")
+    if "conflict" in e:
+        return (f"The change didn't apply cleanly on {repo} (a merge conflict). Ask me to try "
+                f"again on a fresh base, or narrow the change.")
+    short = (redact(str(err)).strip().splitlines() or ["unknown error"])[0][:160]
+    return (f"I couldn't complete the build on {repo}. Reason: {short}. You can ask me to try "
+            f"again, or share a bit more detail and I'll take another pass.")
+
+
 def _run_implement(a: dict, channel: str | None, thread_ts: str | None) -> None:
     """Execute an approved implement job: resolve the GitHub App token, run the build/PR
     pipeline, post the result. Extracted for unit-testability (it closes over no outer state).
@@ -156,7 +180,7 @@ def _run_implement(a: dict, channel: str | None, thread_ts: str | None) -> None:
         log.error("implement job failed for %s/%s: %s", owner, name, e)
         if channel:
             _post(channel, thread_ts, [{"type": "section", "text": {"type": "mrkdwn",
-                  "text": f"I couldn't complete the build for `{owner}/{name}`: {redact(str(e))}"}}],
+                  "text": build_failure_message(owner, name, str(e))}}],
                   "Build failed.")
         return
     if channel:

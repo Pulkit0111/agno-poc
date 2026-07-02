@@ -1,14 +1,35 @@
 # src/bott/interfaces/slack_home/models.py
-"""App Home 'Models' section: show the active model to everyone; let an admin override it
-and connect the org Codex account. Admin-gated; the active model is always shown."""
+"""App Home 'Models' panel — ADMIN ONLY.
+
+Provider-aware: shows the active provider + chat/heavy models, and whether the selected
+provider is usable right now. Codex lists its known models; Bedrock/OpenRouter list their
+live catalog once credentials are present, and prompt to add keys when they aren't — so an
+admin can point any task (chat vs heavy) at any available model. Members never see this
+panel (``models_section`` returns [] for them)."""
 
 from __future__ import annotations
 
 import json
+import os
 
-from bott.shared import codex_tokens
+from bott.shared import codex_tokens, config
 from bott.shared.config import bott_admins, model_provider, role_model_id
 from bott.shared.persistence.records import get_setting, set_setting
+
+# Sensible fallbacks so the model picker is never empty even if a live catalog fetch fails
+# (network hiccup, throttling). The live fetch is preferred; these are the safety net.
+_OPENROUTER_FALLBACK = [
+    "anthropic/claude-opus-4.8",
+    "anthropic/claude-sonnet-4.6",
+    "openai/gpt-5.5",
+    "google/gemini-3-pro",
+    "meta-llama/llama-4-70b-instruct",
+]
+_BEDROCK_FALLBACK = [
+    "anthropic.claude-opus-4-1-v1:0",
+    "anthropic.claude-sonnet-4-6-v1:0",
+    "meta.llama4-70b-instruct-v1:0",
+]
 
 
 def _active() -> dict:
@@ -19,21 +40,85 @@ def _active() -> dict:
     }
 
 
+def _aws_configured() -> bool:
+    return bool(os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("AWS_PROFILE"))
+
+
+def provider_key_status(provider: str) -> tuple[bool, str]:
+    """(usable_now, human hint). 'Usable' means the provider has the credentials it needs to
+    actually run and to list its models."""
+    if provider == "codex":
+        ok = codex_tokens.is_connected()
+        return ok, ("Org Codex connected" if ok else "Org Codex not connected — connect it below")
+    if provider == "openrouter":
+        ok = bool(config.openrouter_api_key())
+        return ok, ("OpenRouter key present" if ok else "Add `OPENROUTER_API_KEY` to list and use models")
+    if provider == "bedrock":
+        ok = _aws_configured()
+        return ok, ("AWS credentials present" if ok else "Add AWS credentials to list and use Bedrock models")
+    return False, f"Unknown provider `{provider}`"
+
+
+def _fetch_openrouter_models() -> list[str]:
+    """OpenRouter's live model catalog (ids). Best-effort — falls back to a curated list."""
+    try:
+        import httpx
+        r = httpx.get("https://openrouter.ai/api/v1/models", timeout=10)
+        r.raise_for_status()
+        ids = [m.get("id") for m in (r.json().get("data") or []) if m.get("id")]
+        return sorted(ids) or list(_OPENROUTER_FALLBACK)
+    except Exception:  # noqa: BLE001 — never let a catalog fetch break the panel
+        return list(_OPENROUTER_FALLBACK)
+
+
+def _fetch_bedrock_models() -> list[str]:
+    """Bedrock foundation-model ids for the region. Best-effort — falls back to a curated list."""
+    try:
+        import boto3
+        client = boto3.client("bedrock", region_name=os.getenv("AWS_REGION", "us-east-1"))
+        summaries = client.list_foundation_models().get("modelSummaries", [])
+        ids = [m.get("modelId") for m in summaries if m.get("modelId")]
+        return sorted(ids) or list(_BEDROCK_FALLBACK)
+    except Exception:  # noqa: BLE001
+        return list(_BEDROCK_FALLBACK)
+
+
+def available_models(provider: str) -> list[str]:
+    """Models the admin can choose for a task under this provider. Empty when the provider's
+    keys aren't present yet (the panel then shows the 'add keys' hint)."""
+    if provider == "codex":
+        return list(config.FALLBACK_CODEX_MODELS)
+    ok, _ = provider_key_status(provider)
+    if not ok:
+        return []
+    if provider == "openrouter":
+        return _fetch_openrouter_models()
+    if provider == "bedrock":
+        return _fetch_bedrock_models()
+    return []
+
+
 def models_section(is_admin: bool) -> list[dict]:
+    """Admin-only panel body (the '🤖 Models' header is added by build_home_view). Returns []
+    for non-admins so members never see model controls."""
+    if not is_admin:
+        return []
     a = _active()
-    codex = "connected" if codex_tokens.is_connected() else "not connected"
-    text = (f"*Models*\nprovider: `{a['provider']}`  ·  chat: `{a['chat']}`  ·  "
-            f"heavy: `{a['heavy']}`\nOrg Codex: *{codex}*")
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
-    if is_admin:
-        blocks.append({"type": "actions", "elements": [
-            {"type": "button", "text": {"type": "plain_text", "text": "Connect Codex (org)"},
-             "action_id": "models_connect_codex"},
-            {"type": "button", "text": {"type": "plain_text", "text": "Change provider"},
-             "action_id": "models_set_provider"},
-            {"type": "button", "text": {"type": "plain_text", "text": "Change models"},
-             "action_id": "models_set_models"},
-        ]})
+    provider = a["provider"]
+    ok, hint = provider_key_status(provider)
+    icon = "✅" if ok else "⚠️"
+    text = (f"*Active* · provider `{provider}`  ·  chat `{a['chat']}`  ·  heavy `{a['heavy']}`\n"
+            f"{icon} {hint}")
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    elements: list[dict] = []
+    if provider == "codex":
+        elements.append({"type": "button", "text": {"type": "plain_text", "text": "Connect Codex (org)"},
+                         "action_id": "models_connect_codex"})
+    elements.append({"type": "button", "text": {"type": "plain_text", "text": "Change provider"},
+                     "action_id": "models_set_provider"})
+    elements.append({"type": "button", "text": {"type": "plain_text", "text": "Change models"},
+                     "action_id": "models_set_models"})
+    blocks.append({"type": "actions", "elements": elements})
     return blocks
 
 

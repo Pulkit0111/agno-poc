@@ -130,6 +130,33 @@ def _build_dossier(eng: Engagement) -> Dossier:
                    sprint_id=sprint["id"])
 
 
+def sprint_snapshot(engagement: str) -> str:
+    """A compact, read-only current/last-sprint snapshot for an engagement — deterministic
+    Jira counts only, no publishing or narrative. Backs the App Home 'Sprint report' quick
+    action, which DMs the result. Never raises."""
+    try:
+        eng = _resolve_engagement(engagement)
+    except Exception as e:  # noqa: BLE001 — degrade to a message, don't crash the Home handler
+        return f"Couldn't reach Jira for '{engagement}' — {e}"
+    if eng is None:
+        return f"Couldn't find a Jira board for '{engagement}'. Try the exact project key (e.g. PADI)."
+    client = eng.client
+    sprint = client.active_sprint(eng.board_id) or client.latest_closed_sprint(eng.board_id)
+    if sprint is None:
+        return f"No active or recent sprint on the {eng.project_key} board yet."
+    issues = client.sprint_issues(sprint["id"])
+    total = len(issues)
+    done = sum(1 for i in issues if i.get("is_done"))
+    pts = sum(float(i.get("points") or 0) for i in issues)
+    done_pts = sum(float(i.get("points") or 0) for i in issues if i.get("is_done"))
+    state = sprint.get("state") or ""
+    return (
+        f"*{eng.project_key} — {sprint.get('name') or 'Sprint'}*{f' ({state})' if state else ''}\n"
+        f"{done}/{total} issues done · {done_pts:.0f}/{pts:.0f} story points\n"
+        f"_For the full published report, ask me: “sprint report for {engagement}”._"
+    )
+
+
 def _not_found(query: str) -> str:
     try:
         keys = sorted({b["project_key"] for b in _jira().list_boards() if b.get("project_key")})

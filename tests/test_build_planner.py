@@ -30,8 +30,26 @@ def test_run_plan_job_refuses_repo_not_in_allowlist(monkeypatch):
     assert posted  # a refusal message was posted
 
 
+def test_run_plan_job_refuses_when_app_lacks_write(monkeypatch):
+    """The bott-pr-review-harness saga: repo is allow-listed, but the GitHub App is installed
+    read-only, so a push would 403. Refuse BEFORE creating an approval or attempting a build,
+    with a message that names the real fix (grant contents:write)."""
+    monkeypatch.setattr(planner, "allowed_post_repos", lambda: {"ok/repo"})
+    monkeypatch.setattr(planner, "app_permissions_for", lambda o, n: {"contents": "read"})
+    posted, created = [], []
+    out = planner.run_plan_job(
+        {"owner": "ok", "name": "repo", "plan_text": "x", "channel": "C", "thread_ts": "t"},
+        post=lambda *a, **k: posted.append(a),
+        create_approval=lambda **k: created.append(k) or 1)
+    assert out["status"] == "refused_no_write"
+    assert out["approval_id"] is None
+    assert not created  # no approval for a repo we can't push to
+    assert posted and "write" in posted[0][2][0]["text"]["text"].lower()
+
+
 def test_run_plan_job_creates_approval_with_payload(monkeypatch):
     monkeypatch.setattr(planner, "allowed_post_repos", lambda: {"ok/repo"})
+    monkeypatch.setattr(planner, "app_permissions_for", lambda o, n: {"contents": "write"})
     captured = {}
     def fake_create(**k):
         captured.update(k)
@@ -71,6 +89,7 @@ def test_integration_repo_key_no_keyerror_creates_approval(monkeypatch):
     """Fix 2: run_plan_job must NOT KeyError when args carry 'repo' instead of 'name'."""
     monkeypatch.setattr(planner, "allowed_post_repos",
                         lambda: {"pulkit0111/bott-pr-review-harness"})
+    monkeypatch.setattr(planner, "app_permissions_for", lambda o, n: {"contents": "write"})
     captured = {}
     def fake_create(**k):
         captured.update(k)

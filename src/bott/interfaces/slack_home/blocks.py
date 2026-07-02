@@ -45,66 +45,138 @@ def _channel_display(channel: str | None) -> str:
     return channel or "—"
 
 
-def build_home_view(rows: list[dict], *, models_blocks: list[dict] | None = None,
-                    admin_blocks: list[dict] | None = None) -> dict:
-    """The App Home tab: one section per schedule with Run/Remove, then Add buttons.
+def _header(text: str) -> dict:
+    return {"type": "header", "text": {"type": "plain_text", "text": text, "emoji": True}}
 
-    Each row dict carries: icon, label, channel, when, run_buttons (list of
-    {text, action_id, value}) and remove_ids (list of schedule ids).
 
-    ``models_blocks`` (from ``models.models_section``) is appended after the schedules
-    panel when provided.
+def _ctx(text: str) -> dict:
+    return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
-    ``admin_blocks`` (from ``admin.admin_section``) is appended after the models section
-    when provided and non-empty (it is empty for non-admin users).
-    """
-    blocks: list[dict] = [
-        {"type": "header", "text": {"type": "plain_text", "text": "📅 Scheduled digests", "emoji": True}},
+
+def _hero_blocks(viewer_name: str | None) -> list[dict]:
+    greeting = f"Hi {viewer_name} — I'm Bott 👋" if viewer_name else "Hi — I'm Bott 👋"
+    return [
+        _header(greeting),
+        {"type": "section", "text": {"type": "mrkdwn",
+         "text": "*Your do-anything engineering teammate at Axelerant.* Point me at just about "
+                 "anything — code, delivery, context, reporting — and I'll figure out how."}},
+        _ctx("You're viewing your own Home — everything below is scoped to you · "
+             "status refreshes each time you open this tab."),
     ]
+
+
+_QUICK_ACTIONS = [
+    ("📊 Sprint report", "qa_sprint"),
+    ("📈 PR review trends", "qa_pr_trends"),
+    ("🔒 Security advisories", "qa_security"),
+    ("🗂️ Portfolio risk", "qa_portfolio"),
+    ("💬 Ask about an engagement…", "qa_ask"),
+]
+
+
+def _quick_actions_blocks() -> list[dict]:
+    return [
+        _header("⚡ Quick actions"),
+        _ctx("Tap one — I'll run it and DM you the result."),
+        {"type": "actions", "elements": [_btn(t, a, "go") for t, a in _QUICK_ACTIONS]},
+    ]
+
+
+def _action_items_blocks(items: list[dict]) -> list[dict]:
+    out: list[dict] = [_header("📌 Your action items")]
+    if not items:
+        out.append({"type": "section", "text": {"type": "mrkdwn",
+                    "text": "_None yet — add one by messaging me:_ `add an action item: …`"}})
+        return out
+    for it in items:
+        out.append({"type": "section", "text": {"type": "mrkdwn", "text": f"• {it['text']}"}})
+        out.append({"type": "actions", "elements": [
+            _btn("✓ Done", f"ai_done:{it['id']}", str(it["id"])),
+            _btn("💤 Snooze", f"ai_snooze:{it['id']}", str(it["id"])),
+        ]})
+    return out
+
+
+def _schedules_blocks(rows: list[dict]) -> list[dict]:
+    out: list[dict] = [_header("📅 Your schedules")]
     if not rows:
-        blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": "_No schedules yet — add one below._"}}
-        )
+        out.append({"type": "section", "text": {"type": "mrkdwn",
+                    "text": "_No schedules yet — add one below._"}})
     for r in rows:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"{r['icon']} *{r['label']}* → {_channel_display(r.get('channel'))}\n_{r['when']}_",
-                },
-            }
-        )
+        out.append({"type": "section", "text": {"type": "mrkdwn",
+                    "text": f"{r['icon']} *{r['label']}* → {_channel_display(r.get('channel'))}\n_{r['when']}_"}})
         elements = [_btn(b["text"], b["action_id"], b["value"]) for b in r["run_buttons"]]
         elements.append(
             _btn("✖ Remove", f"remove:{r['remove_ids'][0]}", ",".join(r["remove_ids"]), style="danger")
         )
-        blocks.append({"type": "actions", "elements": elements})
-        blocks.append({"type": "divider"})
+        out.append({"type": "actions", "elements": elements})
+        out.append({"type": "divider"})
+    out.append({"type": "actions", "elements": [
+        _btn("➕ Add a scheduled digest", "add_schedule", "go", style="primary")]})
+    return out
 
-    blocks.append(
-        {
-            "type": "actions",
-            "elements": [
-                _btn("+ Add delivery digest", "add_delivery", "go", style="primary"),
-                _btn("+ Add sprint report", "add_sprint", "go"),
-                _btn("+ Add sentiment report", "add_sentiment", "go"),
-                _btn("+ Add portfolio dashboard", "add_portfolio", "go"),
-                _btn("+ Add DSM schedule", "add_dsm", "go"),
-                _btn("+ Add security feed", "add_security", "go"),
-            ],
-        }
-    )
+
+def build_home_view(rows: list[dict], *, viewer_name: str | None = None,
+                    connectors_blocks: list[dict] | None = None,
+                    action_items: list[dict] | None = None,
+                    models_blocks: list[dict] | None = None,
+                    system_blocks: list[dict] | None = None) -> dict:
+    """The App Home tab, composed top-to-bottom for three audiences (newcomer / daily user /
+    admin): identity hero → quick actions → connectors → your action items → your schedules,
+    then the admin-only Models and System panels.
+
+    Each schedule row dict carries: icon, label, channel, when, run_buttons (list of
+    {text, action_id, value}) and remove_ids (list of schedule ids). ``action_items`` is the
+    caller's own concierge items ([{id, text}]). ``connectors_blocks`` /``models_blocks`` /
+    ``system_blocks`` are prebuilt sections; Models + System are admin-gated (the caller
+    passes them only for admins, so members never see them).
+    """
+    blocks: list[dict] = []
+    blocks += _hero_blocks(viewer_name)
+    blocks.append({"type": "divider"})
+    blocks += _quick_actions_blocks()
+    blocks.append({"type": "divider"})
+    if connectors_blocks:
+        blocks += connectors_blocks
+        blocks.append({"type": "divider"})
+    blocks += _action_items_blocks(action_items or [])
+    blocks.append({"type": "divider"})
+    blocks += _schedules_blocks(rows)
     if models_blocks:
         blocks.append({"type": "divider"})
-        blocks.append(
-            {"type": "header", "text": {"type": "plain_text", "text": "🤖 Models", "emoji": True}}
-        )
+        blocks.append(_header("🤖 Models"))
         blocks.extend(models_blocks)
-    if admin_blocks:
+    if system_blocks:
         blocks.append({"type": "divider"})
-        blocks.extend(admin_blocks)
+        blocks.extend(system_blocks)
     return {"type": "home", "blocks": blocks}
+
+
+_PICKER_TYPES = [
+    ("📄 Delivery digest", "add_delivery"),
+    ("📊 Sprint report", "add_sprint"),
+    ("📈 Sentiment report", "add_sentiment"),
+    ("🗂️ Portfolio dashboard", "add_portfolio"),
+    ("👥 DSM schedule", "add_dsm"),
+    ("🔒 Security feed", "add_security"),
+]
+
+
+def build_schedule_picker_modal() -> dict:
+    """The single '+ Add a scheduled digest' button opens this — a picker whose buttons carry
+    the existing per-type action_ids, so clicking one opens that type's form via the handlers
+    that already exist (no duplicated modal logic)."""
+    return {
+        "type": "modal",
+        "callback_id": "schedule_picker",
+        "title": {"type": "plain_text", "text": "Add a digest"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*What would you like to schedule?*"}},
+            {"type": "actions", "elements": [_btn(t, a, "go") for t, a in _PICKER_TYPES[:5]]},
+            {"type": "actions", "elements": [_btn(t, a, "go") for t, a in _PICKER_TYPES[5:]]},
+        ],
+    }
 
 
 def build_connect_codex_modal() -> dict:
@@ -181,6 +253,38 @@ def build_set_models_modal(chat_current: str, heavy_current: str, options: list[
             _input("heavy", "Heavy model (implement/review)",
                    _static_select("v", opts, initial=heavy_current if heavy_current in options else None)),
         ],
+    }
+
+
+_QUICK_ASK_TITLES = {"ask": "Ask about an engagement", "sprint": "Sprint snapshot"}
+
+
+def build_quick_ask_modal(kind: str) -> dict:
+    """A one-field modal for the engagement-scoped quick actions (Ask / Sprint). The submit
+    handler reads ``kind`` from private_metadata and DMs the caller the result."""
+    return {
+        "type": "modal",
+        "callback_id": "quick_ask",
+        "private_metadata": json.dumps({"kind": kind}),
+        "title": {"type": "plain_text", "text": _QUICK_ASK_TITLES.get(kind, "Ask Bott")[:24]},
+        "submit": {"type": "plain_text", "text": "Run"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            _input("engagement", "Engagement (name or Jira key)",
+                   {"type": "plain_text_input", "action_id": "v",
+                    "placeholder": {"type": "plain_text", "text": "e.g. PADI"}}),
+        ],
+    }
+
+
+def build_notice_modal(title: str, text: str) -> dict:
+    """An informational modal (no submit) — used to explain why an action can't proceed yet."""
+    return {
+        "type": "modal",
+        "callback_id": "notice",
+        "title": {"type": "plain_text", "text": title[:24]},
+        "close": {"type": "plain_text", "text": "OK"},
+        "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
     }
 
 

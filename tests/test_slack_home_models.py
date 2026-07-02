@@ -17,10 +17,31 @@ def store(monkeypatch, tmp_path):
     yield
 
 
-def test_active_card_always_present(store):
-    blocks = m.models_section(is_admin=False)
-    txt = str(blocks)
-    assert "provider" in txt.lower()  # active model is shown to everyone
+def test_models_section_is_admin_only(store):
+    # Per design, the Models panel is entirely admin-only — members never see it.
+    assert m.models_section(is_admin=False) == []
+    assert "provider" in str(m.models_section(is_admin=True)).lower()
+
+
+def test_provider_key_status(store, monkeypatch):
+    monkeypatch.setattr(m.config, "openrouter_api_key", lambda: None)
+    ok, hint = m.provider_key_status("openrouter")
+    assert ok is False and "OPENROUTER_API_KEY" in hint
+    monkeypatch.setattr(m.config, "openrouter_api_key", lambda: "k")
+    ok, _ = m.provider_key_status("openrouter")
+    assert ok is True
+
+
+def test_available_models_codex_lists_known(store):
+    assert "gpt-5.5" in m.available_models("codex")
+
+
+def test_available_models_openrouter_needs_key_then_lists(store, monkeypatch):
+    monkeypatch.setattr(m.config, "openrouter_api_key", lambda: None)
+    assert m.available_models("openrouter") == []  # no key → no catalog
+    monkeypatch.setattr(m.config, "openrouter_api_key", lambda: "k")
+    monkeypatch.setattr(m, "_fetch_openrouter_models", lambda: ["anthropic/x", "openai/y"])
+    assert m.available_models("openrouter") == ["anthropic/x", "openai/y"]
 
 
 def test_override_admin_only(store):

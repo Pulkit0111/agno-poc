@@ -15,9 +15,11 @@ def test_sentiment_modal_shape():
     assert "portfolio" in str(m).lower()
 
 
-def test_add_sentiment_button_on_home():
-    view = blocks.build_home_view([])
-    assert "add_sentiment" in str(view)
+def test_add_sentiment_button_in_schedule_picker():
+    # The Home now has a single "Add a scheduled digest" button; the per-type buttons live in
+    # the picker modal it opens.
+    assert "add_schedule" in str(blocks.build_home_view([]))
+    assert "add_sentiment" in str(blocks.build_schedule_picker_modal())
 
 
 def test_submit_sentiment_creates_schedule(monkeypatch):

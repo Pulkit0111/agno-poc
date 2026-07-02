@@ -260,7 +260,11 @@ class JiraClient:
         is_jql = any(op in q for op in ("=", "~", " AND ", " OR ", "ORDER BY", " IN "))
         # Escape quotes in the free-text branch so a query with a " can't break the JQL string.
         jql = q if is_jql else f'text ~ "{q.replace(chr(34), chr(92) + chr(34))}" ORDER BY updated DESC'
-        page = self._get("/rest/api/3/search",
+        # Atlassian removed the legacy GET /rest/api/3/search (returns 410 Gone); the enhanced
+        # /rest/api/3/search/jql endpoint replaces it. `fields` must be requested explicitly
+        # (it returns id-only otherwise), and pagination is token-based — but a single bounded
+        # page (limit <= 50) is all this read-only search needs.
+        page = self._get("/rest/api/3/search/jql",
                          {"jql": jql, "maxResults": max(1, min(int(limit), 50)), "fields": _ISSUE_FIELDS})
         return [normalize_issue(i, self.story_points_field) for i in page.get("issues", [])]
 

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from bott.shared.integrations.jira import JiraClient, normalize_issue, normalize_sprint
+from bott.shared.integrations.jira import (
+    _ISSUE_FIELDS,
+    JiraClient,
+    normalize_issue,
+    normalize_sprint,
+)
 
 SP = "customfield_10016"
 
@@ -124,6 +129,41 @@ def test_find_board_uses_scoped_query_not_full_list(monkeypatch):
     assert board["id"] == 9  # scrum board
     assert all(c[1].get("projectKeyOrId") == "IRES" for c in calls)  # only scoped calls
     assert len(calls) == 1  # one request, not a paged full listing
+
+
+def test_search_issues_uses_enhanced_jql_endpoint(monkeypatch):
+    """Regression guard for the 410 Gone: the legacy GET /rest/api/3/search was removed by
+    Atlassian, so search_issues must call the enhanced /rest/api/3/search/jql endpoint,
+    still requesting fields explicitly and parsing the `issues` array."""
+    client = JiraClient("https://j", "e@x", "tok", story_points_field=SP)
+    calls = []
+
+    def fake_get(path, params=None):
+        calls.append((path, params or {}))
+        return {"issues": [_raw_issue("IRM-1", "Login bug", "new")]}
+
+    monkeypatch.setattr(client, "_get", fake_get)
+    out = client.search_issues("project = IRM AND statusCategory != Done", limit=10)
+
+    assert len(calls) == 1
+    path, params = calls[0]
+    assert path == "/rest/api/3/search/jql"  # NOT the removed /rest/api/3/search
+    assert params["jql"] == "project = IRM AND statusCategory != Done"
+    assert params["maxResults"] == 10
+    assert params["fields"] == _ISSUE_FIELDS  # new endpoint returns id-only unless fields set
+    assert out[0]["key"] == "IRM-1"
+
+
+def test_search_issues_wraps_free_text_as_jql(monkeypatch):
+    """A non-JQL query is wrapped as a text~ JQL clause and still hits the enhanced endpoint."""
+    client = JiraClient("https://j", "e@x", "tok", story_points_field=SP)
+    calls = []
+    monkeypatch.setattr(client, "_get", lambda path, params=None: calls.append((path, params)) or {"issues": []})
+
+    client.search_issues("open bugs in Ironman")
+    path, params = calls[0]
+    assert path == "/rest/api/3/search/jql"
+    assert params["jql"].startswith('text ~ "open bugs in Ironman"')
 
 
 def test_detect_story_points_field(monkeypatch):

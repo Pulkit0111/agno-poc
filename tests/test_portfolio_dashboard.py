@@ -250,7 +250,9 @@ def test_portfolio_dashboard_builds_when_scheduled(monkeypatch):
 
 def test_app_home_portfolio_wiring(monkeypatch, tmp_path):
     from bott.interfaces.slack_home import blocks, router, service
-    assert "add_portfolio" in str(blocks.build_home_view([]))
+    # The single Home add button opens a picker that carries the per-type buttons.
+    assert "add_schedule" in str(blocks.build_home_view([]))
+    assert "add_portfolio" in str(blocks.build_schedule_picker_modal())
     assert blocks.build_portfolio_modal()["callback_id"] == "create_portfolio"
 
     captured = {}

@@ -5,6 +5,7 @@ from typing import Callable
 
 from bott.agents.build_fix import rendering
 from bott.agents.build_fix.core.models import ImplementPlan
+from bott.agents.code_review.github.app_auth import app_permissions_for
 from bott.shared.config import allowed_post_repos
 from bott.shared.observability.logging_setup import get_logger
 
@@ -36,6 +37,21 @@ def run_plan_job(args: dict, *, post: Callable, create_approval: Callable) -> di
                    "text": f"I can't open PRs on `{owner}/{name}` (not in the allowlist)."}}],
                  "Repo not allow-listed.")
         return {"status": "refused_not_allowlisted", "approval_id": None}
+
+    # Pre-flight write check: an install token mints even for a READ-ONLY installation, so
+    # confirm the App actually has contents:write BEFORE asking for approval — otherwise the
+    # implement job pushes and 403s after the user already signed off (the harness saga).
+    perms = app_permissions_for(owner, name)
+    if not perms or perms.get("contents") != "write":
+        if channel:
+            post(channel, thread_ts,
+                 [{"type": "section", "text": {"type": "mrkdwn",
+                   "text": f"I can't open a PR on `{owner}/{name}` yet — the GitHub App is "
+                           f"installed there but doesn't have *write* access, so a push would be "
+                           f"rejected. Ask an admin to grant the App `contents: write` (and "
+                           f"`pull_requests: write`) on that repo, then try again."}}],
+                 "No write access to repo.")
+        return {"status": "refused_no_write", "approval_id": None}
 
     plan = ImplementPlan(summary=args["plan_text"])  # plan_text already drafted upstream
     payload = json.dumps({"owner": owner, "name": name, "plan_text": args["plan_text"],

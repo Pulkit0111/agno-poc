@@ -51,6 +51,37 @@ def _mint(app_id: str, private_key_pem: str, owner: str, name: str) -> tuple[str
     return d["token"], time.time() + 55 * 60
 
 
+def app_permissions_for(owner: str, name: str) -> Optional[dict]:
+    """The App installation's granted permissions on owner/name — e.g.
+    ``{"contents": "write", "pull_requests": "write", "metadata": "read"}``.
+
+    Returns None if the App isn't configured OR isn't installed on the repo (404). This is
+    the authoritative source for whether Bott can actually *push* to a repo: a mintable
+    installation token only proves the App is installed, not that it has write access — a
+    read-only installation still mints tokens but 403s on push. Read-only: mints no token.
+    """
+    app_id = github_app_id()
+    pem = github_app_private_key()
+    if not app_id or not pem:
+        return None
+    j = _app_jwt(app_id, pem)
+    h = {
+        "Authorization": f"Bearer {j}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "bott-poc-review",
+    }
+    try:
+        with httpx.Client(timeout=30) as c:
+            inst = c.get(f"{API}/repos/{owner}/{name}/installation", headers=h)
+            if inst.status_code == 404:
+                return None  # App not installed on this repo
+            inst.raise_for_status()
+            return inst.json().get("permissions") or {}
+    except Exception:  # noqa: BLE001 — treat any failure as "unknown/no access"
+        return None
+
+
 def app_token_for(owner: str, name: str) -> Optional[str]:
     """Installation token for owner/name, or None if the App isn't configured.
     Cached and refreshed ~5 min before expiry."""

@@ -14,15 +14,71 @@ def _action_ids(view: dict) -> list[str]:
     return ids
 
 
-def test_empty_home_has_add_buttons():
+def test_empty_home_has_single_add_button_not_six():
     view = blocks.build_home_view([])
     assert view["type"] == "home"
     ids = _action_ids(view)
-    assert "add_delivery" in ids
-    assert "add_dsm" in ids
-    assert "add_security" in ids
+    # The six per-type add buttons are gone from the Home surface — one button opens a picker.
+    assert "add_schedule" in ids
+    for old in ("add_delivery", "add_sprint", "add_dsm", "add_security", "add_sentiment", "add_portfolio"):
+        assert old not in ids
     # No schedules → an explanatory line, no run/remove buttons.
     assert not any(i.startswith("run_now") or i.startswith("remove") for i in ids)
+
+
+def test_home_has_hero_and_quick_actions():
+    view = blocks.build_home_view(
+        [], viewer_name="Pulkit",
+        connectors_blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "CONN-MARKER"}}],
+    )
+    text = str(view)
+    assert "Bott" in text and "Pulkit" in text          # identity hero, personalized
+    assert "do-anything" in text                          # the catchy hook
+    assert "CONN-MARKER" in text                          # connectors slot is composed in
+    ids = _action_ids(view)
+    assert "qa_sprint" in ids and "qa_ask" in ids         # quick actions present
+
+
+def test_home_renders_action_items_with_done_and_snooze():
+    view = blocks.build_home_view([], action_items=[{"id": "7", "text": "Follow up PADI SOW"}])
+    text = str(view)
+    ids = _action_ids(view)
+    assert "Follow up PADI SOW" in text
+    assert "ai_done:7" in ids and "ai_snooze:7" in ids
+
+
+def test_models_and_system_are_admin_gated_slots():
+    member = blocks.build_home_view([])
+    assert "🤖 Models" not in str(member)   # members never see Models/System
+    admin = blocks.build_home_view(
+        [], models_blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "MODELS-MARKER"}}],
+        system_blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "SYSTEM-MARKER"}}],
+    )
+    assert "MODELS-MARKER" in str(admin) and "SYSTEM-MARKER" in str(admin)
+
+
+def test_quick_ask_modal_carries_kind_and_input():
+    import json
+    view = blocks.build_quick_ask_modal("sprint")
+    assert view["callback_id"] == "quick_ask"
+    assert json.loads(view["private_metadata"]) == {"kind": "sprint"}
+    input_ids = [b.get("block_id") for b in view["blocks"] if b["type"] == "input"]
+    assert input_ids == ["engagement"]
+
+
+def test_notice_modal_shows_text():
+    view = blocks.build_notice_modal("Add keys", "Set OPENROUTER_API_KEY first.")
+    assert view["type"] == "modal"
+    assert "OPENROUTER_API_KEY" in str(view)
+    assert "submit" not in view  # informational only — no submit button
+
+
+def test_schedule_picker_modal_has_all_six_types():
+    view = blocks.build_schedule_picker_modal()
+    assert view["type"] == "modal"
+    ids = _action_ids(view)
+    for a in ("add_delivery", "add_sprint", "add_sentiment", "add_portfolio", "add_dsm", "add_security"):
+        assert a in ids
 
 
 def test_home_renders_a_delivery_row_with_run_and_remove():
