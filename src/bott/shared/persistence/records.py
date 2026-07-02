@@ -158,3 +158,104 @@ def latest_trace_for_thread(channel: str, thread_ts: str) -> Optional[dict]:
     keys = ("id", "channel", "thread_ts", "owner", "name", "pr_number",
             "original_verdict", "final_verdict", "output_json", "gate_json", "created")
     return dict(zip(keys, row))
+
+
+def trace_stats(since_epoch: Optional[float] = None) -> dict:
+    """Aggregate descriptive statistics over review_traces.
+
+    These are raw counts over stored trace rows — not quality or accuracy metrics.
+    There are no ground-truth labels, so terms like false-positive rate or
+    missed-blocker rate are not computable from this data.
+
+    Args:
+        since_epoch: If provided, only rows with created >= since_epoch are counted.
+
+    Returns a dict with:
+        total          — int total row count in the window
+        by_verdict     — {final_verdict: count} mapping
+        by_repo        — [(\"owner/name\", count), ...] sorted descending, top 10
+        rereview_changed — count of rows where original_verdict IS NOT NULL
+                           and original_verdict != final_verdict
+        by_week        — {\"YYYY-Www\": count} bucket map (ISO week of epoch)
+    """
+    import datetime
+
+    params: dict = {}
+    where = ""
+    if since_epoch is not None:
+        where = "WHERE created >= :since"
+        params["since"] = since_epoch
+
+    with get_engine().begin() as c:
+        # Total count
+        total_row = c.execute(
+            text(f"SELECT COUNT(*) FROM review_traces {where}"),  # noqa: S608
+            params,
+        ).fetchone()
+        total: int = int(total_row[0]) if total_row else 0
+
+        # By final_verdict
+        verdict_rows = c.execute(
+            text(
+                f"SELECT final_verdict, COUNT(*) AS cnt "  # noqa: S608
+                f"FROM review_traces {where} "
+                f"GROUP BY final_verdict "
+                f"ORDER BY cnt DESC"
+            ),
+            params,
+        ).fetchall()
+        by_verdict: dict[str, int] = {
+            (row[0] or "unknown"): int(row[1]) for row in verdict_rows
+        }
+
+        # By repo (owner/name)
+        repo_rows = c.execute(
+            text(
+                f"SELECT owner, name, COUNT(*) AS cnt "  # noqa: S608
+                f"FROM review_traces {where} "
+                f"GROUP BY owner, name "
+                f"ORDER BY cnt DESC "
+                f"LIMIT 10"
+            ),
+            params,
+        ).fetchall()
+        by_repo: list[tuple[str, int]] = [
+            (f"{row[0] or ''}/{row[1] or ''}", int(row[2])) for row in repo_rows
+        ]
+
+        # Re-review changed verdict count
+        rereview_where = (
+            f"{where} AND " if where else "WHERE "
+        )
+        changed_row = c.execute(
+            text(
+                f"SELECT COUNT(*) FROM review_traces "  # noqa: S608
+                f"{rereview_where}"
+                f"original_verdict IS NOT NULL "
+                f"AND original_verdict != final_verdict"
+            ),
+            params,
+        ).fetchone()
+        rereview_changed: int = int(changed_row[0]) if changed_row else 0
+
+        # All created timestamps for bucketing by week
+        ts_rows = c.execute(
+            text(f"SELECT created FROM review_traces {where}"),  # noqa: S608
+            params,
+        ).fetchall()
+
+    # Bucket into ISO weeks client-side (avoids DB-dialect strftime differences)
+    by_week: dict[str, int] = {}
+    for (ts,) in ts_rows:
+        if ts is not None:
+            dt = datetime.datetime.fromtimestamp(float(ts), tz=datetime.timezone.utc)
+            week_key = dt.strftime("%G-W%V")  # ISO year + ISO week, e.g. "2026-W27"
+            by_week[week_key] = by_week.get(week_key, 0) + 1
+
+    return {
+        "total": total,
+        "by_verdict": by_verdict,
+        "by_repo": by_repo,
+        "rereview_changed": rereview_changed,
+        "by_week": dict(sorted(by_week.items())),
+    }
