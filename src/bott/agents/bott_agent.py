@@ -31,6 +31,7 @@ from bott.skills.scheduling import scheduling_tools
 from bott.skills.skill_authoring import skill_authoring_tools
 from bott.skills.sprint_report import sprint_report_tools
 from bott.skills.repo_access import repo_access_tools
+from bott.skills.system_status import system_status_tools
 from bott.skills.web_publish import web_publish_tools
 from bott.skills.workspace_tools import build_workspace_tools
 
@@ -118,6 +119,7 @@ def build_agent(user_id: str, db=None) -> Agent:
     tools.extend(sprint_report_tools())  # Sprint report: live Jira → designed HTML → Spin
     tools.extend(portfolio_tools())  # Portfolio risk roll-up: Memra + Jira → leadership dashboard
     tools.extend(repo_access_tools())  # Repo awareness: list accessible repos + inspect a repo
+    tools.extend(system_status_tools())  # Deployment health: what's live/configured
     tools.extend(web_publish_tools())  # General Spin deploy: any HTML → public URL
     tools.extend(engagement_data_tools())  # Engagement status + people lookup (Memra-grounded DATA)
     register_all()
