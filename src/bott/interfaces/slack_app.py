@@ -26,6 +26,7 @@ load_dotenv()
 from slack_bolt import App
 
 from bott.agents.code_review.github.app_auth import app_token_for
+from bott.interfaces.slack_blocks import split_long_blocks
 from bott.shared.config import (
     allowed_post_repos,
     bott_model,
@@ -73,13 +74,13 @@ def _react(channel: str, ts: str, name: str, add: bool = True) -> None:
 
 def _post(channel: str, thread_ts: str, blocks: list[dict], fallback: str) -> str:
     return app.client.chat_postMessage(
-        channel=channel, thread_ts=thread_ts, blocks=blocks, text=fallback
+        channel=channel, thread_ts=thread_ts, blocks=split_long_blocks(blocks), text=fallback
     )["ts"]
 
 
 def _update(channel: str, ts: str, blocks: list[dict], fallback: str) -> None:
     try:
-        app.client.chat_update(channel=channel, ts=ts, blocks=blocks, text=fallback)
+        app.client.chat_update(channel=channel, ts=ts, blocks=split_long_blocks(blocks), text=fallback)
     except Exception:
         pass  # a dropped progress edit must never fail the review
 
