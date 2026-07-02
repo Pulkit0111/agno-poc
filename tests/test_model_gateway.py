@@ -4,7 +4,15 @@ from bott.shared import model as model_mod
 from bott.shared.model import build_model
 
 
+def _no_setting_override(monkeypatch):
+    # These tests assert the ENV-configured provider. Neutralize the DB settings-override
+    # (`_setting`) so an ambient/leaked `model.provider` row in a shared DB can't flip the
+    # provider out from under the test (order-independence).
+    monkeypatch.setattr(model_mod, "_setting", lambda k: None)
+
+
 def test_openrouter_provider(monkeypatch):
+    _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "openrouter")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     monkeypatch.setenv("BOTT_HEAVY_MODEL", "anthropic/claude-sonnet-4")
@@ -13,12 +21,14 @@ def test_openrouter_provider(monkeypatch):
 
 
 def test_unknown_provider_raises(monkeypatch):
+    _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "nope")
     with pytest.raises(ValueError):
         build_model("chat")
 
 
 def test_codex_provider_builds_adapter(monkeypatch):
+    _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
     monkeypatch.setenv("BOTT_CHAT_MODEL", "gpt-5.5")
     from bott.shared import codex_tokens as ct
@@ -33,6 +43,7 @@ def test_codex_provider_builds_adapter(monkeypatch):
 
 
 def test_codex_not_connected_propagates(monkeypatch):
+    _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
     from bott.shared import codex_tokens as ct
     def boom(): raise ct.CodexNotConnected("nope")
