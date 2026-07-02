@@ -7,6 +7,7 @@ hardcode secrets — token comes from config.github_token().
 
 from __future__ import annotations
 
+import base64
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -218,6 +219,52 @@ class GitHubClient:
     # --- repo metadata ---
     def default_branch(self, owner: str, name: str) -> str:
         return self._get(f"/repos/{owner}/{name}").get("default_branch") or "main"
+
+    # --- repo read (read-only: readme, tree, file contents) ---
+    def get_readme(self, owner: str, name: str) -> str:
+        """Fetch the repo README and return its decoded text (or "" if absent/404)."""
+        try:
+            d = self._get(f"/repos/{owner}/{name}/readme")
+        except Exception:  # noqa: BLE001
+            return ""
+        content = d.get("content", "")
+        if not content:
+            return ""
+        try:
+            return base64.b64decode(content).decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def get_tree(self, owner: str, name: str, max_entries: int = 200) -> list[str]:
+        """Return up to *max_entries* file paths from the recursive git tree."""
+        try:
+            branch = self.default_branch(owner, name)
+            d = self._get(
+                f"/repos/{owner}/{name}/git/trees/{branch}",
+                params={"recursive": "1"},
+            )
+        except Exception:  # noqa: BLE001
+            return []
+        paths = [
+            entry["path"]
+            for entry in d.get("tree", [])
+            if entry.get("type") == "blob"
+        ]
+        return paths[:max_entries]
+
+    def get_file(self, owner: str, name: str, path: str) -> str:
+        """Fetch a single file by path and return its decoded text (or "" if 404)."""
+        try:
+            d = self._get(f"/repos/{owner}/{name}/contents/{path}")
+        except Exception:  # noqa: BLE001
+            return ""
+        content = d.get("content", "")
+        if not content:
+            return ""
+        try:
+            return base64.b64decode(content).decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            return ""
 
     # --- PR writes (build-fix / phase 3) ---
     def create_pull(
