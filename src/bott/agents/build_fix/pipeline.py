@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from bott.agents.build_fix.agent.prompt import IMPLEMENT_SYSTEM_PROMPT
-from bott.agents.build_fix.agent.tools import build_implement_tools
+from bott.agents.build_fix.agent.prompt import IMPLEMENT_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT
+from bott.agents.build_fix.agent.tools import build_implement_tools, build_plan_tools
 from bott.agents.build_fix.core.models import ImplementResult
 from bott.agents.code_review.github.clone import CloneHandle, _run, writable_clone
 from bott.shared import config
@@ -18,6 +18,45 @@ from bott.shared.model import build_model
 from bott.shared.observability.logging_setup import get_logger, redact
 
 log = get_logger("bott.build_fix.pipeline")
+
+
+def plan_from_repo(
+    owner: str,
+    name: str,
+    request_text: str,
+    *,
+    token: Optional[str] = None,
+    model_id: Optional[str] = None,
+) -> str:
+    """Clone the repo, run a read-only planning agent, and return a concrete plan string.
+
+    The clone is ALWAYS cleaned up in a finally block — nothing is pushed or persisted.
+    On any error (clone failure, agent error) a short fallback text is returned so the
+    caller never receives an exception.
+    """
+    handle: Optional[CloneHandle] = None
+    try:
+        handle = writable_clone(owner, name, token=token)
+        from agno.agent import Agent
+
+        budget = config.implement_budget()
+        agent = Agent(
+            model=build_model("heavy"),
+            tools=build_plan_tools(handle.path),
+            system_message=PLAN_SYSTEM_PROMPT,
+            tool_call_limit=budget.max_tool_calls,
+            telemetry=False,
+            markdown=False,
+        )
+        run = agent.run(f"Requested change:\n{request_text}\n\nProduce the plan.")
+        plan_text = (getattr(run, "content", "") or "").strip()
+        return plan_text or request_text
+    except Exception as exc:  # noqa: BLE001 — never raise into the worker
+        log.warning("plan_from_repo failed for %s/%s: %s", owner, name, exc)
+        return f"[Plan generation failed — proceeding with raw request]\n\n{request_text}"
+    finally:
+        if handle is not None:
+            handle.cleanup()
 
 
 def _diff_summary(clone_path: str) -> str:

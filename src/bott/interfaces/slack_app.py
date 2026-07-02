@@ -177,10 +177,24 @@ def handle_task(task: dict) -> None:
     log.info("task %s: %s source=%s", task["id"], task["kind"], source)
 
     if task["kind"] == "plan":
+        from bott.agents.build_fix.pipeline import plan_from_repo
         from bott.agents.build_fix.planner import run_plan_job
         from bott.agents.build_fix.planning import draft_plan_text
         from bott.shared.approvals import create_request
-        a["plan_text"] = draft_plan_text(a)
+        if a.get("owner") and a.get("repo"):
+            gh_token = None
+            try:
+                gh_token = app_token_for(a["owner"], a["repo"])
+            except Exception:  # noqa: BLE001
+                gh_token = None
+            a["plan_text"] = plan_from_repo(
+                a["owner"], a["repo"],
+                a.get("text") or "",
+                token=gh_token,
+                model_id=a.get("model_id"),
+            )
+        else:
+            a["plan_text"] = draft_plan_text(a)
         a["user_id"] = task.get("user_id")
         run_plan_job(a, post=_post, create_approval=create_request)
         return

@@ -10,6 +10,22 @@ _IMPLEMENT_SHELL = [
 ]
 
 
+def build_plan_tools(clone_path: str) -> list:
+    """Read-only exploration tools for the planning agent (no edit/write/shell)."""
+    return [
+        CodingTools(
+            base_dir=clone_path,
+            restrict_to_base_dir=True,
+            enable_edit_file=False,
+            enable_write_file=False,
+            enable_run_shell=False,
+            enable_grep=True,
+            enable_find=True,
+            enable_ls=True,
+        ),
+    ]
+
+
 def build_implement_tools(clone_path: str) -> list:
     """Hands for the implement agent: read/edit/write/run-shell fenced to the clone dir."""
     return [
