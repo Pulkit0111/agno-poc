@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pr-reviewer"
+name = "bott"
 version = "0.1.0"
-description = "Agno-powered PR review application — CLI, Slack bot, and GitHub webhook."
+description = "Bott — a conversational engineering teammate on Slack: one Agno agent with connectors, skills, PR review, build & fix, and Sentry triage."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
