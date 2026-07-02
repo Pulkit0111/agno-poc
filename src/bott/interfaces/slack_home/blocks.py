@@ -45,7 +45,8 @@ def _channel_display(channel: str | None) -> str:
     return channel or "—"
 
 
-def build_home_view(rows: list[dict], *, models_blocks: list[dict] | None = None) -> dict:
+def build_home_view(rows: list[dict], *, models_blocks: list[dict] | None = None,
+                    admin_blocks: list[dict] | None = None) -> dict:
     """The App Home tab: one section per schedule with Run/Remove, then Add buttons.
 
     Each row dict carries: icon, label, channel, when, run_buttons (list of
@@ -53,6 +54,9 @@ def build_home_view(rows: list[dict], *, models_blocks: list[dict] | None = None
 
     ``models_blocks`` (from ``models.models_section``) is appended after the schedules
     panel when provided.
+
+    ``admin_blocks`` (from ``admin.admin_section``) is appended after the models section
+    when provided and non-empty (it is empty for non-admin users).
     """
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": "📅 Scheduled digests", "emoji": True}},
@@ -97,6 +101,9 @@ def build_home_view(rows: list[dict], *, models_blocks: list[dict] | None = None
             {"type": "header", "text": {"type": "plain_text", "text": "🤖 Models", "emoji": True}}
         )
         blocks.extend(models_blocks)
+    if admin_blocks:
+        blocks.append({"type": "divider"})
+        blocks.extend(admin_blocks)
     return {"type": "home", "blocks": blocks}
 
 

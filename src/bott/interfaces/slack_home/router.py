@@ -26,7 +26,7 @@ from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import queue, standup
 from bott.skills.dsm import today_key
 
-from . import blocks, models, service
+from . import admin, blocks, models, service
 from .engagements import engagement_shortlist, sprint_board_options_with_reason
 
 log = get_logger("bott.slack_home.router")
@@ -69,6 +69,7 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             view = blocks.build_home_view(
                 service.list_rows(db),
                 models_blocks=models.models_section(is_admin=is_admin),
+                admin_blocks=admin.admin_section(is_admin=is_admin),
             )
             client.views_publish(user_id=user_id, view=view)
         except Exception as e:  # noqa: BLE001

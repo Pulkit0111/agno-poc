@@ -62,3 +62,23 @@ def wait_for_decision(approval_id: int, timeout: float, poll: float = 1.0) -> st
             return s
         time.sleep(poll)
     return "pending"
+
+
+def pending(limit: int = 8) -> list[dict]:
+    """Return up to *limit* pending approvals, newest first (read-only)."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT id, action, summary, created FROM approvals "
+            "WHERE status='pending' ORDER BY id DESC LIMIT :lim"
+        ), {"lim": limit}).fetchall()
+    return [{"id": int(r[0]), "action": r[1], "summary": r[2], "created": r[3]}
+            for r in rows]
+
+
+def pending_count() -> int:
+    """Return the total number of pending approvals."""
+    with get_engine().connect() as c:
+        row = c.execute(text(
+            "SELECT COUNT(*) FROM approvals WHERE status='pending'"
+        )).fetchone()
+    return int(row[0]) if row else 0

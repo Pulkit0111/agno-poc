@@ -93,6 +93,26 @@ def recover_orphans() -> int:
         return res.rowcount or 0
 
 
+def recent_jobs(limit: int = 8) -> list[dict]:
+    """Return the most recent *limit* jobs, newest first (read-only)."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT id, kind, status, attempts, created FROM jobs "
+            "ORDER BY id DESC LIMIT :lim"
+        ), {"lim": limit}).fetchall()
+    return [{"id": int(r[0]), "kind": r[1], "status": r[2],
+             "attempts": int(r[3]), "created": r[4]} for r in rows]
+
+
+def job_counts() -> dict:
+    """Return a mapping of status → count for all jobs."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT status, COUNT(*) FROM jobs GROUP BY status"
+        )).fetchall()
+    return {r[0]: int(r[1]) for r in rows}
+
+
 def worker_main(handler: Callable[[dict], None], poll: float = 1.0,
                 stop: Optional[threading.Event] = None) -> None:
     """Claim -> handle -> complete loop. Run as a thread today or a process tomorrow."""
