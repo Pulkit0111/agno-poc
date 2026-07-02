@@ -27,6 +27,7 @@ from bott.skills.connectors.registry import REGISTRY
 from bott.skills.dsm import dsm_tools
 from bott.skills.engagement_data import engagement_data_tools
 from bott.skills.portfolio import portfolio_tools
+from bott.skills.action_items import action_items_tools
 from bott.skills.scheduling import scheduling_tools
 from bott.skills.skill_authoring import skill_authoring_tools
 from bott.skills.sprint_report import sprint_report_tools
@@ -127,6 +128,7 @@ def build_agent(user_id: str, db=None) -> Agent:
     register_all()
     tools.extend(REGISTRY.all_tools())  # all connectors (Jira/Confluence/Slack/Memra/Gmail) via the registry
     tools.extend(scheduling_tools(db))  # NL schedule create/list/remove (user-scoped)
+    tools.extend(action_items_tools())  # Personal action items: add/list/done/snooze (user-scoped)
     slack_token = os.getenv("SLACK_TOKEN") or os.getenv("SLACK_BOT_TOKEN")
     if slack_token:
         from agno.tools.slack import SlackTools

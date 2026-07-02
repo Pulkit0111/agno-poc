@@ -122,6 +122,21 @@ SKILLS = Table(
 )
 
 
+# Personal action items (shared/persistence/action_items.py owns the DML).
+ACTION_ITEMS = Table(
+    "action_items",
+    METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", Text, nullable=False),
+    Column("text", Text, nullable=False),
+    Column("status", Text, nullable=False, server_default=_sql_text("'open'")),
+    Column("remind_at", Float, nullable=True),
+    Column("created", Float, nullable=False),
+    Column("updated", Float, nullable=False),
+)
+Index("idx_action_items_user_status", ACTION_ITEMS.c.user_id, ACTION_ITEMS.c.status)
+
+
 def init_schema(engine=None) -> None:
     """Create all foundation tables if absent (idempotent). The dev/test fast path;
     production schema EVOLUTION goes through Alembic, which targets this same METADATA."""
