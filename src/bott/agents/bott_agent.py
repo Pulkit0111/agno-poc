@@ -21,20 +21,20 @@ from bott.shared import config
 from bott.shared.config import bott_model
 from bott.shared.identity import require_user_id
 from bott.shared.model import build_model
+from bott.skills.action_items import action_items_tools
 from bott.skills.advisories import security_tools
+from bott.skills.capability_page import capability_page_tools
 from bott.skills.connectors.register_all import register_all
 from bott.skills.connectors.registry import REGISTRY
 from bott.skills.dsm import dsm_tools
 from bott.skills.engagement_data import engagement_data_tools
 from bott.skills.portfolio import portfolio_tools
-from bott.skills.action_items import action_items_tools
+from bott.skills.repo_access import repo_access_tools
+from bott.skills.review_trends import review_trends_tools
 from bott.skills.scheduling import scheduling_tools
 from bott.skills.skill_authoring import skill_authoring_tools
 from bott.skills.sprint_report import sprint_report_tools
-from bott.skills.repo_access import repo_access_tools
 from bott.skills.system_status import system_status_tools
-from bott.skills.capability_page import capability_page_tools
-from bott.skills.review_trends import review_trends_tools
 from bott.skills.web_publish import web_publish_tools
 from bott.skills.workspace_tools import build_workspace_tools
 
@@ -79,6 +79,10 @@ SKILL_INSTRUCTIONS = [
     "grab a similar-looking tool (like a report publisher). Only when NO skill matches do you "
     "compose from general tools directly — never force a task into a near-miss skill. Tasks like "
     "a 'release note' or 'one-pager' are general unless a skill is named for them. "
+    "When a request is CLOSE to a skill or capability but you're not sure it's the right fit "
+    "(a near-miss), don't silently guess or force it: reply with one short line — what you CAN "
+    "do for it and what you'd need to proceed — and ask. A quick 'I can do X; do you want that, "
+    "or did you mean Y?' beats a wrong assumption. "
     "If you need something to proceed, just ask for it in plain words in this thread and stop "
     "— the person's next reply continues this same conversation. Never use a separate input "
     "form. When you've worked out a genuinely reusable workflow, you may offer to save it as "
