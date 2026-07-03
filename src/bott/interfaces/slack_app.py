@@ -361,6 +361,11 @@ def handle_task(task: dict) -> None:
         url = result.posted.get("html_url", result.meta.url)
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn",
                        "text": f":white_check_mark: Posted to the PR on GitHub — <{url}|view review>"}]})
+    elif do_post and result.post_error:
+        # The review FINISHED — never lose it to a posting failure; say what happened.
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn",
+                       "text": f":warning: Review complete, but I couldn't post it to GitHub: "
+                               f"{redact(result.post_error)[:180]}"}]})
 
     if status_ts:
         _update(channel, status_ts, blocks, rendered.fallback)  # morph status into review

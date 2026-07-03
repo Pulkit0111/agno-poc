@@ -38,6 +38,36 @@ class ReviewResult:
     resolvable_comments: list[dict]
     unresolvable_comments: list[dict]
     posted: Optional[dict] = None
+    post_error: str = ""  # set when the review finished but GitHub posting failed
+
+
+def _post_with_fallback(gh, owner: str, name: str, number: int, rendered,
+                        comments: list[dict]) -> tuple[Optional[dict], str]:
+    """Post the review with a degrade ladder — a finished review must NEVER be lost to a
+    posting error. GitHub 422s an APPROVE/REQUEST_CHANGES review on a PR its author posts
+    (Bott reviewing its own build PR is exactly that), and can 422 on comment anchors it
+    won't accept. Ladder: as-rendered → COMMENT event (intended verdict noted in the body)
+    → body-only COMMENT → give up gracefully with (None, reason)."""
+    attempts = [
+        (rendered.event, rendered.body, comments),
+        ("COMMENT",
+         f"> Posted as a comment review — GitHub doesn't allow `{rendered.event}` from the "
+         f"PR's own author (this PR was opened by Bott). Intended verdict: "
+         f"**{rendered.event}**.\n\n{rendered.body}",
+         comments),
+        ("COMMENT",
+         f"> Posted body-only — GitHub rejected the inline comment anchors. Intended "
+         f"verdict: **{rendered.event}**.\n\n{rendered.body}",
+         None),
+    ]
+    last_err = ""
+    for event, body, cmts in attempts:
+        try:
+            return gh.post_review(owner, name, number, body=body, event=event,
+                                  comments=cmts), ""
+        except Exception as e:  # noqa: BLE001 — degrade, never raise a finished review away
+            last_err = str(e)
+    return None, last_err
 
 
 def _split_anchors(essentials: PrEssentials, rendered: RenderedReview):
@@ -131,16 +161,10 @@ def review_pr(
         )
         resolvable, unresolvable = _split_anchors(essentials, rendered)
 
-        posted = None
+        posted, post_error = (None, "")
         if post:
-            posted = gh.post_review(
-                owner,
-                name,
-                number,
-                body=rendered.body,
-                event=rendered.event,
-                comments=resolvable,
-            )
+            posted, post_error = _post_with_fallback(gh, owner, name, number,
+                                                     rendered, resolvable)
 
         return ReviewResult(
             meta=essentials.meta,
@@ -151,6 +175,7 @@ def review_pr(
             resolvable_comments=resolvable,
             unresolvable_comments=unresolvable,
             posted=posted,
+            post_error=post_error,
         )
     finally:
         gh.close()

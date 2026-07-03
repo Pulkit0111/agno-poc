@@ -26,8 +26,10 @@ def plan_blocks(plan: ImplementPlan, approval_id: int) -> tuple[list, str]:
 
 def result_blocks(result: ImplementResult) -> tuple[list, str]:
     if result.opened_pr:
-        tail = {"green": "tests green ✓", "failing": "tests still failing ⚠",
-                "not_run": "tests not run ⚠"}.get(result.tests, "")
+        # "checks", not "tests" — the failing signal can be lint/typecheck/build, and calling
+        # it "tests" sends people hunting for test failures that don't exist.
+        tail = {"green": "checks green ✓", "failing": "some checks failed ⚠ (details in the PR)",
+                "not_run": "checks not run ⚠"}.get(result.tests, "")
         if result.updated_existing:
             verb = "Committed into the existing PR"
         else:
