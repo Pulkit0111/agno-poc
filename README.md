@@ -37,8 +37,14 @@ All served by the one agent:
   concierge, Drupal security-advisory digest, sprint reports, and a portfolio risk roll-up —
   grounded in Memra context, posted to Slack (some published to a hosted URL via Spin).
 
-Schedules and admin actions are managed from a **Slack App Home** control panel; approvals
-use **Approve / Dismiss** buttons in-thread.
+The **Slack App Home** is Bott's control panel: a short intro, one-tap **quick actions**
+(sprint report, PR-review trends, security advisories, portfolio risk, ask about an
+engagement), a live **Connectors** panel (✓/✗ per system, refreshed each open), your personal
+**action items** (done/snooze), and one-button **scheduling** (a single picker for delivery /
+sprint / sentiment / portfolio / DSM / security digests). Admins additionally get
+provider-aware **model switching** (Codex lists its models; Bedrock/OpenRouter prompt for keys,
+then list their catalog — pick a model per task) and a **system** panel (recent jobs, approval
+backlog, connector health). Approvals use **Approve / Dismiss** buttons in-thread.
 
 ## Architecture
 
@@ -98,6 +104,7 @@ src/bott/
 │   ├── skill_authoring.py  # author_skill + curator (list/pin/retire, admin-gated)
 │   ├── scheduling.py       # delivery / DSM / concierge / security schedules
 │   ├── advisories.py, dsm.py, engagement_data.py, sprint_report/, portfolio/, web_publish.py
+│   ├── channel_map.py       # map a Slack channel → engagement (so "this engagement" resolves)
 │   ├── workspace_tools.py  # coding/python/session-search + skill_manage
 │   └── library/            # curated SKILL.md library (+ authored skills materialized here)
 ├── shared/
