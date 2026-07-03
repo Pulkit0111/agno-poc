@@ -15,7 +15,11 @@ def _target(run_context: Optional[RunContext]) -> dict:
 
 
 def start_build(target: str, run_context: Optional[RunContext] = None) -> str:
-    """Plan and (after you approve) implement a change, opening a draft PR.
+    """Plan and (after you approve) implement ONE cohesive change, opening ONE draft PR.
+
+    One call = one plan = one pull request. If the user asks for SEVERAL independent PRs
+    (e.g. "one PR per project", "separate PRs for each"), call this ONCE PER PR with a target
+    scoped to that single change — do NOT bundle multiple independent PRs into one build.
 
     Args:
         target: what to build — a plain description ("add X to owner/repo"), a GitHub issue

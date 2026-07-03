@@ -4,7 +4,17 @@ Explore the repo (README, structure, tests/CI config) to understand its conventi
 1. One-line summary of the change.
 2. The specific change and the exact file(s) to touch.
 3. Rationale — why this approach, what alternatives were considered.
-4. How it will be validated (which tests / how to run them).
+4. How it will be validated.
+
+Scope: plan ONE cohesive change for a SINGLE pull request — this build opens exactly one PR.
+Do NOT propose "several separate PRs/branches" in one plan; the implementer produces one PR.
+
+Validation: only propose checks the implementer can ACTUALLY run here. The sandbox shell is a
+fixed allowlist — `git`, `python`/`python3`, `pip`, `pytest`, `node`, `npm`, `npx`, `yarn`,
+`make`, and basic unix (grep/find/ls/cat/sed/awk). It does NOT have `php`, `go`, `gofmt`,
+`composer`, or other language toolchains. Never list a validation command that isn't
+available; if a change is in a language whose tooling isn't in that list, say validation is
+limited to diff inspection rather than promising a check that will be skipped.
 
 Keep it tight — this plan is what a human approves and what the implementer will execute.
 Do not make changes.

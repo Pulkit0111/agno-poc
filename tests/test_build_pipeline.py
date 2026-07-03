@@ -5,6 +5,14 @@ from bott.agents.build_fix import pipeline
 from bott.agents.build_fix.core.models import ImplementResult
 
 
+def test_pr_body_attributes_bott_not_claude_code():
+    # Bott (gpt-5.5/Codex) opens the PR itself — the body must NOT claim "Claude Code".
+    body = pipeline._pr_body("Implemented the change; tests green.")
+    assert "Claude Code" not in body
+    assert "Implemented the change; tests green." in body
+    assert "Bott" in body
+
+
 def test_empty_diff_opens_no_pr(monkeypatch, tmp_path):
     # No file changes in the clone → no PR, explanatory note.
     monkeypatch.setattr(pipeline, "_clone_and_run_agent",

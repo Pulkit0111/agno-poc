@@ -100,6 +100,13 @@ def _clone_and_run_agent(owner: str, name: str, plan_text: str, *, token, model_
     return handle.path, _diff_summary(handle.path), note, handle
 
 
+def _pr_body(note: str) -> str:
+    """PR description = the implement agent's own summary + a Bott attribution. Bott opens
+    this PR itself (running on the configured model — gpt-5.5/Codex today), so it is NOT
+    'Claude Code'; the footer must say so honestly."""
+    return f"{note}\n\n---\n🤖 Opened by *Bott* — Axelerant's engineering teammate."
+
+
 def _push_and_pr(owner: str, name: str, clone_path: str, plan_text: str, note: str, *, token) -> str:
     from bott.agents.code_review.github.client import GitHubClient
 
@@ -112,9 +119,8 @@ def _push_and_pr(owner: str, name: str, clone_path: str, plan_text: str, note: s
         raise RuntimeError(f"git push failed: {redact(push.stderr.strip())}")
     with GitHubClient(token=token) as gh:
         base = gh.default_branch(owner, name)
-        body = (f"{note}\n\n---\n🤖 Generated with [Claude Code](https://claude.com/claude-code)")
         pr = gh.create_pull(owner, name, title=f"bott: {plan_text[:60]}",
-                            head=branch, base=base, body=body, draft=True)
+                            head=branch, base=base, body=_pr_body(note), draft=True)
     return pr.get("html_url", "")
 
 
