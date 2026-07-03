@@ -4,13 +4,18 @@ from bott.skills import connectors
 
 
 def test_aggregator_gates_all_off(monkeypatch):
+    """With every configured system off, the ONLY tools left are the always-on general
+    primitives (slack_api/github_api/atlassian_api/http_request) — they need no config
+    gate (http_request has no creds at all; the others fail politely at runtime), and
+    they're what lets Bott attempt novel work. No per-system connector tools leak in."""
     import bott.skills.connectors.confluence_read as cr
     import bott.skills.connectors.jira_read as jr
     monkeypatch.setattr(jr.config, "jira_configured", lambda: False)
     monkeypatch.setattr(cr.config, "confluence_configured", lambda: False)
     monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
     monkeypatch.delenv("SLACK_TOKEN", raising=False)
-    assert connectors.connector_tools() == []
+    names = {getattr(t, "name", getattr(t, "__name__", "")) for t in connectors.connector_tools()}
+    assert names == {"slack_api", "github_api", "atlassian_api", "http_request"}
 
 
 def test_aggregator_includes_slack_when_token_present(monkeypatch):

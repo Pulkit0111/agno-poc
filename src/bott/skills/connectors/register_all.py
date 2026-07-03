@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from bott.shared.config import memra_configured
 from bott.shared.context import MemraClient, make_memra_tools
+from bott.skills.connectors.actions import actions_tools
 from bott.skills.connectors.calendar import calendar_read_tools
 from bott.skills.connectors.confluence_read import confluence_read_tools
 from bott.skills.connectors.drive import drive_read_tools
@@ -33,3 +34,6 @@ def register_all() -> None:
     REGISTRY.register(FunctionConnector("gmail", "domain_delegated", gmail_read_tools))
     REGISTRY.register(FunctionConnector("drive", "domain_delegated", drive_read_tools))
     REGISTRY.register(FunctionConnector("calendar", "domain_delegated", calendar_read_tools))
+    # General guarded primitives (slack_api / github_api / atlassian_api / http_request):
+    # the agent composes ANY call; the action policy authorizes (allow/gate/deny).
+    REGISTRY.register(FunctionConnector("actions", "org_credential", actions_tools))

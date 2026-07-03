@@ -346,6 +346,10 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                         )
                         if cmd == "approval_approve":
                             dispatch_approved_build(int(approval_id_str))
+                            # Gated general-primitive actions (api:slack / api:github / ...):
+                            # execute the stored call and post the result (no-op otherwise).
+                            from bott.skills.connectors.actions import dispatch_approved_api
+                            background_tasks.add_task(dispatch_approved_api, int(approval_id_str))
                         decision_label = "approved" if cmd == "approval_approve" else "dismissed"
                         if ch:
                             try:

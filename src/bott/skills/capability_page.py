@@ -139,7 +139,11 @@ code{{background:#f3f4f6;border-radius:3px;padding:1px 5px;font-size:.875rem}}
 section{{margin-bottom:1.5rem}}
 </style>
 <h1 style="font-size:1.5rem;font-weight:700;margin-bottom:.25rem">What Bott can do here</h1>
-<p style="color:#6B7280;margin-bottom:1.5rem">A live snapshot of configured connectors, skills, and repos.</p>
+<p style="color:#374151;margin-bottom:.5rem"><strong>Ask Bott for just about anything — it figures out how.</strong>
+It composes the systems below (Slack, GitHub, Jira/Confluence, code, the web, Memra) to attempt
+work it has never done before; risky changes always wait for a human Approve.</p>
+<p style="color:#6B7280;margin-bottom:1.5rem">Below is a live snapshot of what it can reach and the
+workflows it has practiced — <em>examples, not the boundary</em>.</p>
 {body}"""
 
 
