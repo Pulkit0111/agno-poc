@@ -28,8 +28,11 @@ def result_blocks(result: ImplementResult) -> tuple[list, str]:
     if result.opened_pr:
         tail = {"green": "tests green ✓", "failing": "tests still failing ⚠",
                 "not_run": "tests not run ⚠"}.get(result.tests, "")
-        pr_kind = "draft PR" if config.build_draft_pr() else "PR"
-        text = f"Opened a {pr_kind} — {tail}\n{result.pr_url}"
+        if result.updated_existing:
+            verb = "Committed into the existing PR"
+        else:
+            verb = "Opened a draft PR" if config.build_draft_pr() else "Opened a PR"
+        text = f"{verb} — {tail}\n{result.pr_url}"
     else:
         text = f"No PR opened. {result.note or ''}"
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}], text

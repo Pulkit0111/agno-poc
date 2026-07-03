@@ -1,6 +1,20 @@
 import pytest
 
-from bott.agents.build_fix.refs import parse_build_target
+from bott.agents.build_fix.refs import parse_build_target, parse_pr_ref
+
+
+def test_parse_pr_ref_url():
+    assert parse_pr_ref("https://github.com/Pulkit0111/ai_news_aggregator/pull/2") == (
+        "Pulkit0111", "ai_news_aggregator", 2)
+
+
+def test_parse_pr_ref_bare_number():
+    assert parse_pr_ref("#2") == (None, None, 2)
+    assert parse_pr_ref("2") == (None, None, 2)
+
+
+def test_parse_pr_ref_none():
+    assert parse_pr_ref("fix the routing bug") == (None, None, None)
 
 
 def test_github_issue_ref():

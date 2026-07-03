@@ -30,6 +30,32 @@ def test_changes_open_draft_pr(monkeypatch, tmp_path):
                         lambda *a, **k: "https://github.com/o/r/pull/5")
     res = pipeline.implement_task("o", "r", "add endpoint", token="x", post=True)
     assert res.opened_pr is True and res.pr_url.endswith("/pull/5")
+    assert res.updated_existing is False
+
+
+def test_pr_number_commits_into_existing_pr_no_new_pr(monkeypatch, tmp_path):
+    """implement_task with a pr_number checks out that PR's branch, pushes a follow-up commit
+    to it, and does NOT open a new PR (the 'commit into the PR' bug)."""
+    monkeypatch.setattr(pipeline, "_pr_head_branch", lambda o, n, num, token: "feature-x")
+    captured = {}
+
+    def fake_clone(owner, name, plan_text, *, token, model_id, branch=None):
+        captured["branch"] = branch
+        return (str(tmp_path), "route.ts | 3 +-", "added tests; tests green")
+
+    monkeypatch.setattr(pipeline, "_clone_and_run_agent", fake_clone)
+    monkeypatch.setattr(pipeline, "_push_to_existing_pr",
+                        lambda *a, **k: "https://github.com/o/r/pull/2")
+
+    def boom_new_pr(*a, **k):
+        raise AssertionError("must NOT open a new PR when pr_number is given")
+
+    monkeypatch.setattr(pipeline, "_push_and_pr", boom_new_pr)
+
+    res = pipeline.implement_task("o", "r", "add tests", token="x", post=True, pr_number=2)
+    assert res.opened_pr is True and res.updated_existing is True
+    assert res.pr_url.endswith("/pull/2")
+    assert captured["branch"] == "feature-x"  # cloned/checked out the PR's head branch
 
 
 def test_diff_summary_detects_new_untracked_file(tmp_path):

@@ -175,7 +175,8 @@ def _run_implement(a: dict, channel: str | None, thread_ts: str | None) -> None:
                   "GitHub App write access required.")
         return
     try:
-        res = implement_task(owner, name, a["plan_text"], token=gh_token, post=True)
+        res = implement_task(owner, name, a["plan_text"], token=gh_token, post=True,
+                             pr_number=a.get("pr_number"))
     except Exception as e:  # noqa: BLE001 — never retry the expensive implement job; report instead
         log.error("implement job failed for %s/%s: %s", owner, name, e)
         if channel:
@@ -217,6 +218,7 @@ def handle_task(task: dict) -> None:
                 a.get("text") or "",
                 token=gh_token,
                 model_id=a.get("model_id"),
+                pr_number=a.get("pr_number"),
             )
         else:
             a["plan_text"] = draft_plan_text(a)

@@ -41,7 +41,7 @@ def _make_fake_agent(plan_content: str):
 def test_plan_from_repo_returns_agent_plan(monkeypatch):
     """plan_from_repo returns the agent's plan text."""
     handle = _FakeHandle()
-    monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token: handle)
+    monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token, branch=None: handle)
 
     FakeAgent, fake_instance = _make_fake_agent("1. Add /health endpoint\n2. Touch app.py")
     # Patch agno.agent.Agent inside the lazy import block
@@ -58,7 +58,7 @@ def test_plan_from_repo_returns_agent_plan(monkeypatch):
 def test_plan_from_repo_always_cleans_up_on_success(monkeypatch):
     """cleanup() is called even when the agent succeeds."""
     handle = _FakeHandle()
-    monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token: handle)
+    monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token, branch=None: handle)
 
     FakeAgent, _ = _make_fake_agent("some plan")
     monkeypatch.setitem(sys.modules, "agno.agent", SimpleNamespace(Agent=FakeAgent))
@@ -86,7 +86,7 @@ def test_plan_from_repo_returns_fallback_on_clone_error(monkeypatch):
 def test_plan_from_repo_cleans_up_on_agent_exception(monkeypatch):
     """cleanup() is called even when the agent itself raises."""
     handle = _FakeHandle()
-    monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token: handle)
+    monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token, branch=None: handle)
 
     FakeAgent = MagicMock(side_effect=RuntimeError("agent blew up"))
     monkeypatch.setitem(sys.modules, "agno.agent", SimpleNamespace(Agent=FakeAgent))
@@ -100,7 +100,7 @@ def test_plan_from_repo_cleans_up_on_agent_exception(monkeypatch):
 def test_plan_from_repo_fallback_on_empty_agent_output(monkeypatch):
     """When the agent returns empty content, fall back to the request text."""
     handle = _FakeHandle()
-    monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token: handle)
+    monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token, branch=None: handle)
 
     FakeAgent, _ = _make_fake_agent("")  # empty content
     monkeypatch.setitem(sys.modules, "agno.agent", SimpleNamespace(Agent=FakeAgent))
@@ -157,7 +157,7 @@ def test_handle_task_plan_uses_plan_from_repo_when_owner_and_repo_present(monkey
     plan_from_repo_calls = []
     draft_plan_text_calls = []
 
-    def fake_plan_from_repo(owner, repo, text, *, token, model_id):
+    def fake_plan_from_repo(owner, repo, text, *, token, model_id, pr_number=None):
         plan_from_repo_calls.append((owner, repo, text))
         return "REPO PLAN"
 
@@ -188,7 +188,7 @@ def test_handle_task_plan_uses_draft_plan_text_when_no_owner(monkeypatch):
     plan_from_repo_calls = []
     draft_plan_text_calls = []
 
-    def fake_plan_from_repo(owner, repo, text, *, token, model_id):
+    def fake_plan_from_repo(owner, repo, text, *, token, model_id, pr_number=None):
         plan_from_repo_calls.append((owner, repo, text))
         return "REPO PLAN"
 
@@ -218,7 +218,7 @@ def test_handle_task_plan_uses_draft_plan_text_when_repo_missing(monkeypatch):
     plan_from_repo_calls = []
     draft_plan_text_calls = []
 
-    def fake_plan_from_repo(owner, repo, text, *, token, model_id):
+    def fake_plan_from_repo(owner, repo, text, *, token, model_id, pr_number=None):
         plan_from_repo_calls.append((owner, repo, text))
         return "REPO PLAN"
 
@@ -250,7 +250,7 @@ def test_handle_task_plan_sets_plan_text_from_plan_from_repo(monkeypatch):
 
     captured_args = {}
 
-    def fake_plan_from_repo(owner, repo, text, *, token, model_id):
+    def fake_plan_from_repo(owner, repo, text, *, token, model_id, pr_number=None):
         return "THE CONCRETE PLAN"
 
     def fake_run_plan_job(args, *, post, create_approval):

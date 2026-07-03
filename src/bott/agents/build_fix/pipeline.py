@@ -27,8 +27,11 @@ def plan_from_repo(
     *,
     token: Optional[str] = None,
     model_id: Optional[str] = None,
+    pr_number: Optional[int] = None,
 ) -> str:
     """Clone the repo, run a read-only planning agent, and return a concrete plan string.
+    When ``pr_number`` is set, plan against that PR's head branch (so a follow-up commit is
+    planned on top of the PR's current code, not the default branch).
 
     The clone is ALWAYS cleaned up in a finally block — nothing is pushed or persisted.
     On any error (clone failure, agent error) a short fallback text is returned so the
@@ -36,7 +39,8 @@ def plan_from_repo(
     """
     handle: Optional[CloneHandle] = None
     try:
-        handle = writable_clone(owner, name, token=token)
+        branch = _pr_head_branch(owner, name, pr_number, token) if pr_number else None
+        handle = writable_clone(owner, name, token=token, branch=branch)
         from agno.agent import Agent
 
         budget = config.implement_budget()
@@ -80,10 +84,18 @@ def _tests_status(note: str) -> str:
     return "not_run"
 
 
-def _clone_and_run_agent(owner: str, name: str, plan_text: str, *, token, model_id):
+def _pr_head_branch(owner: str, name: str, pr_number: int, token) -> str:
+    """The head branch of an existing PR — the branch a follow-up commit must land on."""
+    from bott.agents.code_review.github.client import GitHubClient
+    with GitHubClient(token=token) as gh:
+        return gh.get_pr(owner, name, pr_number).head_ref
+
+
+def _clone_and_run_agent(owner: str, name: str, plan_text: str, *, token, model_id, branch=None):
     """Clone, run the implement agent over the clone, return (clone_path, diff_summary, note, handle).
+    ``branch`` checks out an existing PR's head so the change lands on that PR.
     The CloneHandle is intentionally NOT cleaned here — implement_task owns the lifecycle."""
-    handle = writable_clone(owner, name, token=token)
+    handle = writable_clone(owner, name, token=token, branch=branch)
     from agno.agent import Agent
 
     budget = config.implement_budget()
@@ -107,6 +119,18 @@ def _pr_body(note: str) -> str:
     return f"{note}\n\n---\n🤖 Opened by *Bott* — Axelerant's engineering teammate."
 
 
+def _push_to_existing_pr(owner: str, name: str, clone_path: str, plan_text: str, branch: str,
+                         pr_number: int, *, token) -> str:
+    """Commit the change onto the already-checked-out PR branch and push it to that PR —
+    no new branch, no new PR. Returns the existing PR's URL."""
+    _run(["git", "add", "-A"], cwd=clone_path)
+    _run(["git", "commit", "-qm", f"bott: {plan_text[:60]}"], cwd=clone_path)
+    push = _run(["git", "push", "-q", "origin", f"HEAD:{branch}"], cwd=clone_path)
+    if push.returncode != 0:
+        raise RuntimeError(f"git push failed: {redact(push.stderr.strip())}")
+    return f"https://github.com/{owner}/{name}/pull/{pr_number}"
+
+
 def _push_and_pr(owner: str, name: str, clone_path: str, plan_text: str, note: str, *, token) -> str:
     from bott.agents.code_review.github.client import GitHubClient
 
@@ -127,15 +151,20 @@ def _push_and_pr(owner: str, name: str, clone_path: str, plan_text: str, note: s
 
 def implement_task(owner: str, name: str, plan_text: str, *, token: Optional[str] = None,
                    model_id: Optional[str] = None, post: bool = True,
-                   on_progress: Optional[Callable[[str], None]] = None) -> ImplementResult:
+                   on_progress: Optional[Callable[[str], None]] = None,
+                   pr_number: Optional[int] = None) -> ImplementResult:
     # NOTE: `model_id` is RESERVED — the implement agent runs on the gateway's "heavy" role
     # (build_model("heavy")), like the review engine, so this arg is not used to pick the model.
     # Kept for signature stability / future per-task override.
+    # `pr_number`: when set, commit into that EXISTING PR's branch instead of opening a new PR.
     if on_progress:
         on_progress("implementing")
     handle: Optional[CloneHandle] = None
     try:
-        result = _clone_and_run_agent(owner, name, plan_text, token=token, model_id=model_id)
+        # For an existing PR, check out its head branch so the change lands on that PR.
+        branch = _pr_head_branch(owner, name, pr_number, token) if pr_number else None
+        result = _clone_and_run_agent(owner, name, plan_text, token=token, model_id=model_id,
+                                      branch=branch)
         # _clone_and_run_agent returns 4-tuple in real impl, 3-tuple when faked in tests:
         clone_path, diff_summary, note = result[0], result[1], result[2]
         handle = result[3] if len(result) > 3 else None
@@ -148,6 +177,11 @@ def implement_task(owner: str, name: str, plan_text: str, *, token: Optional[str
 
         if on_progress:
             on_progress("opening_pr")
+        if pr_number:
+            pr_url = _push_to_existing_pr(owner, name, clone_path, plan_text, branch, pr_number,
+                                          token=token)
+            return ImplementResult(opened_pr=True, tests=_tests_status(note), pr_url=pr_url,
+                                   note=note, diff_summary=diff_summary, updated_existing=True)
         pr_url = _push_and_pr(owner, name, clone_path, plan_text, note, token=token)
         return ImplementResult(opened_pr=True, tests=_tests_status(note), pr_url=pr_url,
                                note=note, diff_summary=diff_summary)

@@ -5,7 +5,7 @@ from typing import Callable, Optional
 from agno.run.base import RunContext
 
 from bott.agents.build_fix.core.models import BuildRequest
-from bott.agents.build_fix.refs import parse_build_target, parse_repo_ref
+from bott.agents.build_fix.refs import parse_build_target, parse_pr_ref, parse_repo_ref
 from bott.shared.config import allowed_post_repos, bott_model
 from bott.shared.persistence import queue
 
@@ -15,8 +15,9 @@ def _target(run_context: Optional[RunContext]) -> dict:
     return {"channel": deps.get("Slack channel_id"), "thread_ts": deps.get("Slack thread_ts")}
 
 
-def start_build(target: str, repo: str = "", run_context: Optional[RunContext] = None) -> str:
-    """Plan and (after you approve) implement ONE cohesive change, opening ONE pull request.
+def start_build(target: str, repo: str = "", pr: str = "",
+                run_context: Optional[RunContext] = None) -> str:
+    """Plan and (after you approve) implement ONE cohesive change.
 
     One call = one plan = one pull request. If the user asks for SEVERAL independent PRs
     (e.g. "one PR per project", "separate PRs for each"), call this ONCE PER PR.
@@ -25,10 +26,15 @@ def start_build(target: str, repo: str = "", run_context: Optional[RunContext] =
     e.g. repo="pulkit0111/moodflix". Don't rely on the repo being scraped from the change
     description; a phrase like "the docs/auth mismatch" is NOT a repo.
 
+    Pass ``pr`` when the user wants the change to go INTO an existing pull request — e.g.
+    "implement these suggestions and commit into the PR", "update PR #2". Then Bott commits
+    to that PR's branch instead of opening a new PR. ``pr`` may be "2", "#2", or a PR URL.
+
     Args:
         target: what to build — a plain description of the change, a GitHub issue
             ("owner/repo#123" or its URL), or a Jira key ("PADI-42").
         repo: the target repo as "owner/repo" (or its GitHub URL). Authoritative when given.
+        pr: an existing PR to commit into (number, "#N", or PR URL). Empty = open a new PR.
     """
     req = parse_build_target(target)
     # Explicit repo wins over anything scraped from the description (parsed directly, so a
@@ -39,6 +45,12 @@ def start_build(target: str, repo: str = "", run_context: Optional[RunContext] =
             req = BuildRequest(kind=req.kind if req.kind in ("github_issue", "jira") else "request",
                                text=target or repo, owner=o, repo=n,
                                issue=req.issue, jira_key=req.jira_key)
+
+    # A PR reference both names the target PR and can supply owner/repo (from a PR URL).
+    pr_owner, pr_repo, pr_number = parse_pr_ref(pr) if pr.strip() else (None, None, None)
+    if pr_number and pr_owner and pr_repo and not (req.owner and req.repo):
+        req = BuildRequest(kind="request", text=req.text or target,
+                           owner=pr_owner, repo=pr_repo)
 
     # Fail fast with ONE coherent reply, rather than "On it" followed by a background refusal.
     allow = {r.lower() for r in allowed_post_repos()}
@@ -54,11 +66,12 @@ def start_build(target: str, repo: str = "", run_context: Optional[RunContext] =
     user_id = getattr(run_context, "user_id", None) or "system@axelerant.com"
     queue.enqueue("plan", {
         "kind": req.kind, "owner": req.owner, "repo": req.repo, "issue": req.issue,
-        "jira_key": req.jira_key, "text": req.text,
+        "jira_key": req.jira_key, "text": req.text, "pr_number": pr_number,
         "channel": t["channel"], "thread_ts": t["thread_ts"],
         "model_id": bott_model(),
     }, user_id=user_id)
-    return "On it — I'll read the context, draft a plan, and post it here for your approval."
+    dest = f" into PR #{pr_number}" if pr_number else ""
+    return f"On it — I'll read the context, draft a plan, and post it here for your approval{dest}."
 
 
 def build_tools() -> list[Callable]:

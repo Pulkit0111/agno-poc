@@ -15,6 +15,22 @@ _REPO_TOKEN = re.compile(r"(?<![/\w])([\w.-]+)/([\w.-]+)(?!#\d)(?:\.git)?(?=[^/#
 
 
 _BARE_REPO = re.compile(r"^([\w.-]+)/([\w.-]+?)(?:\.git)?$")
+_PR_URL = re.compile(r"github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)", re.I)
+_PR_NUM = re.compile(r"^#?(\d+)$")
+
+
+def parse_pr_ref(s: str) -> tuple[str | None, str | None, int | None]:
+    """Parse a PR reference: a github …/pull/N URL → (owner, repo, number); a bare "#N"/"N"
+    → (None, None, number); anything else → (None, None, None). Used so "commit into PR #2"
+    updates the existing PR instead of opening a new one."""
+    s = (s or "").strip()
+    m = _PR_URL.search(s)
+    if m:
+        return m.group(1), m.group(2), int(m.group(3))
+    m = _PR_NUM.match(s)
+    if m:
+        return None, None, int(m.group(1))
+    return None, None, None
 
 
 def parse_repo_ref(s: str) -> tuple[str | None, str | None]:

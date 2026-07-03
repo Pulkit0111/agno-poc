@@ -71,9 +71,11 @@ def _clone_url(owner: str, name: str, token: str | None) -> str:
     return f"https://github.com/{owner}/{name}.git"
 
 
-def writable_clone(owner: str, name: str, *, token: str | None = None) -> CloneHandle:
-    """Full clone of the repo's default branch with a Bott git identity and push auth.
-    Use as a context manager; `.path` is the repo root, `rm -rf`'d on exit."""
+def writable_clone(owner: str, name: str, *, token: str | None = None,
+                   branch: str | None = None) -> CloneHandle:
+    """Full clone of the repo with a Bott git identity and push auth. Checks out the repo's
+    default branch, or ``branch`` when given (e.g. an existing PR's head, so a follow-up
+    commit lands ON that PR). Use as a context manager; `.path` is the repo root, rm -rf'd on exit."""
     url = _clone_url(owner, name, token)
     tmp = tempfile.mkdtemp(prefix=_CLONE_PREFIX)
     try:
@@ -86,6 +88,10 @@ def writable_clone(owner: str, name: str, *, token: str | None = None) -> CloneH
             cr = _run(["git", "config", *cfg], cwd=tmp)
             if cr.returncode != 0:
                 raise CloneError(f"git config {cfg[0]} failed: {redact(cr.stderr.strip())}")
+        if branch:
+            co = _run(["git", "checkout", "-q", branch], cwd=tmp)
+            if co.returncode != 0:
+                raise CloneError(f"checkout {branch} failed: {redact(co.stderr.strip())}")
         return CloneHandle(tmp)
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)

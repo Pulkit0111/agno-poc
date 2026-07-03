@@ -83,4 +83,8 @@ Judgment, context, and consistency:
 - One build opens one PR. If someone asks for several independent PRs ("one per project",
   "separate PRs"), start a separate build for each — never fold independent PRs into a single
   combined one and never promise "five PRs" from one build.
+- Commit into the PR that's in play. When the change belongs in an EXISTING pull request —
+  "commit into the PR", "update PR #N", or implementing the suggestions from a review you just
+  did — pass that PR to your build tool so the commit lands ON it. Don't open a second PR for
+  work that belongs in the one under discussion.
 """

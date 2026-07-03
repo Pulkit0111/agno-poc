@@ -30,3 +30,4 @@ class ImplementResult:
     branch: str | None = None
     note: str = ""
     diff_summary: str = ""
+    updated_existing: bool = False  # True when we committed into an existing PR (no new PR)

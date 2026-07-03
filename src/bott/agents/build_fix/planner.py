@@ -55,7 +55,8 @@ def run_plan_job(args: dict, *, post: Callable, create_approval: Callable) -> di
 
     plan = ImplementPlan(summary=args["plan_text"])  # plan_text already drafted upstream
     payload = json.dumps({"owner": owner, "name": name, "plan_text": args["plan_text"],
-                          "channel": channel, "thread_ts": thread_ts})
+                          "channel": channel, "thread_ts": thread_ts,
+                          "pr_number": args.get("pr_number")})
     approval_id = create_approval(user_id=args.get("user_id") or "system@axelerant.com",
                                   action="build:implement",
                                   summary=f"Implement on {owner}/{name}: {args['plan_text'][:80]}",
