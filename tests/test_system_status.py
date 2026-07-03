@@ -9,12 +9,14 @@ from bott.skills.system_status import system_status, system_status_tools
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _patch_all(monkeypatch, *, provider="openai", chat="gpt-4o", heavy="gpt-4o",
-               codex=False, database_url=None, jira=False, confluence=False,
-               sentry=False, memra=False, spin=False, google=False,
+def _patch_all(monkeypatch, *, provider="openai", chat="gpt-4o", build="gpt-4o",
+               review="gpt-4o-mini", codex=False, database_url=None, jira=False,
+               confluence=False, sentry=False, memra=False, spin=False, google=False,
                github_app=False, admins=None):
     """Monkeypatch everything system_status touches to known values."""
-    monkeypatch.setattr(ss_mod, "_active", lambda: {"provider": provider, "chat": chat, "heavy": heavy})
+    monkeypatch.setattr(ss_mod, "_active",
+                        lambda: {"provider": provider, "chat": chat, "build": build,
+                                 "review": review})
     monkeypatch.setattr(ss_mod.codex_tokens, "is_connected", lambda: codex)
     monkeypatch.setattr(ss_mod.config, "database_url", lambda: database_url)
     monkeypatch.setattr(ss_mod.config, "jira_configured", lambda: jira)
@@ -31,12 +33,18 @@ def _patch_all(monkeypatch, *, provider="openai", chat="gpt-4o", heavy="gpt-4o",
 # Model section
 # ---------------------------------------------------------------------------
 
-def test_model_provider_chat_heavy_shown(monkeypatch):
-    _patch_all(monkeypatch, provider="bedrock", chat="claude-3-sonnet", heavy="claude-3-opus")
+def test_model_matrix_shown(monkeypatch):
+    _patch_all(monkeypatch, provider="bedrock", chat="claude-3-sonnet",
+               build="claude-3-opus", review="claude-3-sonnet")
     out = system_status()
     assert "bedrock" in out
     assert "claude-3-sonnet" in out
     assert "claude-3-opus" in out
+
+
+def test_model_matrix_warns_when_review_equals_build(monkeypatch):
+    _patch_all(monkeypatch, build="same-model", review="same-model")
+    assert "review = build" in system_status()
 
 
 def test_codex_connected(monkeypatch):

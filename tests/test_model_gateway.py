@@ -67,6 +67,52 @@ def test_openrouter_model_still_carries_retry_policy(monkeypatch):
     assert m.exponential_backoff is True
 
 
+def test_role_fallback_chain(monkeypatch):
+    """build/review fall back to heavy, then to the single BOTT_MODEL."""
+    from bott.shared.config import role_model_id
+    for var in ("BOTT_BUILD_MODEL", "BOTT_REVIEW_MODEL", "BOTT_HEAVY_MODEL",
+                "BOTT_CHAT_MODEL", "BOTT_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    assert role_model_id("build") == "gpt-5.5"       # → default BOTT_MODEL
+    monkeypatch.setenv("BOTT_HEAVY_MODEL", "heavy-x")
+    assert role_model_id("build") == "heavy-x"       # → heavy tier
+    assert role_model_id("review") == "heavy-x"
+    monkeypatch.setenv("BOTT_BUILD_MODEL", "build-y")
+    monkeypatch.setenv("BOTT_REVIEW_MODEL", "review-z")
+    assert role_model_id("build") == "build-y"       # → own env wins
+    assert role_model_id("review") == "review-z"
+
+
+def test_review_anti_affinity_swaps_model(monkeypatch):
+    """The reviewer must not be the model that wrote the code: when review resolves to the
+    same id as build, build_model('review') swaps to an alternate (codex catalog)."""
+    _no_setting_override(monkeypatch)
+    monkeypatch.setenv("MODEL_PROVIDER", "codex")
+    for var in ("BOTT_BUILD_MODEL", "BOTT_REVIEW_MODEL", "BOTT_CHAT_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("BOTT_HEAVY_MODEL", "gpt-5.5-codex")  # build == review == same id
+    from bott.shared import codex_tokens as ct
+    monkeypatch.setattr(model_mod, "get_valid_token",
+                        lambda: ct.CodexToken("tok", "acc"))
+    build = model_mod.build_model("build")
+    review = model_mod.build_model("review")
+    assert build.id == "gpt-5.5-codex"
+    assert review.id != build.id                     # swapped
+    from bott.shared.config import FALLBACK_CODEX_MODELS
+    assert review.id in FALLBACK_CODEX_MODELS
+
+
+def test_review_no_swap_when_models_differ(monkeypatch):
+    _no_setting_override(monkeypatch)
+    monkeypatch.setenv("MODEL_PROVIDER", "codex")
+    monkeypatch.setenv("BOTT_BUILD_MODEL", "gpt-5.5-codex")
+    monkeypatch.setenv("BOTT_REVIEW_MODEL", "gpt-5.5")
+    from bott.shared import codex_tokens as ct
+    monkeypatch.setattr(model_mod, "get_valid_token",
+                        lambda: ct.CodexToken("tok", "acc"))
+    assert model_mod.build_model("review").id == "gpt-5.5"
+
+
 def test_codex_not_connected_propagates(monkeypatch):
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")

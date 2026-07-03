@@ -25,7 +25,7 @@ def _default_diagnose(issue: dict, events: list) -> tuple[str, str]:
     from bott.agents.triage.agent.prompt import TRIAGE_SYSTEM
     from bott.shared.model import build_model
     context = json.dumps({"issue": issue, "events": events}, default=str)[:6000]
-    agent = Agent(model=build_model("heavy"), instructions=TRIAGE_SYSTEM)
+    agent = Agent(model=build_model("build"), instructions=TRIAGE_SYSTEM)
     out = agent.run(f"Triage this incident:\n{context}").content or ""
     if "FIX:" in out:
         diag, brief = out.split("FIX:", 1)

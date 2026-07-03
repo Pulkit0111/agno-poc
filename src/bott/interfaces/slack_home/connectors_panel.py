@@ -50,18 +50,22 @@ def connector_statuses() -> list[dict]:
     ]
 
 
-def connectors_section() -> list[dict]:
-    """Header + one section listing every connector with a ✅/❌ and a short caption."""
+def connectors_section(is_admin: bool = False) -> list[dict]:
+    """Members get a one-line ✅/❌ chip strip (glance value, no setup noise); admins get
+    the full per-connector list with how-to-fix hints (they're the ones who can act)."""
     statuses = connector_statuses()
     connected = sum(1 for s in statuses if s["ok"])
+    header = [
+        {"type": "header", "text": {"type": "plain_text", "text": "🧩 Connectors", "emoji": True}},
+        {"type": "context", "elements": [{"type": "mrkdwn",
+         "text": f"What I can reach right now · {connected}/{len(statuses)} connected"}]},
+    ]
+    if not is_admin:
+        chips = "  ·  ".join(f"{s['name']} {'✅' if s['ok'] else '❌'}" for s in statuses)
+        return header + [{"type": "section", "text": {"type": "mrkdwn", "text": chips}}]
     lines = []
     for s in statuses:
         icon = "✅" if s["ok"] else "❌"
         caption = s["on"] if s["ok"] else s["off"]
         lines.append(f"{icon} *{s['name']}* — {caption}")
-    return [
-        {"type": "header", "text": {"type": "plain_text", "text": "🧩 Connectors", "emoji": True}},
-        {"type": "context", "elements": [{"type": "mrkdwn",
-         "text": f"What I can reach right now · {connected}/{len(statuses)} connected"}]},
-        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
-    ]
+    return header + [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]

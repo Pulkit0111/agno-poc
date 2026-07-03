@@ -58,11 +58,76 @@ def _hero_blocks(viewer_name: str | None) -> list[dict]:
     return [
         _header(greeting),
         {"type": "section", "text": {"type": "mrkdwn",
-         "text": "*Your do-anything engineering teammate at Axelerant.* Point me at just about "
-                 "anything — code, delivery, context, reporting — and I'll figure out how."}},
-        _ctx("You're viewing your own Home — everything below is scoped to you · "
-             "status refreshes each time you open this tab."),
+         "text": "*Ask me for just about anything — I'll figure out how.* Code, delivery, "
+                 "context, reporting, or something nobody's built a feature for yet."}},
+        {"type": "actions", "elements": [_btn("✨ Ask Bott…", "ask_bott", "go", style="primary")]},
+        _ctx("e.g. sprint report · review a PR · “ping me in 20 min” · “who's on Ironman?” — "
+             "examples, not the boundary. Everything below is scoped to you."),
     ]
+
+
+def _waiting_blocks(approvals: list[dict]) -> list[dict]:
+    """Pending approvals the viewer requested — Approve/Dismiss right from Home (the
+    in-thread cards scroll away; this is the inbox). Hidden entirely when empty."""
+    if not approvals:
+        return []
+    out: list[dict] = [_header("⏳ Waiting on you")]
+    for a in approvals:
+        out.append({"type": "section", "text": {"type": "mrkdwn",
+                    "text": f"• `{a['action']}` — {(a['summary'] or '')[:120]}"}})
+        out.append({"type": "actions", "elements": [
+            {"type": "button", "style": "primary", "action_id": "approval_approve",
+             "text": {"type": "plain_text", "text": "Approve"}, "value": str(a["id"])},
+            {"type": "button", "style": "danger", "action_id": "approval_dismiss",
+             "text": {"type": "plain_text", "text": "Dismiss"}, "value": str(a["id"])},
+        ]})
+    out.append({"type": "divider"})
+    return out
+
+
+_JOB_ICON = {"done": "✓", "failed": "✗", "running": "⚙", "pending": "⏳"}
+_JOB_LABEL = {"plan": "Planned a change", "implement": "Implemented + PR",
+              "review": "Reviewed a PR", "rereview": "Re-reviewed a PR",
+              "triage": "Triaged an incident"}
+
+
+def _recent_blocks(jobs: list[dict]) -> list[dict]:
+    """The viewer's own recent jobs — 'what has Bott done for me lately'. Hidden when empty."""
+    if not jobs:
+        return []
+    lines = [f"{_JOB_ICON.get(j['status'], '·')} {_JOB_LABEL.get(j['kind'], j['kind'])}"
+             f" — {j['status']}" for j in jobs]
+    return [_header("🕘 Recently, for you"),
+            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+            {"type": "divider"}]
+
+
+def _skills_blocks(skills_line: str) -> list[dict]:
+    """Compact strip of practiced skills — the growth loop made visible. Hidden when empty."""
+    if not skills_line:
+        return []
+    return [_header("🧠 Skills I've practiced"),
+            {"type": "section", "text": {"type": "mrkdwn", "text": skills_line}},
+            _ctx('Teach me a new one anytime: `learn a new skill: …`')]
+
+
+def build_ask_modal() -> dict:
+    """The ✨ Ask Bott modal — free-text, routed to the real agent, result DM'd back."""
+    return {
+        "type": "modal",
+        "callback_id": "ask_bott",
+        "title": {"type": "plain_text", "text": "Ask Bott"},
+        "submit": {"type": "plain_text", "text": "Ask"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            _input("q", "What do you need?",
+                   {"type": "plain_text_input", "action_id": "v", "multiline": True,
+                    "placeholder": {"type": "plain_text",
+                                    "text": "Anything — a report, a question, a task…"}}),
+            {"type": "context", "elements": [{"type": "mrkdwn",
+             "text": "I'll work on it and DM you the result."}]},
+        ],
+    }
 
 
 _QUICK_ACTIONS = [
@@ -119,29 +184,38 @@ def _schedules_blocks(rows: list[dict]) -> list[dict]:
 def build_home_view(rows: list[dict], *, viewer_name: str | None = None,
                     connectors_blocks: list[dict] | None = None,
                     action_items: list[dict] | None = None,
+                    approvals_pending: list[dict] | None = None,
+                    recent_activity: list[dict] | None = None,
+                    skills_line: str = "",
                     models_blocks: list[dict] | None = None,
                     system_blocks: list[dict] | None = None) -> dict:
-    """The App Home tab, composed top-to-bottom for three audiences (newcomer / daily user /
-    admin): identity hero → quick actions → connectors → your action items → your schedules,
-    then the admin-only Models and System panels.
+    """The App Home tab, ordered actionable → personal → informational → admin:
+    hero (+ ✨ Ask Bott) → ⏳ waiting-on-you approvals → 🕘 recent activity → your action
+    items → your schedules → skills strip → ⚡ shortcuts → connectors, then the admin-only
+    Models and System panels.
 
     Each schedule row dict carries: icon, label, channel, when, run_buttons (list of
     {text, action_id, value}) and remove_ids (list of schedule ids). ``action_items`` is the
-    caller's own concierge items ([{id, text}]). ``connectors_blocks`` /``models_blocks`` /
-    ``system_blocks`` are prebuilt sections; Models + System are admin-gated (the caller
-    passes them only for admins, so members never see them).
+    caller's own concierge items ([{id, text}]); ``approvals_pending`` their pending
+    approvals ([{id, action, summary}]); ``recent_activity`` their recent jobs
+    ([{kind, status}]). ``connectors_blocks``/``models_blocks``/``system_blocks`` are
+    prebuilt sections; Models + System are admin-gated (the caller passes them only for
+    admins, so members never see them).
     """
     blocks: list[dict] = []
     blocks += _hero_blocks(viewer_name)
     blocks.append({"type": "divider"})
-    blocks += _quick_actions_blocks()
-    blocks.append({"type": "divider"})
-    if connectors_blocks:
-        blocks += connectors_blocks
-        blocks.append({"type": "divider"})
+    blocks += _waiting_blocks(approvals_pending or [])       # hidden when empty
+    blocks += _recent_blocks(recent_activity or [])          # hidden when empty
     blocks += _action_items_blocks(action_items or [])
     blocks.append({"type": "divider"})
     blocks += _schedules_blocks(rows)
+    blocks.append({"type": "divider"})
+    blocks += _skills_blocks(skills_line)                    # hidden when empty
+    blocks += _quick_actions_blocks()
+    if connectors_blocks:
+        blocks.append({"type": "divider"})
+        blocks += connectors_blocks
     if models_blocks:
         blocks.append({"type": "divider"})
         blocks.append(_header("🤖 Models"))
@@ -238,8 +312,11 @@ def _input(block_id: str, label: str, element: dict, *, optional: bool = False) 
     }
 
 
-def build_set_models_modal(chat_current: str, heavy_current: str, options: list[str]) -> dict:
-    """Modal with two static-selects to pick the chat and heavy model ids."""
+def build_set_models_modal(chat_current: str, build_current: str, review_current: str,
+                           options: list[str]) -> dict:
+    """The task→model matrix modal: chat / build / review. Review should DIFFER from build
+    (the reviewer must not be the model that wrote the code — the gateway auto-swaps if
+    they match, but picking distinct models here makes the choice deliberate)."""
     opts = [(m, m) for m in options]
     return {
         "type": "modal",
@@ -248,10 +325,15 @@ def build_set_models_modal(chat_current: str, heavy_current: str, options: list[
         "submit": {"type": "plain_text", "text": "Save"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
-            _input("chat", "Chat model",
+            _input("chat", "Chat model (conversation)",
                    _static_select("v", opts, initial=chat_current if chat_current in options else None)),
-            _input("heavy", "Heavy model (implement/review)",
-                   _static_select("v", opts, initial=heavy_current if heavy_current in options else None)),
+            _input("build", "Build model (plan / implement / triage)",
+                   _static_select("v", opts, initial=build_current if build_current in options else None)),
+            _input("review", "Review model (PR review — pick a DIFFERENT model than build)",
+                   _static_select("v", opts, initial=review_current if review_current in options else None)),
+            {"type": "context", "elements": [{"type": "mrkdwn",
+             "text": "If review = build, the reviewer shares the author's blind spots — "
+                     "Bott will auto-swap the reviewer at run time."}]},
         ],
     }
 

@@ -45,7 +45,7 @@ def plan_from_repo(
 
         budget = config.implement_budget()
         agent = Agent(
-            model=build_model("heavy"),
+            model=build_model("build"),
             tools=build_plan_tools(handle.path),
             system_message=PLAN_SYSTEM_PROMPT,
             tool_call_limit=budget.max_tool_calls,
@@ -100,7 +100,7 @@ def _clone_and_run_agent(owner: str, name: str, plan_text: str, *, token, model_
 
     budget = config.implement_budget()
     agent = Agent(
-        model=build_model("heavy"),
+        model=build_model("build"),
         tools=build_implement_tools(handle.path),
         system_message=IMPLEMENT_SYSTEM_PROMPT,
         tool_call_limit=budget.max_tool_calls,
@@ -154,7 +154,7 @@ def implement_task(owner: str, name: str, plan_text: str, *, token: Optional[str
                    on_progress: Optional[Callable[[str], None]] = None,
                    pr_number: Optional[int] = None) -> ImplementResult:
     # NOTE: `model_id` is RESERVED — the implement agent runs on the gateway's "heavy" role
-    # (build_model("heavy")), like the review engine, so this arg is not used to pick the model.
+    # (build_model("build")), like the review engine, so this arg is not used to pick the model.
     # Kept for signature stability / future per-task override.
     # `pr_number`: when set, commit into that EXISTING PR's branch instead of opening a new PR.
     if on_progress:

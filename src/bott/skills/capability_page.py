@@ -120,11 +120,13 @@ def _build_body(
     sections.append('<h2 class="section-title">Model</h2>')
     provider = _html_escape(model.get("provider", "?"))
     chat = _html_escape(model.get("chat", "?"))
-    heavy = _html_escape(model.get("heavy", "?"))
+    build = _html_escape(model.get("build", "?"))
+    review = _html_escape(model.get("review", "?"))
     sections.append(
         f"<p>Provider: <code>{provider}</code> &nbsp;·&nbsp; "
         f"Chat: <code>{chat}</code> &nbsp;·&nbsp; "
-        f"Heavy: <code>{heavy}</code></p>"
+        f"Build: <code>{build}</code> &nbsp;·&nbsp; "
+        f"Review: <code>{review}</code></p>"
     )
     sections.append("</section>")
 

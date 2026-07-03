@@ -75,6 +75,18 @@ def pending(limit: int = 8) -> list[dict]:
             for r in rows]
 
 
+def pending_for(user_id: str, limit: int = 5) -> list[dict]:
+    """Pending approvals THIS user requested, newest first — the App Home
+    'Waiting on you' inbox (approval cards in threads scroll away; Home doesn't)."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT id, action, summary, created FROM approvals "
+            "WHERE status='pending' AND user_id=:uid ORDER BY id DESC LIMIT :lim"
+        ), {"uid": user_id, "lim": limit}).fetchall()
+    return [{"id": int(r[0]), "action": r[1], "summary": r[2], "created": r[3]}
+            for r in rows]
+
+
 def pending_count() -> int:
     """Return the total number of pending approvals."""
     with get_engine().connect() as c:

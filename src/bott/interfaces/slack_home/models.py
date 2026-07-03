@@ -33,10 +33,14 @@ _BEDROCK_FALLBACK = [
 
 
 def _active() -> dict:
+    """The task→model matrix as resolved right now. `heavy` remains as the legacy store
+    fallback build/review inherit when they have no explicit setting."""
+    from bott.shared.model import resolve_model_id
     return {
         "provider": get_setting("model.provider") or model_provider(),
-        "chat": get_setting("model.chat") or role_model_id("chat"),
-        "heavy": get_setting("model.heavy") or role_model_id("heavy"),
+        "chat": resolve_model_id("chat"),
+        "build": resolve_model_id("build"),
+        "review": resolve_model_id("review"),
     }
 
 
@@ -107,8 +111,14 @@ def models_section(is_admin: bool) -> list[dict]:
     provider = a["provider"]
     ok, hint = provider_key_status(provider)
     icon = "✅" if ok else "⚠️"
-    text = (f"*Active* · provider `{provider}`  ·  chat `{a['chat']}`  ·  heavy `{a['heavy']}`\n"
-            f"{icon} {hint}")
+    # The reviewer must differ from the builder — same model = same blind spots. The gateway
+    # auto-swaps at run time, but surface the conflict so the admin can set it deliberately.
+    affinity = ("✅ review differs from build" if a["review"] != a["build"]
+                else "⚠️ review = build — I'll auto-swap the reviewer at run time; set a "
+                     "distinct review model to choose which")
+    text = (f"*Task → model matrix* · provider `{provider}`\n"
+            f"chat `{a['chat']}`  ·  build `{a['build']}`  ·  review `{a['review']}`\n"
+            f"{affinity}\n{icon} {hint}")
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     elements: list[dict] = []
     if provider == "codex":
@@ -127,13 +137,18 @@ def _is_admin(email: str) -> bool:
 
 
 def apply_model_override(actor_email: str, key: str, value: str) -> str:
-    if key not in ("model.provider", "model.chat", "model.heavy"):
+    # model.heavy kept for back-compat (legacy tier build/review fall back to).
+    if key not in ("model.provider", "model.chat", "model.build", "model.review", "model.heavy"):
         return f"Unknown setting `{key}`."
     if not _is_admin(actor_email):
         return "Sorry, that's not allowed — only an admin can change the model."
     set_setting(key, value)
     a = _active()
-    return f"Updated. Now provider=`{a['provider']}` · chat=`{a['chat']}` · heavy=`{a['heavy']}`."
+    note = ("" if a["review"] != a["build"]
+            else "\n⚠️ review = build — the reviewer would share the author's blind spots; "
+                 "I'll auto-swap at run time, but consider a distinct review model.")
+    return (f"Updated. Now provider=`{a['provider']}` · chat=`{a['chat']}` · "
+            f"build=`{a['build']}` · review=`{a['review']}`.{note}")
 
 
 def connect_codex(actor_email: str, auth_json: str) -> str:

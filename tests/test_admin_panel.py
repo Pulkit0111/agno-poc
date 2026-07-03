@@ -137,6 +137,23 @@ def test_pending_excludes_decided(store):
     assert rows[0]["id"] == aid2
 
 
+def test_pending_for_scopes_by_user(store):
+    from bott.shared import approvals
+    a1 = approvals.create_request("alice@x.com", "api:slack", "Alice's action")
+    approvals.create_request("bob@x.com", "api:github", "Bob's action")
+    rows = approvals.pending_for("alice@x.com")
+    assert [r["id"] for r in rows] == [a1]  # only Alice's, never Bob's
+
+
+def test_recent_jobs_for_scopes_by_user(store):
+    from bott.shared.persistence import queue
+    j1 = queue.enqueue("review", {}, user_id="alice@x.com")
+    queue.enqueue("plan", {}, user_id="bob@x.com")
+    rows = queue.recent_jobs_for("alice@x.com")
+    assert [r["id"] for r in rows] == [j1]
+    assert rows[0]["kind"] == "review"
+
+
 def test_pending_limit(store):
     from bott.shared import approvals
 
@@ -178,7 +195,7 @@ def test_admin_section_admin_contains_job_info(monkeypatch, store):
     ])
     monkeypatch.setattr(_ct_mod, "is_connected", lambda: True)
     monkeypatch.setattr(_m_mod, "_active", lambda: {
-        "provider": "codex", "chat": "gpt-4o", "heavy": "gpt-4o"
+        "provider": "codex", "chat": "gpt-4o", "build": "gpt-4o", "review": "gpt-4o-mini"
     })
 
     from bott.interfaces.slack_home.admin import admin_section
@@ -214,7 +231,7 @@ def test_admin_section_admin_header_present(monkeypatch, store):
     monkeypatch.setattr(_apr_mod, "pending", lambda limit=8: [])
     monkeypatch.setattr(_ct_mod, "is_connected", lambda: False)
     monkeypatch.setattr(_m_mod, "_active", lambda: {
-        "provider": "bedrock", "chat": "claude-3", "heavy": "claude-3"
+        "provider": "bedrock", "chat": "claude-3", "build": "claude-3", "review": "claude-3-haiku"
     })
 
     from bott.interfaces.slack_home.admin import admin_section
@@ -239,7 +256,7 @@ def test_admin_section_admin_job_counts_summary(monkeypatch, store):
     monkeypatch.setattr(_apr_mod, "pending", lambda limit=8: [])
     monkeypatch.setattr(_ct_mod, "is_connected", lambda: False)
     monkeypatch.setattr(_m_mod, "_active", lambda: {
-        "provider": "openrouter", "chat": "llama", "heavy": "llama"
+        "provider": "openrouter", "chat": "llama", "build": "llama", "review": "llama-mini"
     })
 
     from bott.interfaces.slack_home.admin import admin_section

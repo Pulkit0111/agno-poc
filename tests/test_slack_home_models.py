@@ -84,8 +84,8 @@ def test_models_section_non_admin_no_set_models_button(store):
     assert "models_set_models" not in action_ids
 
 
-def test_set_models_both_keys_written(store):
-    """Submitting both chat+heavy calls apply_model_override for each key (admin-gated)."""
+def test_set_models_matrix_keys_written(store):
+    """Submitting the matrix writes model.chat/model.build/model.review (admin-gated)."""
     from bott.shared.persistence.records import get_setting
 
     # Non-admin must not write anything.
@@ -93,10 +93,16 @@ def test_set_models_both_keys_written(store):
     assert "not allowed" in out.lower()
     assert get_setting("model.chat") is None
 
-    # Admin successfully writes both chat and heavy.
-    r1 = m.apply_model_override("admin@axelerant.com", "model.chat", "gpt-5.5")
-    r2 = m.apply_model_override("admin@axelerant.com", "model.heavy", "gpt-5.5-codex")
-    assert get_setting("model.chat") == "gpt-5.5"
-    assert get_setting("model.heavy") == "gpt-5.5-codex"
-    assert "gpt-5.5" in r1
-    assert "gpt-5.5-codex" in r2
+    r1 = m.apply_model_override("admin@axelerant.com", "model.chat", "gpt-5.4-mini")
+    r2 = m.apply_model_override("admin@axelerant.com", "model.build", "gpt-5.5-codex")
+    r3 = m.apply_model_override("admin@axelerant.com", "model.review", "gpt-5.5")
+    assert get_setting("model.chat") == "gpt-5.4-mini"
+    assert get_setting("model.build") == "gpt-5.5-codex"
+    assert get_setting("model.review") == "gpt-5.5"
+    assert "gpt-5.5-codex" in r2 and "gpt-5.5" in r3
+
+
+def test_set_models_warns_on_review_equals_build(store):
+    m.apply_model_override("admin@axelerant.com", "model.build", "gpt-5.5")
+    out = m.apply_model_override("admin@axelerant.com", "model.review", "gpt-5.5")
+    assert "review = build" in out  # visible conflict warning (runtime auto-swap covers it)

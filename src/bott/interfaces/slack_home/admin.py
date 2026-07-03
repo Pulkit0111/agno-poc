@@ -89,7 +89,7 @@ def admin_section(is_admin: bool) -> list[dict]:
             "text": (
                 f"*Model status*\n"
                 f"provider: `{a['provider']}`  ·  chat: `{a['chat']}`  ·  "
-                f"heavy: `{a['heavy']}`\nOrg Codex: *{codex}*"
+                f"build: `{a['build']}`  ·  review: `{a['review']}`\nOrg Codex: *{codex}*"
             ),
         },
     })

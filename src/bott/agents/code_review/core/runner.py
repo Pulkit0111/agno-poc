@@ -93,8 +93,10 @@ def run_review_agent(
     agent = Agent(
         # Survive per-minute TPM limits (low account tier): the agentic loop sends a
         # large growing context, so transient 429s are expected.
+        # "review" role — the gateway enforces anti-affinity with the "build" role, so the
+        # model reviewing a PR is never the model that wrote it (no shared blind spots).
         model=build_model(
-            "heavy",
+            "review",
             retries=5, delay_between_retries=3,
             # Optional reproducibility knob; only passed when explicitly set (gpt-5 reasoning
             # models reject temperature != 1, so default is to omit it entirely).

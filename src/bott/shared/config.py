@@ -460,10 +460,17 @@ def model_provider() -> str:
 
 
 def role_model_id(role: str) -> str:
-    """Per-task model id. role='chat' (everyday) vs 'heavy' (implement/review).
-    Unknown roles fall back to the chat model."""
+    """Per-task model id. Roles: 'chat' (everyday) · 'build' (plan/implement/triage) ·
+    'review' (PR review — should DIFFER from build so the reviewer doesn't share the
+    author's blind spots) · 'heavy' (legacy tier build/review fall back to).
+    Fallback chain: own env → heavy tier → the single BOTT_MODEL. Unknown roles → chat."""
+    heavy = os.getenv("BOTT_HEAVY_MODEL") or bott_model()
+    if role == "build":
+        return os.getenv("BOTT_BUILD_MODEL") or heavy
+    if role == "review":
+        return os.getenv("BOTT_REVIEW_MODEL") or heavy
     if role == "heavy":
-        return os.getenv("BOTT_HEAVY_MODEL") or bott_model()
+        return heavy
     return os.getenv("BOTT_CHAT_MODEL") or bott_model()
 
 

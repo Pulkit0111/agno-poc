@@ -33,7 +33,7 @@ def test_home_has_hero_and_quick_actions():
     )
     text = str(view)
     assert "Bott" in text and "Pulkit" in text          # identity hero, personalized
-    assert "do-anything" in text                          # the catchy hook
+    assert "figure out how" in text                       # posture hook, not a menu
     assert "CONN-MARKER" in text                          # connectors slot is composed in
     ids = _action_ids(view)
     assert "qa_sprint" in ids and "qa_ask" in ids         # quick actions present
@@ -55,6 +55,53 @@ def test_models_and_system_are_admin_gated_slots():
         system_blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "SYSTEM-MARKER"}}],
     )
     assert "MODELS-MARKER" in str(admin) and "SYSTEM-MARKER" in str(admin)
+
+
+def test_home_hero_has_ask_bott_button():
+    view = blocks.build_home_view([])
+    assert "ask_bott" in _action_ids(view)
+    assert "figure out how" in str(view)  # posture, not a menu
+
+
+def test_waiting_on_you_renders_approve_dismiss():
+    view = blocks.build_home_view([], approvals_pending=[
+        {"id": 7, "action": "api:atlassian", "summary": "Comment on IRM-515"}])
+    text = str(view)
+    assert "Waiting on you" in text and "Comment on IRM-515" in text
+    els = [el for b in view["blocks"] for el in b.get("elements", [])]
+    pairs = [(el.get("action_id"), el.get("value")) for el in els if "action_id" in el]
+    assert ("approval_approve", "7") in pairs and ("approval_dismiss", "7") in pairs
+
+
+def test_waiting_hidden_when_empty():
+    assert "Waiting on you" not in str(blocks.build_home_view([], approvals_pending=[]))
+
+
+def test_recent_activity_renders_and_hides():
+    view = blocks.build_home_view([], recent_activity=[
+        {"kind": "review", "status": "done"}, {"kind": "implement", "status": "failed"}])
+    text = str(view)
+    assert "Recently, for you" in text and "Reviewed a PR" in text and "✗" in text
+    assert "Recently, for you" not in str(blocks.build_home_view([]))
+
+
+def test_skills_strip_renders_and_hides():
+    view = blocks.build_home_view([], skills_line="`sprint-report` · `pr-review`")
+    assert "Skills I've practiced" in str(view)
+    assert "Skills I've practiced" not in str(blocks.build_home_view([]))
+
+
+def test_ask_modal_shape():
+    view = blocks.build_ask_modal()
+    assert view["callback_id"] == "ask_bott"
+    input_ids = [b.get("block_id") for b in view["blocks"] if b["type"] == "input"]
+    assert input_ids == ["q"]
+
+
+def test_set_models_modal_has_three_roles():
+    view = blocks.build_set_models_modal("a", "b", "c", ["a", "b", "c"])
+    input_ids = [b.get("block_id") for b in view["blocks"] if b["type"] == "input"]
+    assert input_ids == ["chat", "build", "review"]
 
 
 def test_quick_ask_modal_carries_kind_and_input():

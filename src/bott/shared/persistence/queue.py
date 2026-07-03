@@ -104,6 +104,17 @@ def recent_jobs(limit: int = 8) -> list[dict]:
              "attempts": int(r[3]), "created": r[4]} for r in rows]
 
 
+def recent_jobs_for(user_id: str, limit: int = 5) -> list[dict]:
+    """The most recent jobs THIS user triggered, newest first — powers the App Home
+    'Recently, for you' feed. Scoped by user_id (isolation as everywhere else)."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT id, kind, status, created FROM jobs "
+            "WHERE user_id=:uid ORDER BY id DESC LIMIT :lim"
+        ), {"uid": user_id, "lim": limit}).fetchall()
+    return [{"id": int(r[0]), "kind": r[1], "status": r[2], "created": r[3]} for r in rows]
+
+
 def job_counts() -> dict:
     """Return a mapping of status → count for all jobs."""
     with get_engine().connect() as c:

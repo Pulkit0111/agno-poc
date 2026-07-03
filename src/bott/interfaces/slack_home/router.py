@@ -81,6 +81,27 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             log.warning("action items load failed for %s: %s", email, e)
             return []
 
+    def _skills_line() -> str:
+        """Compact 'skills I've practiced' strip from the SKILL.md library dir."""
+        try:
+            import os as _os
+            from bott.shared import config as _cfg
+            d = _cfg.bott_skills_dir()
+            names = sorted(n for n in _os.listdir(d) if _os.path.isdir(_os.path.join(d, n)))
+            if not names:
+                return ""
+            shown = " · ".join(f"`{n}`" for n in names[:8])
+            more = f"  +{len(names) - 8} more" if len(names) > 8 else ""
+            return shown + more
+        except Exception:  # noqa: BLE001 — a missing dir must never break Home
+            return ""
+
+    def _safe(fn, default):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 — every Home data source is best-effort
+            return default
+
     def publish_home(user_id: str | None) -> None:
         if not user_id:
             return
@@ -90,8 +111,11 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             view = blocks.build_home_view(
                 service.list_rows(db),
                 viewer_name=name or None,
-                connectors_blocks=connectors_panel.connectors_section(),
+                connectors_blocks=connectors_panel.connectors_section(is_admin=is_admin),
                 action_items=_my_action_items(email),
+                approvals_pending=_safe(lambda: approvals.pending_for(email), []) if email else [],
+                recent_activity=_safe(lambda: queue.recent_jobs_for(email), []) if email else [],
+                skills_line=_skills_line(),
                 # Models + System are admin-only — the section builders return [] for members.
                 models_blocks=models.models_section(is_admin=is_admin),
                 system_blocks=admin.admin_section(is_admin=is_admin),
@@ -99,6 +123,25 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             client.views_publish(user_id=user_id, view=view)
         except Exception as e:  # noqa: BLE001
             log.error("home publish failed for %s: %s", user_id, e)
+
+    def run_ask(user_id: str, question: str) -> None:
+        """✨ Ask Bott from Home: run the REAL agent (same brain as chat, isolation intact)
+        and DM the result. This is the agentic path — no canned handlers."""
+        email, _ = _resolve_identity(user_id)
+        uid = email or user_id
+        try:
+            from bott.agents.bott_agent import build_agent
+            agent = build_agent(uid, db=db)
+            run = agent.run(question, user_id=uid, session_id=f"home-ask:{uid}")
+            content = (str(getattr(run, "content", "") or "").strip()
+                       or "I finished, but there was nothing to report back.")
+        except Exception as e:  # noqa: BLE001
+            log.error("ask_bott run failed: %s", e)
+            content = f"I hit an error working on that: {e}"
+        try:
+            client.chat_postMessage(channel=user_id, text=content[:3900])
+        except Exception as e:  # noqa: BLE001
+            log.error("ask_bott DM failed: %s", e)
 
     def run_quick_action_and_dm(user_id: str, action_id: str) -> None:
         """Run a no-arg quick action and DM the caller the result (background task)."""
@@ -215,7 +258,12 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             action = (payload.get("actions") or [{}])[0]
             cmd = (action.get("action_id") or "").split(":", 1)[0]
             trigger_id = payload.get("trigger_id")
-            if cmd == "add_schedule":
+            if cmd == "ask_bott":
+                try:
+                    client.views_open(trigger_id=trigger_id, view=blocks.build_ask_modal())
+                except Exception as e:  # noqa: BLE001
+                    log.error("open ask modal: %s", e)
+            elif cmd == "add_schedule":
                 # One button → a picker whose buttons reuse the per-type add_* handlers below.
                 try:
                     client.views_open(trigger_id=trigger_id, view=blocks.build_schedule_picker_modal())
@@ -362,6 +410,9 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                                 pass
                     except Exception as e:  # noqa: BLE001
                         log.error("approval decision failed (id=%s): %s", approval_id_str, e)
+                    # A decision may have come from the Home 'Waiting on you' inbox — refresh
+                    # it so the decided row disappears (harmless for thread decisions too).
+                    background_tasks.add_task(publish_home, user_id)
             elif cmd == "models_connect_codex":
                 # Admin-only: open a modal to paste the org Codex auth.json.
                 actor_email = _resolve_email(user_id) if user_id else ""
@@ -398,7 +449,8 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                         view = blocks.build_notice_modal(
                             "Add keys first", f"Can't list `{provider}` models yet — {hint}.")
                     else:
-                        view = blocks.build_set_models_modal(active["chat"], active["heavy"], options)
+                        view = blocks.build_set_models_modal(active["chat"], active["build"],
+                                                             active["review"], options)
                     client.views_open(trigger_id=trigger_id, view=view)
                 except Exception as e:  # noqa: BLE001
                     log.error("open set_models modal: %s", e)
@@ -414,6 +466,12 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                     _submit_standup(view, payload.get("user") or {})
                 except Exception as e:  # noqa: BLE001
                     log.error("standup submission failed: %s", e)
+                return Response(status_code=200)
+            # ✨ Ask Bott (free-form → the real agent → DM'd result).
+            if cb == "ask_bott":
+                question = (_val(values, "q").get("value") or "").strip()
+                if question and user_id:
+                    background_tasks.add_task(run_ask, user_id, question)
                 return Response(status_code=200)
             # Engagement-scoped quick action (Ask / Sprint): run in the background, DM the result.
             if cb == "quick_ask":
@@ -442,12 +500,15 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                             provider_val = selected.get("value") or ""
                             result = models.apply_model_override(actor_email, "model.provider",
                                                                  provider_val)
-                        else:  # models_set_models
-                            chat_val = ((values.get("chat") or {}).get("v", {}).get("selected_option") or {}).get("value") or ""
-                            heavy_val = ((values.get("heavy") or {}).get("v", {}).get("selected_option") or {}).get("value") or ""
-                            r1 = models.apply_model_override(actor_email, "model.chat", chat_val)
-                            r2 = models.apply_model_override(actor_email, "model.heavy", heavy_val)
-                            result = f"{r1}\n{r2}"
+                        else:  # models_set_models — the chat/build/review matrix
+                            def _sel(block_id):
+                                return ((values.get(block_id) or {}).get("v", {})
+                                        .get("selected_option") or {}).get("value") or ""
+                            results = [
+                                models.apply_model_override(actor_email, f"model.{role}", _sel(role))
+                                for role in ("chat", "build", "review") if _sel(role)
+                            ]
+                            result = "\n".join(results) or "Nothing selected."
                     except Exception as e:  # noqa: BLE001
                         result = f"Error: {e}"
                         log.error("models submission %s failed: %s", cb, e)
