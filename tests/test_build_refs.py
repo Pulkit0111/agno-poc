@@ -64,3 +64,27 @@ def test_pure_prose_no_repo_stays_request_with_no_owner():
     r = parse_build_target("please add a health check endpoint")
     assert r.kind == "request"
     assert r.owner is None and r.repo is None
+
+
+# --- Fix: stop scraping arbitrary "word/word" prose as a repo (the docs/auth bug) ---
+
+def test_prose_phrase_not_treated_as_repo_when_allowlist_set(monkeypatch):
+    import bott.agents.build_fix.refs as refs
+    monkeypatch.setattr(refs, "allowed_post_repos", lambda: {"pulkit0111/moodflix"})
+    # "docs/auth" is an English phrase, not a repo — it must NOT become owner/repo.
+    r = refs.parse_build_target("Fix the admin sync docs/auth mismatch")
+    assert r.owner is None and r.repo is None
+
+
+def test_prose_prefers_allowlisted_repo_over_phrase(monkeypatch):
+    import bott.agents.build_fix.refs as refs
+    monkeypatch.setattr(refs, "allowed_post_repos", lambda: {"pulkit0111/moodflix"})
+    r = refs.parse_build_target("Fix the docs/auth mismatch in pulkit0111/moodflix")
+    assert r.owner == "pulkit0111" and r.repo == "moodflix"
+
+
+def test_prose_legacy_first_token_when_no_allowlist(monkeypatch):
+    import bott.agents.build_fix.refs as refs
+    monkeypatch.setattr(refs, "allowed_post_repos", lambda: set())
+    r = refs.parse_build_target("open a PR on Pulkit0111/bott-pr-review-harness")
+    assert r.owner == "Pulkit0111" and r.repo == "bott-pr-review-harness"
