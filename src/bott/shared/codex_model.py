@@ -33,6 +33,18 @@ def _ensure_json_word(input_messages: list, response_format) -> list:
     ]
 
 
+def _provider_error(exc: Exception, model_name: str, model_id: str):
+    """Wrap a backend exception as Agno's ModelProviderError, carrying the REAL HTTP status.
+    Agno's retry loop treats 400/401/403/404/413/422 as non-retryable — but only when
+    status_code is accurate; the default (502) made deterministic 400s ("model is not
+    supported", the json_object rule) retry 6× with backoff for nothing."""
+    from agno.exceptions import ModelProviderError
+    status = getattr(exc, "status_code", None)
+    return ModelProviderError(message=str(exc),
+                              status_code=int(status) if isinstance(status, int) else 502,
+                              model_name=model_name, model_id=model_id)
+
+
 def _make_codex_model_class():
     """Lazily import OpenAIResponses and return the CodexModel subclass."""
     from agno.models.openai import OpenAIResponses
@@ -127,7 +139,7 @@ def _make_codex_model_class():
                     delta, tool_use = self._parse_provider_response_delta(event, assistant_message, tool_use)
                     self._merge_delta(final, delta)
             except Exception as exc:  # noqa: BLE001 — surface as Agno's provider error
-                raise ModelProviderError(message=str(exc), model_name=self.name, model_id=self.id) from exc
+                raise _provider_error(exc, self.name, self.id) from exc
             finally:
                 assistant_message.metrics.stop_timer()
             return final
@@ -146,8 +158,8 @@ def _make_codex_model_class():
                 async for event in stream:
                     delta, tool_use = self._parse_provider_response_delta(event, assistant_message, tool_use)
                     self._merge_delta(final, delta)
-            except Exception as exc:  # noqa: BLE001
-                raise ModelProviderError(message=str(exc), model_name=self.name, model_id=self.id) from exc
+            except Exception as exc:  # noqa: BLE001 — surface as Agno's provider error
+                raise _provider_error(exc, self.name, self.id) from exc
             finally:
                 assistant_message.metrics.stop_timer()
             return final

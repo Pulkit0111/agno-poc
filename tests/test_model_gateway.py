@@ -83,6 +83,23 @@ def test_role_fallback_chain(monkeypatch):
     assert role_model_id("review") == "review-z"
 
 
+def test_anti_affinity_never_picks_codex_suffixed_alternate(monkeypatch):
+    """The ChatGPT-account Codex backend rejects '-codex' model ids ("not supported when
+    using Codex with a ChatGPT account") — the swap must skip them, or the 'fix' breaks
+    every review. build=gpt-5.5 → alternate must be gpt-5.4, NOT gpt-5.5-codex."""
+    _no_setting_override(monkeypatch)
+    monkeypatch.setenv("MODEL_PROVIDER", "codex")
+    for var in ("BOTT_BUILD_MODEL", "BOTT_REVIEW_MODEL", "BOTT_CHAT_MODEL",
+                "BOTT_HEAVY_MODEL", "BOTT_MODEL"):
+        monkeypatch.delenv(var, raising=False)   # everything defaults to gpt-5.5
+    from bott.shared import codex_tokens as ct
+    monkeypatch.setattr(model_mod, "get_valid_token",
+                        lambda: ct.CodexToken("tok", "acc"))
+    review = model_mod.build_model("review")
+    assert review.id != "gpt-5.5"                 # swapped away from build
+    assert not review.id.endswith("-codex")       # never onto a backend-rejected id
+
+
 def test_review_anti_affinity_swaps_model(monkeypatch):
     """The reviewer must not be the model that wrote the code: when review resolves to the
     same id as build, build_model('review') swaps to an alternate (codex catalog)."""

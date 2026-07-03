@@ -53,14 +53,17 @@ def _review_anti_affinity(model_id: str, provider: str) -> str:
         return model_id
     if provider == "codex":
         from .config import FALLBACK_CODEX_MODELS
+        # Skip '-codex'-suffixed ids: the ChatGPT-account backend rejects them ("model is
+        # not supported when using Codex with a ChatGPT account") — swapping onto one would
+        # break every review, which is worse than the bias we're avoiding.
         for alt in FALLBACK_CODEX_MODELS:
-            if alt != build_id:
+            if alt != build_id and not alt.endswith("-codex"):
                 log.warning("review model == build model (%s) — swapping review to %s "
                             "(anti-affinity)", build_id, alt)
                 return alt
-    log.warning("review model == build model (%s) and no alternate available for provider "
-                "%s — the reviewer shares the author's blind spots; set model.review.",
-                build_id, provider)
+    log.warning("review model == build model (%s) and no safe alternate available for "
+                "provider %s — keeping it (same-model review beats no review); set "
+                "model.review to choose the reviewer explicitly.", build_id, provider)
     return model_id
 
 

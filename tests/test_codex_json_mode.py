@@ -34,6 +34,22 @@ def test_non_json_formats_are_untouched():
     assert _ensure_json_word(msgs, {"type": "json_schema", "name": "X"}) == msgs
 
 
+def test_codex_error_carries_real_status_code():
+    """Agno skips retries for 400/401/403/404/413/422 — but only when status_code is real.
+    The adapter used to raise everything with the default 502, so deterministic 400s
+    ("model not supported", json_object rule) were retried 6× (~93s wasted per failure)."""
+    from bott.shared.codex_model import _provider_error
+
+    class _Api(Exception):
+        status_code = 400
+
+    err = _provider_error(_Api("The 'x' model is not supported"), "name", "id")
+    assert err.status_code == 400  # → Agno classifies as non-retryable
+
+    err = _provider_error(RuntimeError("connection reset"), "name", "id")
+    assert err.status_code == 502  # unknown/transport errors stay retryable
+
+
 def test_review_user_trigger_mentions_json():
     # Belt-and-suspenders: the review's user message itself contains "json" so the request is
     # accepted even independent of the adapter guard.
