@@ -24,6 +24,7 @@ from bott.shared.model import build_model
 from bott.skills.action_items import action_items_tools
 from bott.skills.advisories import security_tools
 from bott.skills.capability_page import capability_page_tools
+from bott.skills.channel_map import channel_map_tools
 from bott.skills.connectors.register_all import register_all
 from bott.skills.connectors.registry import REGISTRY
 from bott.skills.dsm import dsm_tools
@@ -131,6 +132,7 @@ def build_agent(user_id: str, db=None) -> Agent:
     tools.extend(capability_page_tools())  # Capability page: "what Bott can do here" → Spin
     tools.extend(review_trends_tools())  # Descriptive PR-review trend stats (verdict/volume; no accuracy metrics)
     tools.extend(engagement_data_tools())  # Engagement status + people lookup (Memra-grounded DATA)
+    tools.extend(channel_map_tools())  # Map a Slack channel to an engagement so "this engagement" resolves
     register_all()
     tools.extend(REGISTRY.all_tools())  # all connectors (Jira/Confluence/Slack/Memra/Gmail) via the registry
     tools.extend(scheduling_tools(db))  # NL schedule create/list/remove (user-scoped)

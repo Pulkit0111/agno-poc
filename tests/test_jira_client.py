@@ -2,14 +2,97 @@
 
 from __future__ import annotations
 
+import bott.shared.integrations.jira as jira_mod
 from bott.shared.integrations.jira import (
     _ISSUE_FIELDS,
     JiraClient,
+    _adf_to_text,
     normalize_issue,
+    normalize_issue_detail,
     normalize_sprint,
 )
 
 SP = "customfield_10016"
+
+
+def test_adf_to_text_extracts_paragraph_text():
+    adf = {"type": "doc", "content": [
+        {"type": "paragraph", "content": [
+            {"type": "text", "text": "Registration "},
+            {"type": "text", "text": "is broken."}]},
+        {"type": "paragraph", "content": [{"type": "text", "text": "Second line."}]},
+    ]}
+    out = _adf_to_text(adf)
+    assert "Registration is broken." in out
+    assert "Second line." in out
+
+
+def test_normalize_issue_detail_pulls_rich_fields():
+    raw = {"key": "IRM-515", "fields": {
+        "summary": "Registration revamp - issues",
+        "status": {"name": "Merge to QA", "statusCategory": {"key": "indeterminate"}},
+        "issuetype": {"name": "Bug"},
+        "assignee": {"displayName": "Asha Dev"},
+        "reporter": {"displayName": "Bassam Ismail"},
+        "priority": {"name": "High"},
+        "description": {"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Users can't register."}]}]},
+        "labels": ["registration"],
+        "comment": {"total": 3},
+    }}
+    d = normalize_issue_detail(raw)
+    assert d["key"] == "IRM-515"
+    assert d["assignee"] == "Asha Dev"
+    assert d["reporter"] == "Bassam Ismail"
+    assert d["priority"] == "High"
+    assert "Users can't register." in d["description"]
+    assert d["comment_count"] == 3
+
+
+def test_get_issue_detail_requests_rich_fields(monkeypatch):
+    client = JiraClient("https://j", "e@x", "tok")
+    calls = []
+
+    def fake_get(path, params=None):
+        calls.append((path, params or {}))
+        return {"key": "IRM-1", "fields": {"summary": "x",
+                "status": {"name": "Open", "statusCategory": {"key": "new"}},
+                "issuetype": {"name": "Bug"}}}
+
+    monkeypatch.setattr(client, "_get", fake_get)
+    d = client.get_issue_detail("IRM-1")
+    assert d["key"] == "IRM-1"
+    _, params = calls[0]
+    # The rich path must request description + assignee (unlike the narrow list _ISSUE_FIELDS).
+    assert "description" in params["fields"] and "assignee" in params["fields"]
+
+
+def test_get_retries_on_transient_410(monkeypatch):
+    monkeypatch.setattr(jira_mod.time, "sleep", lambda *_: None)
+    import httpx
+    seq = {"n": 0}
+
+    class FakeResp:
+        def __init__(self, status):
+            self.status_code = status
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                req = httpx.Request("GET", "https://j/x")
+                raise httpx.HTTPStatusError("gone", request=req,
+                                            response=httpx.Response(self.status_code, request=req))
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, **kw):
+        seq["n"] += 1
+        return FakeResp(410 if seq["n"] == 1 else 200)
+
+    monkeypatch.setattr(jira_mod.httpx, "get", fake_get)
+    client = JiraClient("https://j", "e@x", "tok")
+    assert client._get("/x") == {"ok": True}
+    assert seq["n"] == 2  # first 410 retried, second succeeded
 
 
 def _raw_issue(key, summary, cat, itype="Story", points=None, labels=None):

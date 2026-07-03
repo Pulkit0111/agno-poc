@@ -21,3 +21,20 @@ def test_jira_search_tool_formats_and_gates(monkeypatch):
     monkeypatch.setattr(jira_read.config, "jira_configured", lambda: False)
     assert "isn't configured" in jira_read.jira_search("login").lower()
     assert jira_read.jira_read_tools() == []  # gated off when unconfigured
+
+
+def test_get_jira_issue_returns_rich_detail(monkeypatch):
+    monkeypatch.setattr(jira_read.config, "jira_configured", lambda: True)
+    raw = {"key": "IRM-515", "fields": {
+        "summary": "Registration revamp - issues",
+        "status": {"name": "Merge to QA", "statusCategory": {"key": "indeterminate"}},
+        "issuetype": {"name": "Bug"},
+        "assignee": {"displayName": "Asha Dev"},
+        "priority": {"name": "High"},
+        "description": {"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Users cannot register."}]}]},
+    }}
+    monkeypatch.setattr(jira_read, "_client", lambda: _client(monkeypatch, raw))
+    out = jira_read.get_jira_issue("IRM-515")
+    # The previous behavior returned only key/summary/status; detail must now surface more.
+    assert "Asha Dev" in out and "High" in out and "Users cannot register." in out

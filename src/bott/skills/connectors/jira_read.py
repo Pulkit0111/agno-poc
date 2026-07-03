@@ -49,8 +49,34 @@ def jira_search(query: str, limit: int = 15) -> str:
     return f"Jira issues for '{query}':\n" + "\n".join(_fmt(i, c.base_url) for i in issues)
 
 
+def _fmt_detail(d: dict, base: str) -> str:
+    url = f"{base}/browse/{d['key']}" if base and d.get("key") else ""
+    lines = [f"*{d.get('key', '?')}* — {d.get('summary', '')}"]
+    meta = " · ".join(x for x in (
+        d.get("status", ""), d.get("issue_type", ""),
+        f"Priority: {d['priority']}" if d.get("priority") else "") if x)
+    if meta:
+        lines.append(meta)
+    who = " · ".join(x for x in (
+        f"Assignee: {d['assignee']}" if d.get("assignee") else "",
+        f"Reporter: {d['reporter']}" if d.get("reporter") else "") if x)
+    if who:
+        lines.append(who)
+    if d.get("updated"):
+        lines.append(f"Updated: {d['updated'][:10]}")
+    desc = (d.get("description") or "").strip()
+    lines.append("\n" + (desc[:800] + ("…" if len(desc) > 800 else "")) if desc
+                 else "\n_No description on the ticket._")
+    if d.get("comment_count"):
+        lines.append(f"{d['comment_count']} comment(s) on the ticket.")
+    if url:
+        lines.append(url)
+    return "\n".join(lines)
+
+
 def get_jira_issue(key: str) -> str:
-    """Fetch one Jira issue by key (e.g. 'PADI-123'), read-only.
+    """Fetch one Jira issue by key (e.g. 'PADI-123') with full detail — description, status,
+    priority, assignee, reporter — read-only.
 
     Args:
         key: The Jira issue key.
@@ -59,7 +85,7 @@ def get_jira_issue(key: str) -> str:
         return "Jira isn't configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)."
     try:
         c = _client()
-        return f"Jira {key}:\n" + _fmt(c.get_issue(key), c.base_url)
+        return f"Jira {key}:\n" + _fmt_detail(c.get_issue_detail(key), c.base_url)
     except Exception as e:  # noqa: BLE001
         log.error("jira get_issue failed: %s", e)
         return f"Couldn't fetch Jira issue '{key}' ({e})."

@@ -12,6 +12,7 @@ API surface used (``/rest/agile/1.0``):
 
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 import httpx
@@ -23,6 +24,14 @@ log = get_logger("bott.integrations.jira")
 _AGILE = "/rest/agile/1.0"
 # Issue fields we pull (keep narrow — sprints can hold a lot of issues).
 _ISSUE_FIELDS = "summary,status,issuetype,labels"
+# Richer field set for a single-issue "tell me more" — description/assignee/etc. are absent
+# from the narrow list above, which is why "more details on IRM-515" came back empty.
+_RICH_ISSUE_FIELDS = (
+    "summary,status,issuetype,labels,description,assignee,reporter,priority,created,updated,comment"
+)
+# Transient statuses worth a quick retry: Atlassian's search deprecation returns 410
+# intermittently (it worked on retry the next day), plus the usual 429/5xx blips.
+_RETRY_STATUSES = frozenset({410, 429, 500, 502, 503, 504})
 
 # Heuristics for the "Sprint N+1 priorities" cards: a story is a spike / POC if its
 # issue type or summary says so (Jira teams encode these inconsistently).
@@ -99,6 +108,51 @@ def normalize_issue(raw: dict, story_points_field: str | None) -> dict:
     }
 
 
+def _adf_to_text(node: Any) -> str:
+    """Flatten an Atlassian Document Format (ADF) description to plain text. ADF is nested
+    JSON of typed nodes; we concatenate every ``text`` leaf and add breaks between blocks."""
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, list):
+        return "".join(_adf_to_text(n) for n in node)
+    if not isinstance(node, dict):
+        return ""
+    ntype = node.get("type")
+    if ntype == "text":
+        return node.get("text") or ""
+    if ntype == "hardBreak":
+        return "\n"
+    inner = _adf_to_text(node.get("content"))
+    # Block-level nodes get a trailing newline so paragraphs/list items don't run together.
+    if ntype in ("paragraph", "heading", "listItem", "blockquote", "codeBlock"):
+        return inner + "\n"
+    return inner
+
+
+def _person(field: Any) -> str:
+    return (field or {}).get("displayName") or "" if isinstance(field, dict) else ""
+
+
+def normalize_issue_detail(raw: dict) -> dict:
+    """Flatten a single issue with the RICH field set into a detail dict (description text,
+    assignee, reporter, priority, comment count, timestamps) — for a 'tell me more' answer."""
+    base = normalize_issue(raw, None)
+    desc = _f(raw, "description")
+    comment = _f(raw, "comment") or {}
+    return {
+        **base,
+        "description": _adf_to_text(desc).strip() if desc else "",
+        "assignee": _person(_f(raw, "assignee")),
+        "reporter": _person(_f(raw, "reporter")),
+        "priority": (_f(raw, "priority") or {}).get("name") or "",
+        "created": _f(raw, "created") or "",
+        "updated": _f(raw, "updated") or "",
+        "comment_count": comment.get("total", 0) if isinstance(comment, dict) else 0,
+    }
+
+
 class JiraClient:
     """Minimal Jira Cloud Agile API client (basic auth)."""
 
@@ -115,14 +169,20 @@ class JiraClient:
         self.story_points_field = story_points_field
         self.timeout = timeout
 
-    def _get(self, path: str, params: dict | None = None) -> dict:
+    def _get(self, path: str, params: dict | None = None, *, attempts: int = 3) -> dict:
         url = f"{self.base_url}{path}"
-        r = httpx.get(
-            url, params=params, auth=self._auth, timeout=self.timeout,
-            headers={"Accept": "application/json"},
-        )
-        r.raise_for_status()
-        return r.json() or {}
+        for attempt in range(attempts):
+            r = httpx.get(
+                url, params=params, auth=self._auth, timeout=self.timeout,
+                headers={"Accept": "application/json"},
+            )
+            # Retry transient statuses (410 deprecation flaps, 429/5xx) with a short backoff.
+            if r.status_code in _RETRY_STATUSES and attempt < attempts - 1:
+                time.sleep(min(0.2 * (2 ** attempt), 2.0))
+                continue
+            r.raise_for_status()
+            return r.json() or {}
+        return {}  # unreachable — the loop returns or raises
 
     # ---- discovery: boards + the site-wide story-points field --------------------
     def list_boards(self) -> list[dict]:
@@ -269,6 +329,12 @@ class JiraClient:
         return [normalize_issue(i, self.story_points_field) for i in page.get("issues", [])]
 
     def get_issue(self, key: str) -> dict:
-        """Fetch one issue by key, normalized. Read-only."""
+        """Fetch one issue by key, normalized (narrow fields). Read-only."""
         return normalize_issue(self._get(f"/rest/api/3/issue/{key}", {"fields": _ISSUE_FIELDS}),
                                self.story_points_field)
+
+    def get_issue_detail(self, key: str) -> dict:
+        """Fetch one issue with the RICH field set (description, assignee, reporter, priority,
+        comment count, timestamps) — for a single-issue 'tell me more'. Read-only."""
+        return normalize_issue_detail(
+            self._get(f"/rest/api/3/issue/{key}", {"fields": _RICH_ISSUE_FIELDS}))
