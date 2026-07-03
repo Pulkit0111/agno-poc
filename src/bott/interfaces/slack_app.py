@@ -384,11 +384,13 @@ def _friendly_failure(termination: str, error: str | None) -> str:
         return ("I hit the model's per-minute rate limit partway through. "
                 "Give it a minute and tag me again — I'll retry automatically next time.")
     mapping = {
-        "model_error": ("I ran into a temporary problem reaching the model — often a rate "
-                        "limit. Please give it a minute and try again."),
+        "model_error": ("I hit a model error before I could finish the review — this is on my "
+                        "side (a provider/config issue), not the PR. Please try again; if it "
+                        "keeps happening it needs a look at the logs."),
         "budget": ("This PR was large enough that I ran out of review budget before I could "
                    "finish. Try again, or point me at specific files to focus on."),
-        "no_submission": ("I couldn't wrap up a verdict this time — the PR may be large for "
-                          "the current model settings. Mind tagging me again?"),
+        "no_submission": ("I finished the pass but couldn't produce a structured verdict this "
+                          "time. Mind tagging me again? (If it keeps happening it's a model "
+                          "setting on my side, not the size of the PR.)"),
     }
     return mapping.get(termination, "Something went wrong on my end. Please try again in a moment.")

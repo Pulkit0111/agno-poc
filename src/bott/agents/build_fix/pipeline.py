@@ -120,7 +120,8 @@ def _push_and_pr(owner: str, name: str, clone_path: str, plan_text: str, note: s
     with GitHubClient(token=token) as gh:
         base = gh.default_branch(owner, name)
         pr = gh.create_pull(owner, name, title=f"bott: {plan_text[:60]}",
-                            head=branch, base=base, body=_pr_body(note), draft=True)
+                            head=branch, base=base, body=_pr_body(note),
+                            draft=config.build_draft_pr())
     return pr.get("html_url", "")
 
 

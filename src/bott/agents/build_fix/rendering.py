@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bott.agents.build_fix.core.models import ImplementPlan, ImplementResult
+from bott.shared import config
 
 
 def plan_blocks(plan: ImplementPlan, approval_id: int) -> tuple[list, str]:
@@ -27,7 +28,8 @@ def result_blocks(result: ImplementResult) -> tuple[list, str]:
     if result.opened_pr:
         tail = {"green": "tests green ✓", "failing": "tests still failing ⚠",
                 "not_run": "tests not run ⚠"}.get(result.tests, "")
-        text = f"Opened a draft PR — {tail}\n{result.pr_url}"
+        pr_kind = "draft PR" if config.build_draft_pr() else "PR"
+        text = f"Opened a {pr_kind} — {tail}\n{result.pr_url}"
     else:
         text = f"No PR opened. {result.note or ''}"
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}], text

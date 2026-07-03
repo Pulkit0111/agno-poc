@@ -15,11 +15,16 @@ def _ensure_json_word(input_messages: list, response_format) -> list:
     """OpenAI/Codex Responses rejects ``text.format`` of type ``json_object`` with a 400
     ("input messages must contain the word 'json'") unless the input literally mentions
     "json". Agno sends ``response_format={"type": "json_object"}`` for use_json_mode agents
-    (the PR reviewer, agentic memory). If json-object mode is on and no message mentions it,
-    append a short developer instruction so the request is accepted and JSON is still returned.
+    (the PR reviewer, agentic memory).
+
+    We ALWAYS append the instruction when json-object mode is on rather than trying to detect
+    whether "json" is already present — that detection is unreliable: the word can appear in a
+    filename ("package.json") or a schema field that OpenAI's check does NOT count, so a naive
+    "is 'json' in the text" guard skips the append and the request still 400s. A redundant
+    one-line instruction is harmless; a missed one breaks every review.
     """
     is_json_object = isinstance(response_format, dict) and response_format.get("type") == "json_object"
-    if not is_json_object or "json" in str(input_messages).lower():
+    if not is_json_object:
         return input_messages
     return list(input_messages) + [
         {"role": "developer",

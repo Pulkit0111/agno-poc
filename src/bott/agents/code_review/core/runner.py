@@ -30,8 +30,25 @@ from .verdict_gate import Termination
 
 USER_TRIGGER = (
     "Review the pull request described in your instructions. Investigate with your "
-    "tools, then produce your final structured review."
+    "tools, then produce your final structured review as a single JSON object matching "
+    "the required schema. (The literal word 'json' here also satisfies the Codex/Responses "
+    "json_object requirement.)"
 )
+
+
+def _classify_termination(status_str: str, n_tool_calls: int, has_output: bool,
+                          max_tool_calls: int) -> Termination:
+    """Map a finished run to a termination reason. `status_str` is str(run.status): Agno's
+    RunStatus.error renders as "RunStatus.error" (value "ERROR"), so match "error"
+    case-insensitively — a strict ``== "error"`` misses it and a real model failure then
+    masquerades as no_submission (the misleading "PR may be large" message)."""
+    if "error" in (status_str or "").lower():
+        return "model_error"
+    if n_tool_calls >= max_tool_calls:
+        return "budget"
+    if has_output:
+        return "natural"
+    return "no_submission"
 
 
 @dataclass
@@ -115,15 +132,14 @@ def run_review_agent(
     m = run.metrics
     status = str(getattr(run, "status", "") or "")
 
-    if status == "error":
-        termination: Termination = "model_error"
-    elif len(tool_calls) >= budget.max_tool_calls:
-        # tool_call_limit reached — treat as budget exhaustion (gate downgrades approve).
-        termination = "budget"
-    elif output is not None:
-        termination = "natural"
-    else:
-        termination = "no_submission"
+    termination = _classify_termination(status, len(tool_calls), output is not None,
+                                        budget.max_tool_calls)
+    run_error: Optional[str] = None
+    if termination == "model_error":
+        # Surface the real cause (a 400/json error, a rate limit, ...) instead of dropping it —
+        # slack_app logs result.run.error, so a hidden None is what made failures opaque.
+        run_error = (str(getattr(run, "content", "") or "").strip()
+                     or "the model returned an error before producing a verdict")
 
     input_tokens = getattr(m, "input_tokens", 0) or 0
     output_tokens = getattr(m, "output_tokens", 0) or 0
@@ -143,6 +159,6 @@ def run_review_agent(
         cache_read_tokens=cache_read,
         cache_write_tokens=cache_write,
         cost_usd=cost,
-        error=None,
+        error=run_error,
         model_id=model_id,
     )

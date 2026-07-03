@@ -236,6 +236,12 @@ def review_slack_channel() -> str | None:
     return os.getenv("REVIEW_SLACK_CHANNEL")
 
 
+def build_draft_pr() -> bool:
+    """Whether Build & Fix opens PRs as drafts. Default False — open ready-for-review PRs
+    (users found forced drafts annoying). Set BUILD_DRAFT_PR=1 to restore draft PRs."""
+    return os.getenv("BUILD_DRAFT_PR", "0").strip().lower() in ("1", "true", "yes")
+
+
 def github_app_configured() -> bool:
     return bool(github_app_id() and github_app_private_key())
 

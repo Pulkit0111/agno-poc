@@ -16,7 +16,7 @@ def _target(run_context: Optional[RunContext]) -> dict:
 
 
 def start_build(target: str, repo: str = "", run_context: Optional[RunContext] = None) -> str:
-    """Plan and (after you approve) implement ONE cohesive change, opening ONE draft PR.
+    """Plan and (after you approve) implement ONE cohesive change, opening ONE pull request.
 
     One call = one plan = one pull request. If the user asks for SEVERAL independent PRs
     (e.g. "one PR per project", "separate PRs for each"), call this ONCE PER PR.
