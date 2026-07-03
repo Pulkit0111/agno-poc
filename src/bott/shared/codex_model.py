@@ -11,6 +11,23 @@ from bott.shared import config
 from bott.shared.codex_tokens import get_valid_token
 
 
+def _ensure_json_word(input_messages: list, response_format) -> list:
+    """OpenAI/Codex Responses rejects ``text.format`` of type ``json_object`` with a 400
+    ("input messages must contain the word 'json'") unless the input literally mentions
+    "json". Agno sends ``response_format={"type": "json_object"}`` for use_json_mode agents
+    (the PR reviewer, agentic memory). If json-object mode is on and no message mentions it,
+    append a short developer instruction so the request is accepted and JSON is still returned.
+    """
+    is_json_object = isinstance(response_format, dict) and response_format.get("type") == "json_object"
+    if not is_json_object or "json" in str(input_messages).lower():
+        return input_messages
+    return list(input_messages) + [
+        {"role": "developer",
+         "content": [{"type": "input_text",
+                      "text": "Respond with a single valid JSON object as instructed above."}]}
+    ]
+
+
 def _make_codex_model_class():
     """Lazily import OpenAIResponses and return the CodexModel subclass."""
     from agno.models.openai import OpenAIResponses
@@ -59,9 +76,12 @@ def _make_codex_model_class():
                 messages=messages, response_format=response_format, tools=tools, tool_choice=tool_choice
             )
             params.pop("background", None)  # background mode is invalid with streaming
+            input_messages = _ensure_json_word(
+                self._format_messages(messages, compress_tool_results, tools=tools), response_format
+            )
             return {
                 "model": self.id,
-                "input": self._format_messages(messages, compress_tool_results, tools=tools),
+                "input": input_messages,
                 "stream": True,
                 **params,
             }
