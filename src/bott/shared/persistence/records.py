@@ -49,6 +49,16 @@ def set_setting(key: str, value: str) -> None:
         )
 
 
+def list_settings_by_prefix(prefix: str) -> dict[str, str]:
+    """All settings whose key starts with prefix, as {key: value}. Full-scan — the settings
+    table has no secondary index, but it's small (KV config, not event data)."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT key, value FROM settings WHERE key LIKE :p"
+        ), {"p": f"{prefix}%"}).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
 # ---------------------------------------------------------------------------
 # Webhook / commit dedup
 # ---------------------------------------------------------------------------

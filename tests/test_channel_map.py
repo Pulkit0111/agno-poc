@@ -57,3 +57,19 @@ def test_unmap_clears(store):
 def test_tools_exposed():
     names = {t.name for t in cm.channel_map_tools()}
     assert {"map_channel_to_engagement", "channel_engagement", "unmap_channel_engagement"} <= names
+
+
+def test_list_all_excludes_unmapped(store):
+    from bott.shared.persistence.records import set_setting
+    set_setting(cm._KEY.format("C111"), "acme-commerce")
+    set_setting(cm._KEY.format("C222"), "")  # unmapped
+    rows = cm.list_all()
+    assert rows == [{"channel_id": "C111", "engagement": "acme-commerce"}]
+
+
+def test_list_settings_by_prefix_scoped_correctly(store):
+    from bott.shared.persistence.records import set_setting, list_settings_by_prefix
+    set_setting("channel_engagement:C1", "acme")
+    set_setting("other_prefix:C1", "unrelated")
+    rows = list_settings_by_prefix("channel_engagement:")
+    assert rows == {"channel_engagement:C1": "acme"}

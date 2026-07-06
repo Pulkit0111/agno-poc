@@ -65,3 +65,15 @@ def channel_map_tools() -> list[Callable]:
         return _unmap_impl(run_context)
 
     return [map_channel_to_engagement, channel_engagement, unmap_channel_engagement]
+
+
+def list_all() -> list[dict]:
+    """Every channel→engagement mapping — the console's admin Engagements table. Excludes
+    unmapped channels (unmap sets the value to empty string rather than deleting the row)."""
+    from bott.shared.persistence.records import list_settings_by_prefix
+    prefix = _KEY.format("")
+    rows = list_settings_by_prefix(prefix)
+    return [
+        {"channel_id": key[len(prefix):], "engagement": value}
+        for key, value in rows.items() if value
+    ]
