@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from bott.interfaces.console import oidc, sessions
 from bott.shared import approvals, config
 from bott.shared.observability.logging_setup import get_logger
+from bott.shared.persistence import queue
 
 log = get_logger("bott.console")
 
@@ -130,5 +131,24 @@ def build_console_router() -> APIRouter:
             elif action.startswith("api:"):
                 background_tasks.add_task(_dispatch_api, approval_id)
         return {"status": "approved" if body.approve else "dismissed"}
+
+    @r.get("/api/console/v1/jobs")
+    def list_jobs(request: Request, scope: str = "mine", limit: int = 25) -> dict:
+        user = current_user(request)
+        limit = max(1, min(limit, 100))
+        if scope == "all":
+            require_admin(user)
+            return {"jobs": queue.recent_jobs(limit=limit)}
+        return {"jobs": queue.recent_jobs_for(user["email"], limit=limit)}
+
+    @r.get("/api/console/v1/jobs/{job_id}")
+    def job_detail_route(request: Request, job_id: int) -> dict:
+        user = current_user(request)
+        row = queue.job_detail(job_id)
+        if not row:
+            raise _err(404, "not_found", "That run doesn't exist.")
+        if row["user_id"] != user["email"] and not user["is_admin"]:
+            raise _err(403, "not_yours", "Only the requester or an admin can view this run.")
+        return row
 
     return r
