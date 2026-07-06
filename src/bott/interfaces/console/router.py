@@ -61,6 +61,19 @@ class DecisionBody(BaseModel):
     approve: bool
 
 
+_VALID_FREQUENCIES = {"daily", "weekdays", "weekly"}
+
+
+class ScheduleCreateBody(BaseModel):
+    kind: str
+    channel: str
+    time: str
+    frequency: str | None = None
+    engagement: str | None = None
+    account_name: str | None = None
+    band: str | None = None
+
+
 def build_console_router(db) -> APIRouter:
     r = APIRouter()
 
@@ -188,5 +201,35 @@ def build_console_router(db) -> APIRouter:
         current_user(request)
         schedule_service.remove(db, [schedule_id])
         return {"deleted": True}
+
+    @r.post("/api/console/v1/schedules")
+    def create_schedule(request: Request, body: ScheduleCreateBody) -> dict:
+        current_user(request)
+        if body.frequency is not None and body.frequency not in _VALID_FREQUENCIES:
+            raise _err(400, "bad_frequency", f"Unknown cadence: {body.frequency}")
+        if body.kind == "sprint":
+            if not body.engagement:
+                raise _err(400, "missing_field", "Pick an engagement for a sprint report schedule.")
+            sch = schedule_service.create_sprint_report_schedule(db, body.engagement, body.channel, body.time)
+        elif body.kind == "delivery":
+            if not body.engagement or not body.frequency:
+                raise _err(400, "missing_field", "Pick an engagement and a cadence for a delivery digest.")
+            sch = schedule_service.create_delivery(
+                db, body.engagement, body.account_name or "", body.channel, body.frequency, body.time, band=body.band)
+        elif body.kind == "security":
+            if not body.frequency:
+                raise _err(400, "missing_field", "Pick a cadence for the security digest.")
+            sch = schedule_service.create_security(db, body.channel, body.frequency, body.time)
+        elif body.kind == "sentiment":
+            if not body.frequency:
+                raise _err(400, "missing_field", "Pick a cadence for the sentiment report.")
+            sch = schedule_service.create_sentiment(db, body.channel, body.frequency, body.time)
+        elif body.kind == "portfolio":
+            if not body.frequency:
+                raise _err(400, "missing_field", "Pick a cadence for the portfolio dashboard.")
+            sch = schedule_service.create_portfolio(db, body.channel, body.frequency, body.time)
+        else:
+            raise _err(400, "bad_kind", f"Unknown schedule kind: {body.kind}")
+        return {"id": sch.id}
 
     return r

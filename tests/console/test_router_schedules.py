@@ -58,3 +58,43 @@ def test_run_now_and_delete_do_not_require_existence_check(client_and_db, monkey
     _as(tc)
     assert tc.post("/api/console/v1/schedules/anything/run-now").json() == {"triggered": True}
     assert tc.delete("/api/console/v1/schedules/anything").json() == {"deleted": True}
+
+
+def test_create_security_schedule(client_and_db):
+    tc, _db = client_and_db
+    _as(tc)
+    r = tc.post("/api/console/v1/schedules", json={
+        "kind": "security", "channel": "#sec", "frequency": "daily", "time": "09:00",
+    })
+    assert r.status_code == 200
+    assert "id" in r.json()
+
+
+def test_create_sprint_requires_engagement(client_and_db):
+    tc, _db = client_and_db
+    _as(tc)
+    r = tc.post("/api/console/v1/schedules", json={
+        "kind": "sprint", "channel": "#eng", "time": "16:00",
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "missing_field"
+
+
+def test_create_unknown_kind_is_400(client_and_db):
+    tc, _db = client_and_db
+    _as(tc)
+    r = tc.post("/api/console/v1/schedules", json={
+        "kind": "nonsense", "channel": "#x", "time": "09:00",
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "bad_kind"
+
+
+def test_create_bad_frequency_is_400(client_and_db):
+    tc, _db = client_and_db
+    _as(tc)
+    r = tc.post("/api/console/v1/schedules", json={
+        "kind": "portfolio", "channel": "#x", "frequency": "fortnightly", "time": "09:00",
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "bad_frequency"
