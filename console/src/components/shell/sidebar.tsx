@@ -4,30 +4,32 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity, CalendarClock, Check, Grid2x2, Hand, House, Library,
-  ListChecks, Settings2, Shield, SquareTerminal, Users,
+  ListChecks, LucideIcon, Settings2, Shield, SquareTerminal, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/lib/use-me";
 
-const MEMBER = [
+type NavItem = { href: string; label: string; icon: LucideIcon; soon?: boolean };
+
+const MEMBER: NavItem[] = [
   { href: "/", label: "Home", icon: House },
   { href: "/approvals", label: "Approvals", icon: Hand },
   { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/schedules", label: "Schedules", icon: CalendarClock, soon: true },
-  { href: "/action-items", label: "Action items", icon: ListChecks, soon: true },
-  { href: "/skills", label: "Skills", icon: Library, soon: true },
-  { href: "/reports", label: "Reports", icon: Grid2x2, soon: true },
-  { href: "/connectors", label: "Connectors", icon: SquareTerminal, soon: true },
+  { href: "/schedules", label: "Schedules", icon: CalendarClock },
+  { href: "/action-items", label: "Action items", icon: ListChecks },
+  { href: "/skills", label: "Skills", icon: Library },
+  { href: "/reports", label: "Reports", icon: Grid2x2 },
+  { href: "/connectors", label: "Connectors", icon: SquareTerminal },
 ];
 
-const ADMIN = [
+const ADMIN: NavItem[] = [
   { href: "/admin/models", label: "Models", icon: Settings2, soon: true },
   { href: "/admin/policy", label: "Policy", icon: Shield, soon: true },
   { href: "/admin/users", label: "Users & roles", icon: Users, soon: true },
   { href: "/admin/system", label: "System", icon: Check, soon: true },
 ];
 
-function Item({ href, label, icon: Icon, soon }: (typeof MEMBER)[number]) {
+function Item({ href, label, icon: Icon, soon }: NavItem) {
   const pathname = usePathname();
   const active = pathname === href;
   if (soon) {
