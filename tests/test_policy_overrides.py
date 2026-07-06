@@ -45,3 +45,9 @@ def test_list_overrides_excludes_removed():
     rows = policy_overrides.list_overrides()
     assert len(rows) == 1
     assert rows[0]["system"] == "jira" and rows[0]["method"] == "PUT"
+
+
+def test_set_override_rejects_bad_verdict():
+    from bott.shared import policy_overrides
+    with pytest.raises(ValueError):
+        policy_overrides.set_override("jira", "PUT", "maybe", "r", "a@x.com")

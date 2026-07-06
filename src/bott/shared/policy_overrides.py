@@ -10,9 +10,12 @@ import time
 
 _BASE = "policy_override"
 _PREFIX = _BASE + ":{}:{}"
+_VALID_VERDICTS = {"allow", "gate", "deny"}
 
 
 def set_override(system: str, method: str, verdict: str, reason: str, updated_by: str) -> None:
+    if verdict not in _VALID_VERDICTS:
+        raise ValueError(f"Unknown verdict: {verdict!r} — must be one of {sorted(_VALID_VERDICTS)}")
     from bott.shared.persistence.records import set_setting
     value = json.dumps({
         "verdict": verdict, "reason": reason, "updated_by": updated_by, "updated_at": time.time(),
