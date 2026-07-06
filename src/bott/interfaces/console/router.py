@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import time
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -14,7 +15,7 @@ from bott.interfaces.console import oidc, sessions
 from bott.interfaces.slack_home import service as schedule_service
 from bott.shared import approvals, config
 from bott.shared.observability.logging_setup import get_logger
-from bott.shared.persistence import queue
+from bott.shared.persistence import action_items, queue
 
 log = get_logger("bott.console")
 
@@ -62,6 +63,10 @@ class DecisionBody(BaseModel):
 
 
 _VALID_FREQUENCIES = {"daily", "weekdays", "weekly"}
+
+
+class SnoozeBody(BaseModel):
+    remind_at: float | None = None
 
 
 class ScheduleCreateBody(BaseModel):
@@ -231,5 +236,26 @@ def build_console_router(db) -> APIRouter:
         else:
             raise _err(400, "bad_kind", f"Unknown schedule kind: {body.kind}")
         return {"id": sch.id}
+
+    @r.get("/api/console/v1/action-items")
+    def list_action_items(request: Request, include_done: bool = False) -> dict:
+        user = current_user(request)
+        return {"items": action_items.list_items(user["email"], include_done=include_done)}
+
+    @r.post("/api/console/v1/action-items/{item_id}/done")
+    def complete_action_item(request: Request, item_id: int) -> dict:
+        user = current_user(request)
+        if not action_items.complete_item(user["email"], item_id, time.time()):
+            raise _err(404, "not_found", "That action item doesn't exist or isn't yours.")
+        return {"status": "done"}
+
+    @r.post("/api/console/v1/action-items/{item_id}/snooze")
+    def snooze_action_item(request: Request, item_id: int, body: SnoozeBody) -> dict:
+        user = current_user(request)
+        now = time.time()
+        remind_at = body.remind_at if body.remind_at is not None else now + 86400
+        if not action_items.snooze_item(user["email"], item_id, remind_at, now):
+            raise _err(404, "not_found", "That action item doesn't exist or isn't yours.")
+        return {"status": "snoozed", "remind_at": remind_at}
 
     return r
