@@ -142,3 +142,24 @@ def test_latest_trace_returns_newest(store):
     row = records.latest_trace_for_thread("C3", "t3")
     assert row is not None
     assert row["pr_number"] == 2  # newest
+
+
+# ---------------------------------------------------------------------------
+# list_known_users
+# ---------------------------------------------------------------------------
+
+def test_list_known_users_dedups_across_tables_and_orders_by_recency(store):
+    import time
+
+    from bott.shared import approvals
+    from bott.shared.persistence import action_items, queue
+
+    now = time.time()
+    queue.enqueue("review", {}, user_id="a@x.com")
+    approvals.create_request("a@x.com", "api:jira", "x")  # same user, different table
+    action_items.add_item("b@x.com", "task", now + 10)     # more recent than a@x.com's rows
+
+    rows = records.list_known_users()
+    ids = [r["user_id"] for r in rows]
+    assert ids[0] == "b@x.com"  # most recently active first
+    assert set(ids) == {"a@x.com", "b@x.com"}  # deduped despite a@x.com appearing twice

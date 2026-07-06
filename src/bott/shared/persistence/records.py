@@ -269,3 +269,21 @@ def trace_stats(since_epoch: Optional[float] = None) -> dict:
         "rereview_changed": rereview_changed,
         "by_week": dict(sorted(by_week.items())),
     }
+
+
+# ---------------------------------------------------------------------------
+# Known users
+# ---------------------------------------------------------------------------
+
+def list_known_users() -> list[dict]:
+    """Every distinct user_id Bott has interacted with (jobs/approvals/action_items), each
+    with its most recent activity timestamp — the console's Users & roles screen source."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT user_id, MAX(created) AS last_active FROM ("
+            "  SELECT user_id, created FROM jobs"
+            "  UNION ALL SELECT user_id, created FROM approvals"
+            "  UNION ALL SELECT user_id, created FROM action_items"
+            ") combined GROUP BY user_id ORDER BY last_active DESC"
+        )).fetchall()
+    return [{"user_id": r[0], "last_active": r[1]} for r in rows]
