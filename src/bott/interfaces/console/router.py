@@ -89,6 +89,13 @@ class PinBody(BaseModel):
     pinned: bool
 
 
+class ReportRunBody(BaseModel):
+    kind: str
+    engagement: str | None = None
+    channel: str | None = None
+    team: str | None = None
+
+
 def build_console_router(db) -> APIRouter:
     r = APIRouter()
 
@@ -326,5 +333,41 @@ def build_console_router(db) -> APIRouter:
         shutil.rmtree(f"{config.bott_skills_dir()}/{slug}", ignore_errors=True)
         sk.reload()
         return {"retired": True}
+
+    @r.post("/api/console/v1/reports/run")
+    def run_report(request: Request, body: ReportRunBody) -> dict:
+        current_user(request)
+        if body.kind == "security":
+            from bott.skills.advisories import drupal_security_advisories
+            return {"result": drupal_security_advisories()}
+        if body.kind == "portfolio":
+            from bott.skills.portfolio.tool import get_portfolio_risk_data
+            return {"result": get_portfolio_risk_data()}
+        if body.kind == "sprint_snapshot":
+            if not body.engagement:
+                raise _err(400, "missing_field", "Pick an engagement for a sprint snapshot.")
+            from bott.skills.sprint_report.tool import sprint_snapshot
+            return {"result": sprint_snapshot(body.engagement)}
+        if body.kind == "engagement_status":
+            if not body.engagement:
+                raise _err(400, "missing_field", "Pick an engagement for a status summary.")
+            from bott.skills.engagement_data import get_engagement_status
+            return {"result": get_engagement_status(body.engagement)}
+        if body.kind == "standup_open":
+            if not body.team or not body.channel:
+                raise _err(400, "missing_field", "Team and channel are required to open a standup.")
+            from bott.skills.dsm import open_standup
+            return {"result": open_standup(body.team, body.channel)}
+        if body.kind == "standup_close":
+            if not body.team or not body.channel:
+                raise _err(400, "missing_field", "Team and channel are required to close a standup.")
+            from bott.skills.dsm import close_standup
+            return {"result": close_standup(body.team, body.channel)}
+        if body.kind == "standup_summary":
+            if not body.team or not body.channel:
+                raise _err(400, "missing_field", "Team and channel are required to post a call summary.")
+            from bott.skills.dsm import post_call_summary
+            return {"result": post_call_summary(body.team, body.channel)}
+        raise _err(400, "bad_kind", f"Unknown report kind: {body.kind}")
 
     return r
