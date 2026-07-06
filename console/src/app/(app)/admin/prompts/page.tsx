@@ -19,7 +19,10 @@ export default function PromptsPage() {
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState("");
 
-  useEffect(() => { if (data) setDraft(data.current); }, [data, active]);
+  useEffect(() => {
+    if (data) setDraft(data.current);
+    setNote("");
+  }, [data, active]);
 
   return (
     <div className="space-y-4">
