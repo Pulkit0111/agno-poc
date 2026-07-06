@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity, CalendarClock, Check, Grid2x2, Hand, House, Library,
+  Activity, Building2, CalendarClock, Check, Grid2x2, Hand, House, Library,
   ListChecks, LucideIcon, Settings2, Shield, SquareTerminal, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,10 +23,11 @@ const MEMBER: NavItem[] = [
 ];
 
 const ADMIN: NavItem[] = [
-  { href: "/admin/models", label: "Models", icon: Settings2, soon: true },
+  { href: "/admin/models", label: "Models", icon: Settings2 },
+  { href: "/admin/engagements", label: "Engagements", icon: Building2 },
   { href: "/admin/policy", label: "Policy", icon: Shield, soon: true },
-  { href: "/admin/users", label: "Users & roles", icon: Users, soon: true },
-  { href: "/admin/system", label: "System", icon: Check, soon: true },
+  { href: "/admin/users", label: "Users & roles", icon: Users },
+  { href: "/admin/system", label: "System", icon: Check },
 ];
 
 function Item({ href, label, icon: Icon, soon }: NavItem) {

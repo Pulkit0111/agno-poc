@@ -9,6 +9,8 @@ const NAMES: Record<string, string> = {
   "/": "Home", "/approvals": "Approvals", "/activity": "Activity",
   "/schedules": "Schedules", "/action-items": "Action items",
   "/skills": "Skills", "/reports": "Reports", "/connectors": "Connectors",
+  "/admin/models": "Models", "/admin/engagements": "Engagements",
+  "/admin/users": "Users & roles", "/admin/system": "System",
 };
 
 export function Topbar() {
