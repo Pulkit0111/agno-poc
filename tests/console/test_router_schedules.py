@@ -98,3 +98,13 @@ def test_create_bad_frequency_is_400(client_and_db):
     })
     assert r.status_code == 400
     assert r.json()["detail"]["error"]["code"] == "bad_frequency"
+
+
+def test_create_bad_time_is_400(client_and_db):
+    tc, _db = client_and_db
+    _as(tc)
+    r = tc.post("/api/console/v1/schedules", json={
+        "kind": "portfolio", "channel": "#x", "frequency": "daily", "time": "9am",
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "bad_time"

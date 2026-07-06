@@ -29,8 +29,12 @@ function useScheduleAction(path: (id: string) => string, method: "POST" | "DELET
 export function usePauseSchedule() { return useScheduleAction((id) => `/api/console/v1/schedules/${id}/pause`); }
 export function useResumeSchedule() { return useScheduleAction((id) => `/api/console/v1/schedules/${id}/resume`); }
 export function useRunScheduleNow() {
-  const base = useScheduleAction((id) => `/api/console/v1/schedules/${id}/run-now`);
-  return { ...base, mutate: (id: string) => { base.mutate(id); toast.success("Running now."); } };
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api(`/api/console/v1/schedules/${id}/run-now`, { method: "POST" }),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't start that run."),
+    onSuccess: () => { toast.success("Running now."); qc.invalidateQueries({ queryKey: ["schedules"] }); },
+  });
 }
 export function useDeleteSchedule() { return useScheduleAction((id) => `/api/console/v1/schedules/${id}`, "DELETE"); }
 

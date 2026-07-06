@@ -23,7 +23,7 @@ const FREQUENCIES = [
 ];
 
 export default function SchedulesPage() {
-  const { data: schedules, isLoading } = useSchedules();
+  const { data: schedules, isLoading, isError } = useSchedules();
   const pause = usePauseSchedule();
   const resume = useResumeSchedule();
   const runNow = useRunScheduleNow();
@@ -35,6 +35,8 @@ export default function SchedulesPage() {
   const [time, setTime] = useState("09:00");
   const [frequency, setFrequency] = useState("daily");
   const [engagement, setEngagement] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [band, setBand] = useState("");
 
   const needsEngagement = kind === "sprint" || kind === "delivery";
   const needsFrequency = kind !== "sprint";
@@ -48,7 +50,12 @@ export default function SchedulesPage() {
 
       <div className="rounded-xl border bg-card shadow-sm">
         {isLoading && <div className="space-y-2 p-4"><Skeleton className="h-9" /><Skeleton className="h-9" /></div>}
-        {!isLoading && !schedules?.length && (
+        {isError && (
+          <div className="px-4 py-8 text-center text-sm text-destructive">
+            Couldn't load — try refreshing the page.
+          </div>
+        )}
+        {!isLoading && !isError && !schedules?.length && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
             No schedules yet — create one below.
           </div>
@@ -88,6 +95,18 @@ export default function SchedulesPage() {
               <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" value={engagement} onChange={(e) => setEngagement(e.target.value)} placeholder="acme-commerce" />
             </label>
           )}
+          {kind === "delivery" && (
+            <>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">Account name (optional)</span>
+                <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" value={accountName} onChange={(e) => setAccountName(e.target.value)} />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">Band (optional)</span>
+                <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" value={band} onChange={(e) => setBand(e.target.value)} />
+              </label>
+            </>
+          )}
           <label className="block text-sm">
             <span className="mb-1 block text-xs font-medium text-muted-foreground">Channel</span>
             <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" value={channel} onChange={(e) => setChannel(e.target.value)} placeholder="#proj-acme" />
@@ -111,6 +130,8 @@ export default function SchedulesPage() {
               kind, channel, time,
               frequency: needsFrequency ? frequency : undefined,
               engagement: needsEngagement ? engagement : undefined,
+              account_name: kind === "delivery" ? (accountName || undefined) : undefined,
+              band: kind === "delivery" ? (band || undefined) : undefined,
             })}
           >
             Create schedule

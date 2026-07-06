@@ -6,7 +6,7 @@ import { relativeTime } from "@/lib/time";
 import { useActionItems, useCompleteActionItem, useSnoozeActionItem } from "@/lib/use-action-items";
 
 export default function ActionItemsPage() {
-  const { data: items, isLoading } = useActionItems(false);
+  const { data: items, isLoading, isError } = useActionItems(false);
   const complete = useCompleteActionItem();
   const snooze = useSnoozeActionItem();
 
@@ -18,7 +18,12 @@ export default function ActionItemsPage() {
       </div>
       <div className="rounded-xl border bg-card shadow-sm">
         {isLoading && <div className="space-y-2 p-4"><Skeleton className="h-9" /><Skeleton className="h-9" /></div>}
-        {!isLoading && !items?.length && (
+        {isError && (
+          <div className="px-4 py-8 text-center text-sm text-destructive">
+            Couldn't load — try refreshing the page.
+          </div>
+        )}
+        {!isLoading && !isError && !items?.length && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">Nothing open — you&apos;re all caught up.</div>
         )}
         {items?.map((item) => (

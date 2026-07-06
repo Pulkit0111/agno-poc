@@ -17,7 +17,7 @@ function ApprovalsInner() {
   const rawId = params.get("id");
   const parsedId = rawId === null ? NaN : Number(rawId);
   const selected = Number.isFinite(parsedId) ? parsedId : null;
-  const { data: approvals, isLoading } = useApprovals(scope);
+  const { data: approvals, isLoading, isError } = useApprovals(scope);
   const decide = useDecide();
 
   const setParam = (key: string, value: string | null) => {
@@ -46,7 +46,12 @@ function ApprovalsInner() {
 
       <div className="rounded-xl border bg-card shadow-sm">
         {isLoading && <div className="space-y-2 p-4"><Skeleton className="h-10" /><Skeleton className="h-10" /></div>}
-        {!isLoading && !approvals?.length && (
+        {isError && (
+          <div className="px-4 py-8 text-center text-sm text-destructive">
+            Couldn't load — try refreshing the page.
+          </div>
+        )}
+        {!isLoading && !isError && !approvals?.length && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
             Nothing pending. Approvals appear here the moment Bott needs a decision.
           </div>

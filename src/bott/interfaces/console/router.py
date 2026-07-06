@@ -4,6 +4,7 @@ session, check scope, and delegate to existing services. No business logic here.
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import time
 
@@ -63,6 +64,7 @@ class DecisionBody(BaseModel):
 
 
 _VALID_FREQUENCIES = {"daily", "weekdays", "weekly"}
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 
 class SnoozeBody(BaseModel):
@@ -213,9 +215,9 @@ def build_console_router(db) -> APIRouter:
         return {"enabled": True}
 
     @r.post("/api/console/v1/schedules/{schedule_id}/run-now")
-    def run_schedule_now(request: Request, schedule_id: str) -> dict:
+    def run_schedule_now(request: Request, schedule_id: str, background_tasks: BackgroundTasks) -> dict:
         current_user(request)
-        schedule_service.trigger_now(schedule_id)
+        background_tasks.add_task(schedule_service.trigger_now, schedule_id)
         return {"triggered": True}
 
     @r.delete("/api/console/v1/schedules/{schedule_id}")
@@ -229,6 +231,8 @@ def build_console_router(db) -> APIRouter:
         current_user(request)
         if body.frequency is not None and body.frequency not in _VALID_FREQUENCIES:
             raise _err(400, "bad_frequency", f"Unknown cadence: {body.frequency}")
+        if not _TIME_RE.fullmatch(body.time):
+            raise _err(400, "bad_time", "Time must be HH:MM in 24-hour format.")
         if body.kind == "sprint":
             if not body.engagement:
                 raise _err(400, "missing_field", "Pick an engagement for a sprint report schedule.")
@@ -331,7 +335,10 @@ def build_console_router(db) -> APIRouter:
         import shutil
         from bott.shared import config
         shutil.rmtree(f"{config.bott_skills_dir()}/{slug}", ignore_errors=True)
-        sk.reload()
+        # NOTE: this Skills() instance is per-request and discarded right after — reload()
+        # here would be a no-op. Any other long-lived Skills instance elsewhere in the app
+        # (e.g. a scheduled-run agent built once at startup) won't see this retirement until
+        # it's rebuilt. Known limitation — see the plan's post-plan follow-ups.
         return {"retired": True}
 
     @r.post("/api/console/v1/reports/run")
