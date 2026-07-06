@@ -94,3 +94,14 @@ def pending_count() -> int:
             "SELECT COUNT(*) FROM approvals WHERE status='pending'"
         )).fetchone()
     return int(row[0]) if row else 0
+
+
+def pending_all(limit: int = 50) -> list[dict]:
+    """All pending approvals with requester — the console admin view."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT id, user_id, action, summary, created FROM approvals "
+            "WHERE status='pending' ORDER BY id DESC LIMIT :lim"
+        ), {"lim": limit}).fetchall()
+    return [{"id": int(r[0]), "user_id": r[1], "action": r[2], "summary": r[3],
+             "created": r[4]} for r in rows]

@@ -115,6 +115,19 @@ def recent_jobs_for(user_id: str, limit: int = 5) -> list[dict]:
     return [{"id": int(r[0]), "kind": r[1], "status": r[2], "created": r[3]} for r in rows]
 
 
+def job_detail(job_id: int) -> Optional[dict]:
+    """One job, all columns — the console Activity drawer."""
+    with get_engine().connect() as c:
+        row = c.execute(text(
+            "SELECT id, kind, args, user_id, status, attempts, error, created "
+            "FROM jobs WHERE id=:id"), {"id": job_id}).fetchone()
+    if not row:
+        return None
+    return {"id": int(row[0]), "kind": row[1], "args": row[2], "user_id": row[3],
+            "status": row[4], "attempts": int(row[5]), "error": row[6],
+            "created": row[7]}
+
+
 def job_counts() -> dict:
     """Return a mapping of status → count for all jobs."""
     with get_engine().connect() as c:
