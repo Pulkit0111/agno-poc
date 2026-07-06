@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity, Building2, CalendarClock, Check, Grid2x2, Hand, House, Library,
-  ListChecks, LucideIcon, Settings2, Shield, SquareTerminal, Users,
+  ListChecks, LucideIcon, MessageSquareQuote, Settings2, Shield, SquareTerminal, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/lib/use-me";
@@ -25,7 +25,8 @@ const MEMBER: NavItem[] = [
 const ADMIN: NavItem[] = [
   { href: "/admin/models", label: "Models", icon: Settings2 },
   { href: "/admin/engagements", label: "Engagements", icon: Building2 },
-  { href: "/admin/policy", label: "Policy", icon: Shield, soon: true },
+  { href: "/admin/policy", label: "Policy", icon: Shield },
+  { href: "/admin/prompts", label: "Prompts", icon: MessageSquareQuote },
   { href: "/admin/users", label: "Users & roles", icon: Users },
   { href: "/admin/system", label: "System", icon: Check },
 ];

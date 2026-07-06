@@ -11,6 +11,7 @@ const NAMES: Record<string, string> = {
   "/skills": "Skills", "/reports": "Reports", "/connectors": "Connectors",
   "/admin/models": "Models", "/admin/engagements": "Engagements",
   "/admin/users": "Users & roles", "/admin/system": "System",
+  "/admin/policy": "Policy", "/admin/prompts": "Prompts",
 };
 
 export function Topbar() {
