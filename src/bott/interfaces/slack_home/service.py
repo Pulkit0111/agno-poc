@@ -245,6 +245,40 @@ def create_dsm(db: Any, team: str, channel: str, call_time: str, open_offset_min
                                       cron=to_cron(days, postcall_time), timezone=tz)
 
 
+def list_raw(db: Any) -> list[dict]:
+    """One row per raw (non-concierge) Schedule — unlike list_rows(), which merges related
+    schedules (e.g. DSM's 3 phases) into one display card, this is the 1:1 view the console
+    needs for pause/resume/remove-by-id."""
+    mgr = ScheduleManager(db)
+    rows = []
+    for sch in mgr.list():
+        if sch.name.startswith("concierge:"):
+            continue
+        try:
+            meta = json.loads(sch.description or "{}")
+        except (TypeError, ValueError):
+            meta = {}
+        rows.append({
+            "id": sch.id,
+            "label": meta.get("label", sch.name),
+            "kind": meta.get("kind", ""),
+            "channel": meta.get("channel", ""),
+            "cron": sch.cron_expr,
+            "timezone": sch.timezone,
+            "enabled": sch.enabled,
+            "next_run": format_next_run(sch.next_run_at, sch.timezone),
+        })
+    return rows
+
+
+def pause(db: Any, schedule_id: str) -> bool:
+    return ScheduleManager(db).disable(schedule_id) is not None
+
+
+def resume(db: Any, schedule_id: str) -> bool:
+    return ScheduleManager(db).enable(schedule_id) is not None
+
+
 def remove(db: Any, ids: list[str]) -> None:
     mgr = ScheduleManager(db)
     for sid in ids:

@@ -57,3 +57,41 @@ def test_concierge_schedules_excluded_from_home(tmp_path):
     scheduling.create_recurring_task(db, user_id="x@axelerant.com", task_name="brief",
                                      instruction="my items", cron="0 8 * * *")
     assert service.list_rows(db) == []
+
+
+def test_list_raw_excludes_concierge_and_shows_enabled_state(tmp_path):
+    from agno.db.sqlite import SqliteDb
+    from bott.skills import scheduling
+    from bott.interfaces.slack_home import service
+
+    db = SqliteDb(db_file=str(tmp_path / "s.db"))
+    scheduling.create_security_digest(db, channel="#sec", cron="0 9 * * *")
+    scheduling.create_recurring_task(
+        db, user_id="alice@axelerant.com", task_name="brief",
+        instruction="hi", cron="0 8 * * *",
+    )
+    rows = service.list_raw(db)
+    assert len(rows) == 1
+    assert rows[0]["channel"] == "#sec"
+    assert rows[0]["enabled"] is True
+
+
+def test_pause_then_resume_round_trip(tmp_path):
+    from agno.db.sqlite import SqliteDb
+    from bott.skills import scheduling
+    from bott.interfaces.slack_home import service
+
+    db = SqliteDb(db_file=str(tmp_path / "s.db"))
+    sch = scheduling.create_security_digest(db, channel="#sec", cron="0 9 * * *")
+    assert service.pause(db, sch.id) is True
+    assert service.list_raw(db)[0]["enabled"] is False
+    assert service.resume(db, sch.id) is True
+    assert service.list_raw(db)[0]["enabled"] is True
+
+
+def test_pause_missing_schedule_returns_false(tmp_path):
+    from agno.db.sqlite import SqliteDb
+    from bott.interfaces.slack_home import service
+
+    db = SqliteDb(db_file=str(tmp_path / "s.db"))
+    assert service.pause(db, "does-not-exist") is False

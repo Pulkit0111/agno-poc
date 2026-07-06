@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from bott.interfaces.console import oidc, sessions
+from bott.interfaces.slack_home import service as schedule_service
 from bott.shared import approvals, config
 from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import queue
@@ -156,5 +157,36 @@ def build_console_router(db) -> APIRouter:
         if row["user_id"] != user["email"] and not user["is_admin"]:
             raise _err(403, "not_yours", "Only the requester or an admin can view this run.")
         return row
+
+    @r.get("/api/console/v1/schedules")
+    def list_schedules(request: Request) -> dict:
+        current_user(request)
+        return {"schedules": schedule_service.list_raw(db)}
+
+    @r.post("/api/console/v1/schedules/{schedule_id}/pause")
+    def pause_schedule(request: Request, schedule_id: str) -> dict:
+        current_user(request)
+        if not schedule_service.pause(db, schedule_id):
+            raise _err(404, "not_found", "That schedule doesn't exist.")
+        return {"enabled": False}
+
+    @r.post("/api/console/v1/schedules/{schedule_id}/resume")
+    def resume_schedule(request: Request, schedule_id: str) -> dict:
+        current_user(request)
+        if not schedule_service.resume(db, schedule_id):
+            raise _err(404, "not_found", "That schedule doesn't exist.")
+        return {"enabled": True}
+
+    @r.post("/api/console/v1/schedules/{schedule_id}/run-now")
+    def run_schedule_now(request: Request, schedule_id: str) -> dict:
+        current_user(request)
+        schedule_service.trigger_now(schedule_id)
+        return {"triggered": True}
+
+    @r.delete("/api/console/v1/schedules/{schedule_id}")
+    def delete_schedule(request: Request, schedule_id: str) -> dict:
+        current_user(request)
+        schedule_service.remove(db, [schedule_id])
+        return {"deleted": True}
 
     return r
