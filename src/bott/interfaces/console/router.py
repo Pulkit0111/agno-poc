@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from bott.interfaces.console import oidc, sessions
 from bott.interfaces.slack_home import service as schedule_service
-from bott.shared import approvals, config
+from bott.shared import action_policy, approvals, config
 from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import action_items, queue
 from bott.skills import channel_map
@@ -118,6 +118,18 @@ class ConnectCodexBody(BaseModel):
 class EngagementMapBody(BaseModel):
     channel_id: str
     engagement: str
+
+
+class PolicyOverrideBody(BaseModel):
+    system: str
+    method: str
+    verdict: str
+    reason: str
+
+
+class ClassifyBody(BaseModel):
+    system: str
+    method: str
 
 
 def build_console_router(db) -> APIRouter:
@@ -574,5 +586,43 @@ def build_console_router(db) -> APIRouter:
         vid = prompts_store.save_version(
             name, target["content"], f"Reverted to version {version_id}", user["email"], time.time())
         return {"id": vid}
+
+    @r.get("/api/console/v1/policy/overrides")
+    def list_policy_overrides(request: Request) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared import policy_overrides
+        return {"overrides": policy_overrides.list_overrides()}
+
+    @r.post("/api/console/v1/policy/overrides")
+    def set_policy_override(request: Request, body: PolicyOverrideBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        if body.verdict not in ("allow", "gate", "deny"):
+            raise _err(400, "bad_verdict", f"Unknown verdict: {body.verdict}")
+        from bott.shared import policy_overrides
+        policy_overrides.set_override(body.system, body.method, body.verdict, body.reason, user["email"])
+        return {"set": True}
+
+    @r.delete("/api/console/v1/policy/overrides/{system}/{method}")
+    def remove_policy_override(request: Request, system: str, method: str) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared import policy_overrides
+        policy_overrides.remove_override(system, method)
+        return {"removed": True}
+
+    @r.post("/api/console/v1/policy/classify")
+    def classify_route(request: Request, body: ClassifyBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        decision = action_policy.classify(body.system, body.method)
+        return {"verdict": decision.verdict, "reason": decision.reason}
+
+    @r.get("/api/console/v1/policy/repos")
+    def list_allowed_repos(request: Request) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        return {"repos": sorted(config.allowed_post_repos())}
 
     return r
