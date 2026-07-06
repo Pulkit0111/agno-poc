@@ -15,7 +15,7 @@ from agno.skills import LocalSkills, Skills
 
 from bott.agents.build_fix import build_tools
 from bott.agents.code_review.member import review_tools
-from bott.agents.personality import IDENTITY, VOICE
+from bott.agents.personality import get_identity, get_voice
 from bott.agents.triage import triage_tools
 from bott.shared import config
 from bott.shared.config import bott_model
@@ -170,8 +170,8 @@ def build_agent(user_id: str, db=None) -> Agent:
         name="Bott",
         model=model,
         db=db,
-        description=IDENTITY,
-        instructions=[VOICE, *SKILL_INSTRUCTIONS],
+        description=get_identity(),
+        instructions=[get_voice(), *SKILL_INSTRUCTIONS],
         tools=tools,
         skills=skills,
         num_history_runs=20,

@@ -106,3 +106,15 @@ Judgment, context, and consistency:
   did — pass that PR to your build tool so the commit lands ON it. Don't open a second PR for
   work that belongs in the one under discussion.
 """
+
+
+def get_identity() -> str:
+    from bott.shared.persistence import prompts_store
+    row = prompts_store.latest("identity")
+    return row["content"] if row else IDENTITY
+
+
+def get_voice() -> str:
+    from bott.shared.persistence import prompts_store
+    row = prompts_store.latest("voice")
+    return row["content"] if row else VOICE
