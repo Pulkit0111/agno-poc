@@ -17,6 +17,7 @@ from bott.interfaces.slack_home import service as schedule_service
 from bott.shared import approvals, config
 from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import action_items, queue
+from bott.skills import channel_map
 
 log = get_logger("bott.console")
 
@@ -105,6 +106,11 @@ class ModelOverrideBody(BaseModel):
 
 class ConnectCodexBody(BaseModel):
     auth_json: str
+
+
+class EngagementMapBody(BaseModel):
+    channel_id: str
+    engagement: str
 
 
 def build_console_router(db) -> APIRouter:
@@ -436,5 +442,34 @@ def build_console_router(db) -> APIRouter:
         from bott.interfaces.slack_home import models as models_mod
         message = models_mod.connect_codex(user["email"], body.auth_json)
         return {"message": message}
+
+    @r.get("/api/console/v1/engagements")
+    def list_engagements(request: Request) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        mappings = channel_map.list_all()
+        schedules = schedule_service.list_raw(db)
+        counts: dict[str, int] = {}
+        for sch in schedules:
+            counts[sch["channel"]] = counts.get(sch["channel"], 0) + 1
+        return {"engagements": [
+            {**m, "schedule_count": counts.get(m["channel_id"], 0)} for m in mappings
+        ]}
+
+    @r.post("/api/console/v1/engagements")
+    def map_engagement(request: Request, body: EngagementMapBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared.persistence.records import set_setting
+        set_setting(channel_map._KEY.format(body.channel_id), body.engagement)
+        return {"mapped": True}
+
+    @r.delete("/api/console/v1/engagements/{channel_id}")
+    def unmap_engagement(request: Request, channel_id: str) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared.persistence.records import set_setting
+        set_setting(channel_map._KEY.format(channel_id), "")
+        return {"unmapped": True}
 
     return r
