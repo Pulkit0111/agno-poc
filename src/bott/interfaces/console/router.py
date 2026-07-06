@@ -472,4 +472,15 @@ def build_console_router(db) -> APIRouter:
         set_setting(channel_map._KEY.format(channel_id), "")
         return {"unmapped": True}
 
+    @r.get("/api/console/v1/users")
+    def list_users(request: Request) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared.persistence import records
+        admins = config.bott_admins()
+        return {"users": [
+            {**row, "is_admin": row["user_id"].lower() in admins}
+            for row in records.list_known_users()
+        ]}
+
     return r
