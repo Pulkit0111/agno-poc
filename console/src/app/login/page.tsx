@@ -11,7 +11,11 @@ export default function LoginPage() {
         <p className="mt-2 text-sm text-muted-foreground">
           Manage your approvals, schedules, skills and more. Conversations stay in Slack.
         </p>
-        <Button render={<a href="/api/console/auth/login" />} className="mt-6 w-full">
+        <Button
+          render={<a href="/api/console/auth/login" />}
+          nativeButton={false}
+          className="mt-6 w-full"
+        >
           Continue with Slack
         </Button>
         <p className="mt-4 text-xs text-muted-foreground">

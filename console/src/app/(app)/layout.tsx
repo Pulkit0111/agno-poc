@@ -3,11 +3,13 @@ import { Topbar } from "@/components/shell/topbar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex h-full min-w-0 flex-1 flex-col">
         <Topbar />
-        <main className="mx-auto w-full max-w-5xl flex-1 p-6">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-5xl p-6">{children}</div>
+        </main>
       </div>
     </div>
   );

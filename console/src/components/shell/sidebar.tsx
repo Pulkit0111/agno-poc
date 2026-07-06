@@ -70,7 +70,7 @@ export function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
 export function Sidebar() {
   const { data: me } = useMe();
   return (
-    <aside className="flex w-56 flex-none flex-col gap-2 border-r bg-card p-3">
+    <aside className="flex h-full w-56 flex-none flex-col gap-2 overflow-y-auto border-r bg-card p-3">
       <div className="flex items-center gap-2.5 px-2 pb-3">
         <div className="grid size-7 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">B</div>
         <div className="leading-tight">
