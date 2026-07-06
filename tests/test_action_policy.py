@@ -6,6 +6,8 @@ human approval; destructive/identity-risk actions are denied with a reason.
 
 from __future__ import annotations
 
+import pytest
+
 from bott.shared.action_policy import Decision, classify
 
 
@@ -97,3 +99,44 @@ def test_http_private_hosts_denied():
 def test_decision_dataclass_shape():
     d = classify("slack", "chat.postMessage")
     assert isinstance(d, Decision) and d.verdict in ("allow", "gate", "deny")
+
+
+# ---- Overrides ---------------------------------------------------------------
+#
+# classify() now checks policy_overrides.get_override() first, which reads through
+# records.get_setting() — a real DB call. Give these two tests (only) an isolated,
+# freshly-initialized DB per test so they don't touch a developer's real agentos.db,
+# don't depend on other test files having already initialized an engine, and don't
+# leak an override from one test into the other.
+
+@pytest.fixture
+def _tmp_db(tmp_path, monkeypatch):
+    import os
+    from bott.shared import db
+    from bott.shared.schema import init_schema
+    url = os.getenv("TEST_DATABASE_URL")
+    if url:
+        monkeypatch.setenv("DATABASE_URL", url)
+    else:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("AGENTOS_DB_PATH", str(tmp_path / "agentos.db"))
+    db.get_engine(fresh=True)
+    init_schema()
+
+
+def test_classify_override_takes_precedence(_tmp_db):
+    from bott.shared import action_policy, policy_overrides
+    # Known default-allow case (same as test_github_get_always_allowed above) — override it
+    # to deny and confirm the override wins over the hardcoded "GET is always allowed" rule.
+    policy_overrides.set_override("github", "GET", "deny", "test override", "a@x.com")
+    decision = action_policy.classify("github", "GET", path="/repos/o/r/pulls/1")
+    assert decision.verdict == "deny"
+    assert "override" in decision.reason
+
+
+def test_classify_falls_through_when_no_override(_tmp_db):
+    from bott.shared import action_policy
+    # Same call, WITHOUT setting an override — must still allow, matching
+    # test_github_get_always_allowed's existing assertion.
+    decision = action_policy.classify("github", "GET", path="/repos/o/r/pulls/1")
+    assert decision.verdict == "allow"

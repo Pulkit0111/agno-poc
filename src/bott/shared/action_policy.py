@@ -162,6 +162,10 @@ def classify(system: str, method: str, *, path: str = "", url: str = "",
     """Classify one attempted action. `system` ∈ slack|github|atlassian|http.
     For slack, `method` is the Web API method name; for github/atlassian it's the HTTP verb
     (with `path`); for http it's the verb (with `url`)."""
+    from bott.shared.policy_overrides import get_override
+    override = get_override(system, method)
+    if override:
+        return Decision(verdict=override["verdict"], reason=f"override: {override['reason']}")
     s = (system or "").lower()
     if s == "slack":
         return _classify_slack(method)
