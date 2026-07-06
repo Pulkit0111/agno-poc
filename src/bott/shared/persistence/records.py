@@ -271,6 +271,48 @@ def trace_stats(since_epoch: Optional[float] = None) -> dict:
     }
 
 
+def trace_stats_by_week(since_epoch: Optional[float] = None) -> dict[str, dict[str, int]]:
+    """Per-week x per-verdict counts over review_traces, for the System review-trend chart.
+
+    Same table (review_traces), same columns (created, final_verdict), and the same
+    ISO-week bucketing as trace_stats's by_week field — just additionally grouped by
+    final_verdict. Summing the inner dict for a week reproduces trace_stats's by_week
+    total for that week.
+
+    Args:
+        since_epoch: If provided, only rows with created >= since_epoch are counted.
+
+    Returns:
+        {"YYYY-Www": {final_verdict: count, ...}, ...}, sorted by week ascending.
+    """
+    import datetime
+
+    params: dict = {}
+    where = ""
+    if since_epoch is not None:
+        where = "WHERE created >= :since"
+        params["since"] = since_epoch
+
+    with get_engine().begin() as c:
+        rows = c.execute(
+            text(f"SELECT created, final_verdict FROM review_traces {where}"),  # noqa: S608
+            params,
+        ).fetchall()
+
+    # Bucket into ISO weeks client-side (same approach as trace_stats's by_week)
+    by_week: dict[str, dict[str, int]] = {}
+    for created, verdict in rows:
+        if created is None:
+            continue
+        dt = datetime.datetime.fromtimestamp(float(created), tz=datetime.timezone.utc)
+        week_key = dt.strftime("%G-W%V")  # ISO year + ISO week, e.g. "2026-W27"
+        verdict_key = verdict or "unknown"
+        week_bucket = by_week.setdefault(week_key, {})
+        week_bucket[verdict_key] = week_bucket.get(verdict_key, 0) + 1
+
+    return dict(sorted(by_week.items()))
+
+
 # ---------------------------------------------------------------------------
 # Known users
 # ---------------------------------------------------------------------------

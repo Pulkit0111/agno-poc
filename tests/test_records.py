@@ -128,6 +128,53 @@ def test_latest_trace_for_thread_unknown_returns_none(store):
     assert records.latest_trace_for_thread("CNOPE", "tNOPE") is None
 
 
+def test_trace_stats_by_week_sums_match_trace_stats_by_week(store):
+    """trace_stats_by_week's per-verdict counts must sum to trace_stats's by_week totals,
+    for every week bucket, using the same table/columns/week-bucketing as trace_stats."""
+    import time
+
+    from sqlalchemy import text
+
+    now = time.time()
+
+    def _insert_with_created(final_verdict, created):
+        with db.get_engine().begin() as c:
+            c.execute(
+                text(
+                    "INSERT INTO review_traces"
+                    "(channel, thread_ts, owner, name, pr_number, "
+                    "original_verdict, final_verdict, output_json, gate_json, created) "
+                    "VALUES (:ch, :ts, :ow, :nm, :pr, :ov, :fv, :oj, :gj, :cr)"
+                ),
+                {
+                    "ch": "C1",
+                    "ts": f"t-{final_verdict}-{created}",
+                    "ow": "org",
+                    "nm": "repo",
+                    "pr": 1,
+                    "ov": None,
+                    "fv": final_verdict,
+                    "oj": "{}",
+                    "gj": "{}",
+                    "cr": created,
+                },
+            )
+
+    # Two different verdicts in the current week
+    _insert_with_created("approve", now)
+    _insert_with_created("issues", now)
+    # One trace ~30 days earlier -> a different ISO week
+    _insert_with_created("suggestions", now - 30 * 86400)
+
+    flat = records.trace_stats()["by_week"]
+    by_week_verdict = records.trace_stats_by_week()
+
+    assert len(flat) >= 2  # sanity: we actually spread across 2+ weeks
+    assert set(by_week_verdict.keys()) == set(flat.keys())
+    for week, total in flat.items():
+        assert sum(by_week_verdict[week].values()) == total
+
+
 def test_latest_trace_returns_newest(store):
     records.save_trace(
         channel="C3", thread_ts="t3", owner="o", name="r", pr_number=1,
