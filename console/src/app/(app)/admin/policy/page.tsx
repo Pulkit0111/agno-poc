@@ -71,7 +71,7 @@ export default function PolicyPage() {
         <Button
           disabled={!system || !method || !reason || setOverride.isPending}
           onClick={() => setOverride.mutate({ system, method, verdict, reason }, {
-            onSuccess: () => { setSystem(""); setMethod(""); setReason(""); },
+            onSuccess: () => { setSystem(""); setMethod(""); setReason(""); setVerdict("gate"); },
           })}
         >
           Set override
