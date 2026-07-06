@@ -137,6 +137,21 @@ ACTION_ITEMS = Table(
 Index("idx_action_items_user_status", ACTION_ITEMS.c.user_id, ACTION_ITEMS.c.status)
 
 
+# Versioned prompt store (prompts_store.py owns the DML). Append-only history of
+# IDENTITY/VOICE prompt edits; each save is a new row, never mutated in place.
+PROMPT_VERSIONS = Table(
+    "prompt_versions",
+    METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("prompt_name", Text, nullable=False),  # "identity" | "voice"
+    Column("content", Text, nullable=False),
+    Column("note", Text),
+    Column("author", Text, nullable=False),
+    Column("created", Float, nullable=False),
+)
+Index("idx_prompt_versions_name", PROMPT_VERSIONS.c.prompt_name, PROMPT_VERSIONS.c.id)
+
+
 def init_schema(engine=None) -> None:
     """Create all foundation tables if absent (idempotent). The dev/test fast path;
     production schema EVOLUTION goes through Alembic, which targets this same METADATA."""
