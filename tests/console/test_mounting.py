@@ -1,7 +1,5 @@
 """The mounting rule, tested without booting the whole AgentOS app: the helper
 decides from env whether the console router should mount."""
-import pytest
-
 from bott.interfaces.console.router import should_mount_console
 
 

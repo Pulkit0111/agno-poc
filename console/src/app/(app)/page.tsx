@@ -21,7 +21,7 @@ function Tile({ label, value, hint, href }: { label: string; value: number | str
 
 function JobIcon({ status }: { status: string }) {
   if (status === "done") return <CircleCheck className="size-3.5 text-green-600 dark:text-green-400" />;
-  if (status === "error") return <CircleX className="size-3.5 text-red-600 dark:text-red-400" />;
+  if (status === "failed") return <CircleX className="size-3.5 text-red-600 dark:text-red-400" />;
   return <LoaderCircle className="size-3.5 animate-spin text-amber-600 dark:text-amber-400" />;
 }
 

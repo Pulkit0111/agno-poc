@@ -47,3 +47,9 @@ def test_create_request_stores_payload(store):
 
 def test_get_request_missing_returns_none(store):
     assert approvals.get_request(999999) is None
+
+
+def test_decide_returns_true_once_then_false(store):
+    aid = approvals.create_request("u", "x", "y")
+    assert approvals.decide(aid, approved=True, decided_by="u") is True
+    assert approvals.decide(aid, approved=True, decided_by="u") is False

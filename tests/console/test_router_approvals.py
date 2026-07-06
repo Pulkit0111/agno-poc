@@ -56,7 +56,7 @@ def test_decision_approve_dispatches_api(client, monkeypatch):
     seen = {}
     monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: dict(ROW))
     monkeypatch.setattr(router_mod.approvals, "decide",
-                        lambda i, approved, decided_by: seen.update(d=(i, approved, decided_by)))
+                        lambda i, approved, decided_by: seen.update(d=(i, approved, decided_by)) or True)
     monkeypatch.setattr(router_mod, "_dispatch_api", lambda i: seen.update(api=i))
     _as(client, "m@x.com")
     r = client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
@@ -69,7 +69,7 @@ def test_decision_approve_build_dispatches_build(client, monkeypatch):
     row = dict(ROW, action="build:moodflix")
     seen = {}
     monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: row)
-    monkeypatch.setattr(router_mod.approvals, "decide", lambda *a, **k: None)
+    monkeypatch.setattr(router_mod.approvals, "decide", lambda *a, **k: True)
     monkeypatch.setattr(router_mod, "_dispatch_build", lambda i: seen.update(build=i))
     _as(client, "m@x.com")
     client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
@@ -89,3 +89,18 @@ def test_decision_missing_is_404(client, monkeypatch):
     monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: None)
     _as(client, "m@x.com")
     assert client.post("/api/console/v1/approvals/9/decision", json={"approve": True}).status_code == 404
+
+
+def test_decision_race_lost_is_409_and_no_dispatch(client, monkeypatch):
+    # Row still looks pending when read, but the UPDATE flips zero rows (someone
+    # else won the race) — decide() returning False must block dispatch.
+    seen = {}
+    monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: dict(ROW))
+    monkeypatch.setattr(router_mod.approvals, "decide", lambda *a, **k: False)
+    monkeypatch.setattr(router_mod, "_dispatch_api", lambda i: seen.update(api=i))
+    monkeypatch.setattr(router_mod, "_dispatch_build", lambda i: seen.update(build=i))
+    _as(client, "m@x.com")
+    r = client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"]["code"] == "already_decided"
+    assert seen == {}

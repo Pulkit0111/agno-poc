@@ -15,6 +15,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (res.ok) return res.json() as Promise<T>;
   if (res.status === 401 && typeof window !== "undefined") {
+    try { await fetch("/api/console/auth/logout", { method: "POST" }); } catch { /* best effort */ }
     window.location.href = "/login";
   }
   let code = "unknown";

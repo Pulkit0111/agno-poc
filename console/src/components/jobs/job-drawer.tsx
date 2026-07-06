@@ -16,7 +16,7 @@ function pretty(s?: string): string {
 
 const STATUS_STYLE: Record<string, string> = {
   done: "text-green-700 dark:text-green-400 border-green-600/30",
-  error: "text-red-700 dark:text-red-400 border-red-600/30",
+  failed: "text-red-700 dark:text-red-400 border-red-600/30",
   running: "text-amber-700 dark:text-amber-400 border-amber-600/30",
   pending: "text-muted-foreground",
 };

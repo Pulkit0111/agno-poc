@@ -7,7 +7,7 @@ import os
 import secrets
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from bott.interfaces.console import oidc, sessions
@@ -89,8 +89,8 @@ def build_console_router() -> APIRouter:
         return resp
 
     @r.post("/api/console/auth/logout")
-    def logout() -> JSONResponse:
-        resp = JSONResponse({"ok": True})
+    def logout() -> RedirectResponse:
+        resp = RedirectResponse("/login", status_code=303)
         resp.delete_cookie(sessions.COOKIE_NAME)
         return resp
 
@@ -128,7 +128,8 @@ def build_console_router() -> APIRouter:
             raise _err(403, "not_yours", "Only the requester or an admin can decide this.")
         if row["status"] != "pending":
             raise _err(409, "already_decided", f"Already {row['status']}.")
-        approvals.decide(approval_id, approved=body.approve, decided_by=user["email"])
+        if not approvals.decide(approval_id, approved=body.approve, decided_by=user["email"]):
+            raise _err(409, "already_decided", "Someone else just decided this.")
         action = str(row.get("action", ""))
         if body.approve:
             if action.startswith(("build:", "triage:")):

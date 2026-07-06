@@ -10,7 +10,7 @@ import { relativeTime } from "@/lib/time";
 import { useJobs } from "@/lib/use-jobs";
 import { useMe } from "@/lib/use-me";
 
-const FILTERS = ["all", "running", "done", "error"] as const;
+const FILTERS = ["all", "running", "done", "failed"] as const;
 
 function ActivityInner() {
   const router = useRouter();
@@ -18,7 +18,9 @@ function ActivityInner() {
   const { data: me } = useMe();
   const scope = (params.get("scope") === "all" && me?.is_admin ? "all" : "mine") as "mine" | "all";
   const status = params.get("status") ?? "all";
-  const selected = params.get("id") ? Number(params.get("id")) : null;
+  const rawId = params.get("id");
+  const parsedId = rawId === null ? NaN : Number(rawId);
+  const selected = Number.isFinite(parsedId) ? parsedId : null;
   const { data: jobs, isLoading } = useJobs(scope, 50);
   const visible = jobs?.filter((j) => status === "all" || j.status === status);
 

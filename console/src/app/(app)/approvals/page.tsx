@@ -14,7 +14,9 @@ function ApprovalsInner() {
   const params = useSearchParams();
   const { data: me } = useMe();
   const scope = (params.get("scope") === "all" && me?.is_admin ? "all" : "mine") as "mine" | "all";
-  const selected = params.get("id") ? Number(params.get("id")) : null;
+  const rawId = params.get("id");
+  const parsedId = rawId === null ? NaN : Number(rawId);
+  const selected = Number.isFinite(parsedId) ? parsedId : null;
   const { data: approvals, isLoading } = useApprovals(scope);
   const decide = useDecide();
 

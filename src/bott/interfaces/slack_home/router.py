@@ -387,12 +387,12 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                 thread_ts = msg.get("thread_ts") or msg.get("ts")
                 if approval_id_str and user_id:
                     try:
-                        approvals.decide(
+                        flipped = approvals.decide(
                             int(approval_id_str),
                             approved=(cmd == "approval_approve"),
                             decided_by=user_id,
                         )
-                        if cmd == "approval_approve":
+                        if flipped and cmd == "approval_approve":
                             dispatch_approved_build(int(approval_id_str))
                             # Gated general-primitive actions (api:slack / api:github / ...):
                             # execute the stored call and post the result (no-op otherwise).

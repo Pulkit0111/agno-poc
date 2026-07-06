@@ -37,7 +37,10 @@ def get_request(approval_id: int) -> dict | None:
         return dict(row._mapping) if row else None
 
 
-def decide(approval_id: int, approved: bool, decided_by: str) -> None:
+def decide(approval_id: int, approved: bool, decided_by: str) -> bool:
+    """Flip a pending approval to approved/dismissed. Returns True if this call
+    actually flipped the row (False if it was already decided or doesn't exist) —
+    callers use this to gate dispatch so a double-click never double-dispatches."""
     with get_engine().begin() as c:
         res = c.execute(text(
             "UPDATE approvals SET status=:st, decided_by=:by "
@@ -45,6 +48,7 @@ def decide(approval_id: int, approved: bool, decided_by: str) -> None:
         ), {"st": "approved" if approved else "dismissed", "by": decided_by, "id": approval_id})
         if res.rowcount == 0:
             log.warning("approval %s not updated (not found or already decided)", approval_id)
+        return res.rowcount > 0
 
 
 def status(approval_id: int) -> str:

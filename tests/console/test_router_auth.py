@@ -74,6 +74,7 @@ def test_me_returns_identity(client):
 def test_logout_clears_cookie(client):
     client.cookies.update(_login_cookie())
     r = client.post("/api/console/auth/logout")
-    assert r.status_code == 200
+    assert r.status_code == 303
+    assert r.headers["location"] == "/login"
     # deletion arrives as a Set-Cookie with empty value
     assert f'{sessions.COOKIE_NAME}=""' in r.headers.get("set-cookie", "")
