@@ -98,6 +98,15 @@ class ReportRunBody(BaseModel):
     team: str | None = None
 
 
+class ModelOverrideBody(BaseModel):
+    key: str
+    value: str
+
+
+class ConnectCodexBody(BaseModel):
+    auth_json: str
+
+
 def build_console_router(db) -> APIRouter:
     r = APIRouter()
 
@@ -385,5 +394,47 @@ def build_console_router(db) -> APIRouter:
         current_user(request)
         from bott.interfaces.slack_home.connectors_panel import connector_statuses
         return {"connectors": connector_statuses()}
+
+    @r.get("/api/console/v1/models")
+    def get_models(request: Request) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.interfaces.slack_home import models as models_mod
+        from bott.shared.model import _review_anti_affinity
+        active = models_mod._active()
+        provider = active["provider"]
+        conflict = active["review"] == active["build"]
+        swap_preview = None
+        if conflict:
+            alt = _review_anti_affinity(active["review"], provider)
+            swap_preview = alt if alt != active["review"] else None
+        providers = []
+        for name in ("codex", "openrouter", "bedrock"):
+            usable, hint = models_mod.provider_key_status(name)
+            providers.append({
+                "name": name, "usable": usable, "hint": hint,
+                "models": models_mod.available_models(name) if usable else [],
+            })
+        return {
+            "provider": provider, "chat": active["chat"], "build": active["build"],
+            "review": active["review"], "conflict": conflict, "swap_preview": swap_preview,
+            "providers": providers,
+        }
+
+    @r.post("/api/console/v1/models")
+    def set_model_override(request: Request, body: ModelOverrideBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.interfaces.slack_home import models as models_mod
+        message = models_mod.apply_model_override(user["email"], body.key, body.value)
+        return {"message": message}
+
+    @r.post("/api/console/v1/models/connect-codex")
+    def connect_codex_route(request: Request, body: ConnectCodexBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.interfaces.slack_home import models as models_mod
+        message = models_mod.connect_codex(user["email"], body.auth_json)
+        return {"message": message}
 
     return r
