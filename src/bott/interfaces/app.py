@@ -133,7 +133,7 @@ if _slack_signing and _slack_token:
 from bott.interfaces.console.router import build_console_router, should_mount_console  # noqa: E402
 
 if should_mount_console():
-    app.include_router(build_console_router())
+    app.include_router(build_console_router(_db))
     log.info("Console API mounted at /api/console.")
 else:
     log.info("Console API NOT mounted — set CONSOLE_SESSION_SECRET to enable.")

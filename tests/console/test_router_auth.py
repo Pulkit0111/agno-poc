@@ -16,9 +16,11 @@ def _env(monkeypatch):
 
 
 @pytest.fixture()
-def client():
+def client(tmp_path):
+    from agno.db.sqlite import SqliteDb
     app = FastAPI()
-    app.include_router(build_console_router())
+    db = SqliteDb(db_file=str(tmp_path / "console-test.db"))
+    app.include_router(build_console_router(db))
     return TestClient(app, follow_redirects=False)
 
 

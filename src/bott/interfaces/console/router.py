@@ -60,7 +60,7 @@ class DecisionBody(BaseModel):
     approve: bool
 
 
-def build_console_router() -> APIRouter:
+def build_console_router(db) -> APIRouter:
     r = APIRouter()
 
     @r.get("/api/console/auth/login")
