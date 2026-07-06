@@ -1,9 +1,11 @@
+import { CommandPalette } from "@/components/command-palette";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden">
+      <CommandPalette />
       <Sidebar />
       <div className="flex h-full min-w-0 flex-1 flex-col">
         <Topbar />
