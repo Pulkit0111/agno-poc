@@ -79,6 +79,16 @@ class ScheduleCreateBody(BaseModel):
     band: str | None = None
 
 
+def _skills():
+    from agno.skills import LocalSkills, Skills
+    from bott.shared import config
+    return Skills(loaders=[LocalSkills(config.bott_skills_dir())])
+
+
+class PinBody(BaseModel):
+    pinned: bool
+
+
 def build_console_router(db) -> APIRouter:
     r = APIRouter()
 
@@ -257,5 +267,64 @@ def build_console_router(db) -> APIRouter:
         if not action_items.snooze_item(user["email"], item_id, remind_at, now):
             raise _err(404, "not_found", "That action item doesn't exist or isn't yours.")
         return {"status": "snoozed", "remind_at": remind_at}
+
+    @r.get("/api/console/v1/skills")
+    def list_skills_route(request: Request) -> dict:
+        current_user(request)
+        from bott.shared.persistence import skills_store
+        sk = _skills()
+        rows = []
+        for name in sk.get_skill_names():
+            skill = sk.get_skill(name)
+            row = skill.to_dict()
+            db_row = skills_store.get_skill(name)
+            row["built_in"] = db_row is None
+            row["pinned"] = bool(db_row["pinned"]) if db_row else False
+            row["authored_by"] = db_row["authored_by"] if db_row else None
+            rows.append(row)
+        return {"skills": rows}
+
+    @r.get("/api/console/v1/skills/{slug}")
+    def skill_detail_route(request: Request, slug: str) -> dict:
+        current_user(request)
+        from bott.shared.persistence import skills_store
+        sk = _skills()
+        skill = sk.get_skill(slug)
+        if not skill:
+            raise _err(404, "not_found", "That skill doesn't exist.")
+        row = skill.to_dict()
+        db_row = skills_store.get_skill(slug)
+        row["built_in"] = db_row is None
+        row["pinned"] = bool(db_row["pinned"]) if db_row else False
+        row["authored_by"] = db_row["authored_by"] if db_row else None
+        return row
+
+    @r.post("/api/console/v1/skills/{slug}/pin")
+    def pin_skill_route(request: Request, slug: str, body: PinBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared.persistence import skills_store
+        if not skills_store.set_pinned(slug, body.pinned):
+            raise _err(404, "not_found", "That skill doesn't exist or isn't authored — built-ins can't be pinned.")
+        return {"pinned": body.pinned}
+
+    @r.post("/api/console/v1/skills/{slug}/retire")
+    def retire_skill_route(request: Request, slug: str) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared.persistence import skills_store
+        sk = _skills()
+        if slug in sk.get_skill_names() and skills_store.get_skill(slug) is None:
+            raise _err(400, "builtin_protected", "Built-in skills can't be retired.")
+        db_row = skills_store.get_skill(slug)
+        if db_row and db_row.get("pinned"):
+            raise _err(400, "pinned_protected", "Unpin this skill before retiring it.")
+        if not skills_store.delete_skill(slug):
+            raise _err(404, "not_found", "That skill doesn't exist.")
+        import shutil
+        from bott.shared import config
+        shutil.rmtree(f"{config.bott_skills_dir()}/{slug}", ignore_errors=True)
+        sk.reload()
+        return {"retired": True}
 
     return r
