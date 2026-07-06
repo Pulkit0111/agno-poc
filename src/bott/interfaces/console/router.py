@@ -28,6 +28,11 @@ def _secure() -> bool:
     return os.getenv("CONSOLE_BASE_URL", "").startswith("https://")
 
 
+def should_mount_console() -> bool:
+    """Console mounts only when a session secret exists — no secret, no cookies."""
+    return bool(os.getenv("CONSOLE_SESSION_SECRET"))
+
+
 def current_user(request: Request) -> dict:
     claims = sessions.verify_session(request.cookies.get(sessions.COOKIE_NAME, ""))
     if not claims:

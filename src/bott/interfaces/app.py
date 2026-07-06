@@ -128,6 +128,16 @@ if _slack_signing and _slack_token:
 
     app.include_router(build_slack_home_router(_db, _slack_token, _slack_signing))
 
+# Web console API (Next.js console app talks to /api/console/*). Env-gated on a session
+# secret — no secret, no cookies, so we don't mount an auth surface that can't sign anything.
+from bott.interfaces.console.router import build_console_router, should_mount_console  # noqa: E402
+
+if should_mount_console():
+    app.include_router(build_console_router())
+    log.info("Console API mounted at /api/console.")
+else:
+    log.info("Console API NOT mounted — set CONSOLE_SESSION_SECRET to enable.")
+
 
 def main() -> None:
     # Start the model backend BEFORE serving. (AgentOS owns the FastAPI lifespan, so
