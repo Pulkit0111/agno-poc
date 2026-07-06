@@ -370,4 +370,10 @@ def build_console_router(db) -> APIRouter:
             return {"result": post_call_summary(body.team, body.channel)}
         raise _err(400, "bad_kind", f"Unknown report kind: {body.kind}")
 
+    @r.get("/api/console/v1/connectors")
+    def list_connectors_route(request: Request) -> dict:
+        current_user(request)
+        from bott.interfaces.slack_home.connectors_panel import connector_statuses
+        return {"connectors": connector_statuses()}
+
     return r
