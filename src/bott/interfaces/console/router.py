@@ -23,6 +23,13 @@ log = get_logger("bott.console")
 
 _STATE_COOKIE = "oidc_state"
 
+_PROMPT_NAMES = {"identity", "voice"}
+
+
+class PromptSaveBody(BaseModel):
+    content: str
+    note: str
+
 
 def _err(code: int, slug: str, message: str) -> HTTPException:
     return HTTPException(code, detail={"error": {"code": slug, "message": message}})
@@ -528,5 +535,44 @@ def build_console_router(db) -> APIRouter:
         from bott.shared.persistence import records
         since = time.time() - days * 86400
         return {"by_week": records.trace_stats_by_week(since_epoch=since)}
+
+    @r.get("/api/console/v1/prompts/{name}")
+    def get_prompt(request: Request, name: str) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        if name not in _PROMPT_NAMES:
+            raise _err(400, "bad_name", f"Unknown prompt: {name}")
+        from bott.agents import personality
+        from bott.shared.persistence import prompts_store
+        fallback = personality.IDENTITY if name == "identity" else personality.VOICE
+        latest = prompts_store.latest(name)
+        return {
+            "current": latest["content"] if latest else fallback,
+            "versions": prompts_store.list_versions(name),
+        }
+
+    @r.post("/api/console/v1/prompts/{name}")
+    def save_prompt(request: Request, name: str, body: PromptSaveBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        if name not in _PROMPT_NAMES:
+            raise _err(400, "bad_name", f"Unknown prompt: {name}")
+        from bott.shared.persistence import prompts_store
+        vid = prompts_store.save_version(name, body.content, body.note, user["email"], time.time())
+        return {"id": vid}
+
+    @r.post("/api/console/v1/prompts/{name}/revert/{version_id}")
+    def revert_prompt(request: Request, name: str, version_id: int) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        if name not in _PROMPT_NAMES:
+            raise _err(400, "bad_name", f"Unknown prompt: {name}")
+        from bott.shared.persistence import prompts_store
+        target = prompts_store.get_version(version_id)
+        if not target or target["prompt_name"] != name:
+            raise _err(404, "not_found", "That version doesn't exist.")
+        vid = prompts_store.save_version(
+            name, target["content"], f"Reverted to version {version_id}", user["email"], time.time())
+        return {"id": vid}
 
     return r
