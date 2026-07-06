@@ -31,12 +31,12 @@ def test_list_requires_admin(client):
 def test_set_then_list_then_remove(client):
     _as(client)
     assert client.post("/api/console/v1/policy/overrides", json={
-        "system": "jira", "method": "PUT", "verdict": "gate", "reason": "careful",
+        "system": "atlassian", "method": "PUT", "verdict": "gate", "reason": "careful",
     }).json() == {"set": True}
     rows = client.get("/api/console/v1/policy/overrides").json()["overrides"]
-    assert rows == [{"system": "jira", "method": "PUT", "verdict": "gate",
+    assert rows == [{"system": "atlassian", "method": "put", "verdict": "gate",
                       "reason": "careful", "updated_by": "m@x.com", "updated_at": rows[0]["updated_at"]}]
-    assert client.delete("/api/console/v1/policy/overrides/jira/PUT").json() == {"removed": True}
+    assert client.delete("/api/console/v1/policy/overrides/atlassian/PUT").json() == {"removed": True}
     assert client.get("/api/console/v1/policy/overrides").json()["overrides"] == []
 
 
@@ -47,6 +47,15 @@ def test_classify_reflects_override(client, monkeypatch):
     _as(client)
     r = client.post("/api/console/v1/policy/classify", json={"system": "slack", "method": "x"})
     assert r.json() == {"verdict": "deny", "reason": "override: test"}
+
+
+def test_set_override_rejects_unknown_system(client):
+    _as(client)
+    r = client.post("/api/console/v1/policy/overrides", json={
+        "system": "jira", "method": "PUT", "verdict": "deny", "reason": "x",
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "bad_system"
 
 
 def test_repos_is_read_only_list(client, monkeypatch):

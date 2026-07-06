@@ -15,6 +15,8 @@ const VERDICT_STYLE: Record<string, string> = {
   deny: "text-destructive",
 };
 
+const SYSTEMS = ["slack", "github", "atlassian", "http"];
+
 export default function PolicyPage() {
   const { data: overrides, isLoading, isError } = usePolicyOverrides();
   const setOverride = useSetPolicyOverride();
@@ -60,7 +62,10 @@ export default function PolicyPage() {
 
       <div className="max-w-lg space-y-3 rounded-xl border bg-card p-4 shadow-sm">
         <div className="text-sm font-semibold">Set an override</div>
-        <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" placeholder="System (e.g. jira)" value={system} onChange={(e) => setSystem(e.target.value)} />
+        <select className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" value={system} onChange={(e) => setSystem(e.target.value)}>
+          <option value="">Pick a system…</option>
+          {SYSTEMS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" placeholder="Method (e.g. PUT)" value={method} onChange={(e) => setMethod(e.target.value)} />
         <select className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" value={verdict} onChange={(e) => setVerdict(e.target.value)}>
           <option value="allow">Allow</option>
@@ -80,7 +85,10 @@ export default function PolicyPage() {
 
       <div className="max-w-lg space-y-3 rounded-xl border bg-card p-4 shadow-sm">
         <div className="text-sm font-semibold">Test a classification</div>
-        <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" placeholder="System" value={testSystem} onChange={(e) => setTestSystem(e.target.value)} />
+        <select className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" value={testSystem} onChange={(e) => setTestSystem(e.target.value)}>
+          <option value="">Pick a system…</option>
+          {SYSTEMS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" placeholder="Method" value={testMethod} onChange={(e) => setTestMethod(e.target.value)} />
         <Button
           disabled={!testSystem || !testMethod || classify.isPending}

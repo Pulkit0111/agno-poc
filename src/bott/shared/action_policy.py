@@ -14,7 +14,8 @@ possible:
     writes that belong to the build pipeline, private-network fetches). Refused with a reason
     the agent can relay honestly.
 
-Pure functions, no I/O — trivially unit-testable, and auditable in one file.
+Hardcoded default rules, with a KV-backed override layer (policy_overrides.py) consulted
+first — still trivially unit-testable, and auditable in one file.
 """
 
 from __future__ import annotations

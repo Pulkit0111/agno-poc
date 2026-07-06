@@ -44,10 +44,19 @@ def test_list_overrides_excludes_removed():
     policy_overrides.remove_override("github", "POST")
     rows = policy_overrides.list_overrides()
     assert len(rows) == 1
-    assert rows[0]["system"] == "jira" and rows[0]["method"] == "PUT"
+    assert rows[0]["system"] == "jira" and rows[0]["method"] == "put"
 
 
 def test_set_override_rejects_bad_verdict():
     from bott.shared import policy_overrides
     with pytest.raises(ValueError):
         policy_overrides.set_override("jira", "PUT", "maybe", "r", "a@x.com")
+
+
+def test_override_matching_is_case_insensitive():
+    from bott.shared import policy_overrides
+    policy_overrides.set_override("atlassian", "PUT", "deny", "harden jira writes", "a@x.com")
+    # real traffic composes the method in whatever case the LLM used — must still match
+    row = policy_overrides.get_override("atlassian", "put")
+    assert row is not None
+    assert row["verdict"] == "deny"

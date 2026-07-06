@@ -20,17 +20,17 @@ def set_override(system: str, method: str, verdict: str, reason: str, updated_by
     value = json.dumps({
         "verdict": verdict, "reason": reason, "updated_by": updated_by, "updated_at": time.time(),
     })
-    set_setting(_PREFIX.format(system, method), value)
+    set_setting(_PREFIX.format(system.lower(), method.lower()), value)
 
 
 def remove_override(system: str, method: str) -> None:
     from bott.shared.persistence.records import set_setting
-    set_setting(_PREFIX.format(system, method), "")
+    set_setting(_PREFIX.format(system.lower(), method.lower()), "")
 
 
 def get_override(system: str, method: str) -> dict | None:
     from bott.shared.persistence.records import get_setting
-    raw = get_setting(_PREFIX.format(system, method))
+    raw = get_setting(_PREFIX.format(system.lower(), method.lower()))
     if not raw:
         return None
     return json.loads(raw)

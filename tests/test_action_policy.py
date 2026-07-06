@@ -104,12 +104,13 @@ def test_decision_dataclass_shape():
 # ---- Overrides ---------------------------------------------------------------
 #
 # classify() now checks policy_overrides.get_override() first, which reads through
-# records.get_setting() — a real DB call. Give these two tests (only) an isolated,
-# freshly-initialized DB per test so they don't touch a developer's real agentos.db,
-# don't depend on other test files having already initialized an engine, and don't
-# leak an override from one test into the other.
+# records.get_setting() — a real DB call. autouse=True so this isolated, freshly
+# initialized DB applies to every test in this file (not just the two below that
+# reference it as a parameter) — otherwise every other test here would run against
+# whatever database the process resolves to by default, silently depending on
+# ambient state (e.g. a real override sitting in a developer's dev DB).
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def _tmp_db(tmp_path, monkeypatch):
     import os
     from bott.shared import db

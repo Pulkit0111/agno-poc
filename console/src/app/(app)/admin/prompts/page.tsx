@@ -92,8 +92,8 @@ export default function PromptsPage() {
       </div>
 
       <p className="max-w-2xl text-xs text-muted-foreground">
-        Saved versions apply immediately to Bott&apos;s per-conversation replies. The main chat
-        connection picks up a new version the next time it restarts.
+        Saved versions apply immediately to Ask Bott replies (App Home). The main Slack
+        conversation picks up a new version on restart.
       </p>
     </div>
   );

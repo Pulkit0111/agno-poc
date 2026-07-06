@@ -73,6 +73,7 @@ class DecisionBody(BaseModel):
 
 _VALID_FREQUENCIES = {"daily", "weekdays", "weekly"}
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+_VALID_SYSTEMS = {"slack", "github", "atlassian", "http"}
 
 
 class SnoozeBody(BaseModel):
@@ -598,6 +599,8 @@ def build_console_router(db) -> APIRouter:
     def set_policy_override(request: Request, body: PolicyOverrideBody) -> dict:
         user = current_user(request)
         require_admin(user)
+        if body.system not in _VALID_SYSTEMS:
+            raise _err(400, "bad_system", f"Unknown system: {body.system}")
         if body.verdict not in ("allow", "gate", "deny"):
             raise _err(400, "bad_verdict", f"Unknown verdict: {body.verdict}")
         from bott.shared import policy_overrides
