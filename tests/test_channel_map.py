@@ -73,3 +73,14 @@ def test_list_settings_by_prefix_scoped_correctly(store):
     set_setting("other_prefix:C1", "unrelated")
     rows = list_settings_by_prefix("channel_engagement:")
     assert rows == {"channel_engagement:C1": "acme"}
+
+
+def test_list_settings_by_prefix_is_wildcard_safe(store):
+    """`_` in a prefix is a SQL LIKE wildcard (matches any single char) — a prefix like
+    "a_b:" would SQL-LIKE-match a key like "axbc:x" even though it isn't a real prefix
+    match. The Python-side startswith re-check must exclude it."""
+    from bott.shared.persistence.records import set_setting, list_settings_by_prefix
+    set_setting("axbc:x", "should-not-match")
+    set_setting("a_b:x", "should-match")
+    rows = list_settings_by_prefix("a_b:")
+    assert rows == {"a_b:x": "should-match"}

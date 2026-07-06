@@ -51,12 +51,14 @@ def set_setting(key: str, value: str) -> None:
 
 def list_settings_by_prefix(prefix: str) -> dict[str, str]:
     """All settings whose key starts with prefix, as {key: value}. Full-scan — the settings
-    table has no secondary index, but it's small (KV config, not event data)."""
+    table has no secondary index, but it's small (KV config, not event data). The SQL LIKE is
+    a cheap pre-filter only; prefix chars like `_`/`%` are SQL wildcards, so an exact Python
+    startswith re-check guards against over-matching regardless of dialect."""
     with get_engine().connect() as c:
         rows = c.execute(text(
             "SELECT key, value FROM settings WHERE key LIKE :p"
         ), {"p": f"{prefix}%"}).fetchall()
-    return {r[0]: r[1] for r in rows}
+    return {r[0]: r[1] for r in rows if r[0].startswith(prefix)}
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +321,8 @@ def trace_stats_by_week(since_epoch: Optional[float] = None) -> dict[str, dict[s
 
 def list_known_users() -> list[dict]:
     """Every distinct user_id Bott has interacted with (jobs/approvals/action_items), each
-    with its most recent activity timestamp — the console's Users & roles screen source."""
+    with its most recent activity timestamp — the console's Users & roles screen source.
+    Excludes synthetic system principals (webhook/automation fallback ids), not real people."""
     with get_engine().connect() as c:
         rows = c.execute(text(
             "SELECT user_id, MAX(created) AS last_active FROM ("
@@ -328,4 +331,8 @@ def list_known_users() -> list[dict]:
             "  UNION ALL SELECT user_id, created FROM action_items"
             ") combined GROUP BY user_id ORDER BY last_active DESC"
         )).fetchall()
-    return [{"user_id": r[0], "last_active": r[1]} for r in rows]
+    synthetic = {"system@axelerant.com"}
+    return [
+        {"user_id": r[0], "last_active": r[1]} for r in rows
+        if r[0] and not r[0].startswith("system:") and r[0] not in synthetic
+    ]

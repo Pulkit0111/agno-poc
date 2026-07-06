@@ -28,12 +28,13 @@ export function useSetModelOverride() {
 }
 
 export function useConnectCodex() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (authJson: string) =>
       api<{ message: string }>("/api/console/v1/models/connect-codex", {
         method: "POST", body: JSON.stringify({ auth_json: authJson }),
       }),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't connect Codex."),
-    onSuccess: (data) => toast.success(data.message),
+    onSuccess: (data) => { toast.success(data.message); qc.invalidateQueries({ queryKey: ["models"] }); },
   });
 }

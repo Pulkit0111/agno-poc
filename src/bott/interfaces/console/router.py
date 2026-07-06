@@ -419,7 +419,7 @@ def build_console_router(db) -> APIRouter:
             usable, hint = models_mod.provider_key_status(name)
             providers.append({
                 "name": name, "usable": usable, "hint": hint,
-                "models": models_mod.available_models(name) if usable else [],
+                "models": models_mod.available_models(name) if (usable and name == provider) else [],
             })
         return {
             "provider": provider, "chat": active["chat"], "build": active["build"],
@@ -433,6 +433,8 @@ def build_console_router(db) -> APIRouter:
         require_admin(user)
         from bott.interfaces.slack_home import models as models_mod
         message = models_mod.apply_model_override(user["email"], body.key, body.value)
+        if message.startswith(("Unknown setting", "Sorry, that's not allowed")):
+            raise _err(400, "override_failed", message)
         return {"message": message}
 
     @r.post("/api/console/v1/models/connect-codex")
@@ -441,6 +443,8 @@ def build_console_router(db) -> APIRouter:
         require_admin(user)
         from bott.interfaces.slack_home import models as models_mod
         message = models_mod.connect_codex(user["email"], body.auth_json)
+        if message.startswith(("Sorry, that's not allowed", "Couldn't read that auth.json")):
+            raise _err(400, "connect_failed", message)
         return {"message": message}
 
     @r.get("/api/console/v1/engagements")

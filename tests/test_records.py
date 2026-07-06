@@ -210,3 +210,16 @@ def test_list_known_users_dedups_across_tables_and_orders_by_recency(store):
     ids = [r["user_id"] for r in rows]
     assert ids[0] == "b@x.com"  # most recently active first
     assert set(ids) == {"a@x.com", "b@x.com"}  # deduped despite a@x.com appearing twice
+
+
+def test_list_known_users_excludes_synthetic_system_principals(store):
+    from bott.shared import approvals
+    from bott.shared.persistence import queue
+
+    queue.enqueue("review", {}, user_id="real@x.com")
+    approvals.create_request("system:github-webhook", "api:jira", "x")
+    approvals.create_request("system@axelerant.com", "api:jira", "x")
+
+    rows = records.list_known_users()
+    ids = [r["user_id"] for r in rows]
+    assert ids == ["real@x.com"]

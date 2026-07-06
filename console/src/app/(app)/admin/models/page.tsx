@@ -98,7 +98,7 @@ export default function ModelsPage() {
           value={authJson}
           onChange={(e) => setAuthJson(e.target.value)}
         />
-        <Button className="mt-2" disabled={!authJson || connectCodex.isPending} onClick={() => connectCodex.mutate(authJson)}>
+        <Button className="mt-2" disabled={!authJson || connectCodex.isPending} onClick={() => connectCodex.mutate(authJson, { onSuccess: () => setAuthJson("") })}>
           Connect
         </Button>
       </div>
