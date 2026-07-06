@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright — machine/run-local auth state containing a live session token
+e2e/.auth-state.json
+/test-results/
+/playwright-report/
