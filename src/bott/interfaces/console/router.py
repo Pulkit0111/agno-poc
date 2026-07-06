@@ -483,4 +483,46 @@ def build_console_router(db) -> APIRouter:
             for row in records.list_known_users()
         ]}
 
+    @r.get("/api/console/v1/system")
+    def system_status_route(request: Request) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.interfaces.slack_home import models as models_mod
+        from bott.shared import codex_tokens
+        connectors = {
+            "jira": config.jira_configured(),
+            "confluence": config.confluence_configured(),
+            "sentry": config.sentry_configured(),
+            "memra": config.memra_configured(),
+            "spin": config.spin_configured(),
+            "google": config.google_delegation_configured(),
+        }
+        advisories = [
+            {"name": name, "message": f"{name.capitalize()} isn't configured."}
+            for name, ok in connectors.items() if not ok
+        ]
+        if not codex_tokens.is_connected():
+            advisories.append({"name": "codex", "message": "Codex isn't connected."})
+        slack_configured = bool(
+            (os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")) and os.getenv("SLACK_SIGNING_SECRET")
+        )
+        return {
+            "model": models_mod._active(),
+            "database": {"kind": "postgres" if config.database_url() else "sqlite"},
+            "slack_configured": slack_configured,
+            "github_configured": config.github_app_configured(),
+            "connectors": connectors,
+            "admins_count": len(config.bott_admins()),
+            "advisories": advisories,
+        }
+
+    @r.get("/api/console/v1/system/review-trends")
+    def review_trends_route(request: Request, days: int = 30) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        import time
+        from bott.shared.persistence import records
+        since = time.time() - days * 86400
+        return {"by_week": records.trace_stats_by_week(since_epoch=since)}
+
     return r
