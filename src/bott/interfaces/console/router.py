@@ -336,9 +336,12 @@ def build_console_router(db) -> APIRouter:
         from bott.shared import config
         shutil.rmtree(f"{config.bott_skills_dir()}/{slug}", ignore_errors=True)
         # NOTE: this Skills() instance is per-request and discarded right after — reload()
-        # here would be a no-op. Any other long-lived Skills instance elsewhere in the app
-        # (e.g. a scheduled-run agent built once at startup) won't see this retirement until
-        # it's rebuilt. Known limitation — see the plan's post-plan follow-ups.
+        # here would be a no-op. The single shared chat agent built once at app.py's startup
+        # (the primary Slack DM/mention surface, which also serves scheduled runs) holds its
+        # own long-lived Skills instance and won't see this retirement until it's rebuilt —
+        # i.e. until an unrelated skill edit triggers its own reload, or the process restarts.
+        # Known limitation, visible in live chat, not just scheduled runs — see the plan's
+        # post-plan follow-ups.
         return {"retired": True}
 
     @r.post("/api/console/v1/reports/run")
