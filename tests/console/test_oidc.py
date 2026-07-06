@@ -54,3 +54,10 @@ def test_exchange_code_userinfo_without_email_returns_none(monkeypatch):
     monkeypatch.setattr(oidc.httpx, "post", lambda *a, **k: _Resp({"ok": True, "access_token": "t"}))
     monkeypatch.setattr(oidc.httpx, "get", lambda *a, **k: _Resp({"ok": True, "name": "No Email"}))
     assert oidc.exchange_code("c") is None
+
+
+def test_exchange_code_network_error_returns_none(monkeypatch):
+    def boom(*a, **k):
+        raise oidc.httpx.ConnectError("network down")
+    monkeypatch.setattr(oidc.httpx, "post", boom)
+    assert oidc.exchange_code("c") is None
