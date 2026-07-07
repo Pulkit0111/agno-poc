@@ -6,18 +6,28 @@ Provider: codex (org backend direct) | bedrock | openrouter (prod). Role: 'chat'
 
 from __future__ import annotations
 
-from bott.shared.codex_tokens import get_valid_token  # module-level so tests can patch it
+from bott.shared.codex_tokens import (  # module-level so tests can patch
+    CodexNotConnected,
+    get_valid_token,
+)
 from bott.shared.observability.logging_setup import get_logger
 
 from .config import (
+    fallback_model_id,
+    fallback_model_provider,
     model_provider,
+    model_retry_delay_s,
     openrouter_api_key,
     role_model_id,
 )
 
 log = get_logger("bott.model")
 
-_COMMON = {"retries": 3, "exponential_backoff": True}
+_COMMON = {
+    "retries": 3,
+    "exponential_backoff": True,
+    "delay_between_retries": model_retry_delay_s(),
+}
 
 
 def _setting(key: str):
@@ -79,9 +89,11 @@ def build_model(role: str = "chat", **overrides):
     # 5xx must be retried, not surfaced to the user as "error, try again later". Callers can
     # still override via `overrides`.
     if provider == "codex":
-        from bott.shared.codex_model import make_codex_model
-        tok = get_valid_token()                      # model.get_valid_token — preserves test/conftest patch-point
-        return make_codex_model(model_id, tok.access_token, tok.account_id, **{**_COMMON, **overrides})
+        return _build_codex_model(model_id, overrides)
+    return _build_for_provider(provider, model_id, overrides)
+
+
+def _build_for_provider(provider: str, model_id: str, overrides: dict):
     if provider == "openrouter":
         from agno.models.openrouter import OpenRouter
         return OpenRouter(id=model_id, api_key=openrouter_api_key(), **{**_COMMON, **overrides})
@@ -89,3 +101,43 @@ def build_model(role: str = "chat", **overrides):
         from agno.models.aws import AwsBedrock
         return AwsBedrock(id=model_id, **{**_COMMON, **overrides})
     raise ValueError(f"Unknown MODEL_PROVIDER '{provider}' (use codex|bedrock|openrouter).")
+
+
+def _build_codex_model(model_id: str, overrides: dict):
+    """Build the codex-provider model. On a broken shared login (never connected, or refresh
+    failed), this must NOT raise: build_model("chat") runs once at agent-construction time,
+    at process/app import — a raised exception here used to crash the entire app (Slack AND
+    the admin console) before an admin could ever reach the Connect-Codex button to fix it.
+    Instead it alerts admins and returns a model seeded with placeholder credentials; Agno's
+    CodexModel re-resolves a real token on every actual call (see codex_model.py's
+    _refresh_if_rotated), so the app/console stay up and the model becomes usable the instant
+    Codex is reconnected — no restart needed. Until then, an actual chat/build/review attempt
+    fails per-request (Agno's own retry + error surfacing), which is a normal-looking error
+    for one request instead of the whole bot being unreachable."""
+    from bott.shared.codex_model import make_codex_model
+
+    try:
+        tok = get_valid_token()  # model.get_valid_token — preserves test/conftest patch-point
+        return make_codex_model(model_id, tok.access_token, tok.account_id, **{**_COMMON, **overrides})
+    except CodexNotConnected as e:
+        from bott.shared.alerts import alert_admins_throttled
+
+        fallback = fallback_model_provider()
+        if fallback and fallback != "codex":
+            alert_admins_throttled(
+                "codex-disconnected",
+                f"Bott's shared Codex (ChatGPT) login is broken ({e}) — falling back to "
+                f"{fallback} until it's reconnected. Reconnect it from Settings → Connect Codex.",
+            )
+            log.error("codex unavailable (%s) — falling back to provider=%s", e, fallback)
+            return _build_for_provider(fallback, fallback_model_id(fallback), overrides)
+
+        alert_admins_throttled(
+            "codex-disconnected",
+            f"Bott's shared Codex (ChatGPT) login is broken: {e}. Every codex: model call "
+            "will fail until an admin reconnects it (Settings → Connect Codex).",
+        )
+        log.error("codex unavailable at model-construction time (%s) — returning a model that "
+                  "re-checks the connection on each actual use instead of failing to build at "
+                  "all, so the app and console stay reachable to reconnect it.", e)
+        return make_codex_model(model_id, "", "", **{**_COMMON, **overrides})

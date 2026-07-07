@@ -104,9 +104,12 @@ def _classify_github(verb: str, path: str) -> Decision:
                                 "(plan → approve → implement), not direct API calls.")
     m = _GH_REPO_PATH.match(p)
     if m:
+        # Fail closed: an empty/unset allowlist must deny every repo, not allow every repo.
+        # (A truthiness check here — `if allow and slug not in allow` — previously let a
+        # blank ALLOWED_POST_REPOS silently skip this restriction entirely.)
         allow = allowed_post_repos()
         slug = f"{m.group(1)}/{m.group(2)}".lower()
-        if allow and slug not in allow:
+        if slug not in allow:
             return Decision("deny", f"`{slug}` isn't in the write allowlist (ALLOWED_POST_REPOS).")
     if v in ("POST", "PATCH") and _GH_SAFE_WRITE.match(p):
         return Decision("allow")

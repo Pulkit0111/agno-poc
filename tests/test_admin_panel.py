@@ -13,7 +13,6 @@ import pytest
 
 from bott.shared import db
 
-
 # ---------------------------------------------------------------------------
 # Shared DB fixture (SQLite in tmp dir, fresh schema)
 # ---------------------------------------------------------------------------
@@ -76,8 +75,9 @@ def test_job_counts_empty(store):
 
 
 def test_job_counts_groups_by_status(store):
-    from bott.shared.persistence import queue
     from sqlalchemy import text
+
+    from bott.shared.persistence import queue
 
     queue.enqueue("plan", {}, user_id="u@x.com")
     jid2 = queue.enqueue("implement", {}, user_id="u@x.com")
@@ -178,10 +178,10 @@ def test_admin_section_non_admin_returns_empty():
 # ---------------------------------------------------------------------------
 
 def test_admin_section_admin_contains_job_info(monkeypatch, store):
-    from bott.interfaces.slack_home import admin as _admin_mod
-    from bott.shared.persistence import queue as _q_mod
-    from bott.shared import approvals as _apr_mod, codex_tokens as _ct_mod
     from bott.interfaces.slack_home import models as _m_mod
+    from bott.shared import approvals as _apr_mod
+    from bott.shared import codex_tokens as _ct_mod
+    from bott.shared.persistence import queue as _q_mod
 
     monkeypatch.setattr(_q_mod, "recent_jobs", lambda limit=8: [
         {"id": 5, "kind": "plan", "status": "done", "attempts": 1, "created": 1.0},
@@ -221,9 +221,10 @@ def test_admin_section_admin_contains_job_info(monkeypatch, store):
 
 def test_admin_section_admin_header_present(monkeypatch, store):
     """The first block must be the admin header."""
-    from bott.shared.persistence import queue as _q_mod
-    from bott.shared import approvals as _apr_mod, codex_tokens as _ct_mod
     from bott.interfaces.slack_home import models as _m_mod
+    from bott.shared import approvals as _apr_mod
+    from bott.shared import codex_tokens as _ct_mod
+    from bott.shared.persistence import queue as _q_mod
 
     monkeypatch.setattr(_q_mod, "recent_jobs", lambda limit=8: [])
     monkeypatch.setattr(_q_mod, "job_counts", lambda: {})
@@ -244,9 +245,10 @@ def test_admin_section_admin_header_present(monkeypatch, store):
 
 def test_admin_section_admin_job_counts_summary(monkeypatch, store):
     """Failed/pending counts must surface in the text (not just done)."""
-    from bott.shared.persistence import queue as _q_mod
-    from bott.shared import approvals as _apr_mod, codex_tokens as _ct_mod
     from bott.interfaces.slack_home import models as _m_mod
+    from bott.shared import approvals as _apr_mod
+    from bott.shared import codex_tokens as _ct_mod
+    from bott.shared.persistence import queue as _q_mod
 
     monkeypatch.setattr(_q_mod, "recent_jobs", lambda limit=8: [
         {"id": 1, "kind": "review", "status": "failed", "attempts": 3, "created": 1.0},

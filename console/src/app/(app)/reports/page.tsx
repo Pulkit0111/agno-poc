@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useRunReport } from "@/lib/use-reports";
+import { useMe } from "@/lib/use-me";
 
 type ReportDef = {
   kind: string;
@@ -21,6 +22,7 @@ const REPORTS: readonly ReportDef[] = [
 ];
 
 export default function ReportsPage() {
+  const { data: me } = useMe();
   const run = useRunReport();
   const [active, setActive] = useState<ReportDef | null>(null);
   const [engagement, setEngagement] = useState("");
@@ -33,6 +35,17 @@ export default function ReportsPage() {
     run.mutate(
       { kind: active.kind, engagement: engagement || undefined, team: team || undefined, channel: channel || undefined },
       { onSuccess: (data) => setResult(data.result) },
+    );
+  }
+
+  if (me && !me.is_admin) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-lg font-semibold tracking-tight">Reports</h1>
+        <p className="text-sm text-muted-foreground">
+          Running reports on demand needs an admin — ask one if you need something run.
+        </p>
+      </div>
     );
   }
 

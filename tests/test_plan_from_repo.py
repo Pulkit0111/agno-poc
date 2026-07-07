@@ -6,12 +6,9 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call
-
-import pytest
+from unittest.mock import MagicMock
 
 import bott.agents.build_fix.pipeline as pipeline_mod
-
 
 # ---------------------------------------------------------------------------
 # Helpers

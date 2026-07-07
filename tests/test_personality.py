@@ -25,6 +25,7 @@ def test_voice_has_single_natural_question_instruction():
 @pytest.fixture(autouse=True)
 def _tmp_db(tmp_path, monkeypatch):
     import os
+
     from bott.shared import db
     from bott.shared.schema import init_schema
     url = os.getenv("TEST_DATABASE_URL")

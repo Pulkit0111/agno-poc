@@ -1,0 +1,58 @@
+# Reference production-shaped stack: Postgres + the Python app + the console, wired
+# together. Not meant to be used as-is (secrets belong in a real secret store, not env:
+# blocks) — this documents how the three pieces fit, and is a starting point to adapt.
+#
+# Run: docker compose -f docker-compose.prod.yml up --build
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: bott
+      POSTGRES_USER: bott
+      POSTGRES_PASSWORD: bott
+    volumes:
+      - bott_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bott -d bott"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  bott:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bott:bott@db:5432/bott
+      # Everything else (SLACK_*, BOTT_SECRET_KEY, BOTT_ADMINS, MODEL_PROVIDER, ...) comes
+      # from a real .env / secret store at deploy time — see .env.example.
+    env_file:
+      - .env
+    ports:
+      - "7777:7777"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:7777/readyz', timeout=4).status < 500 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  console:
+    build:
+      context: console
+      dockerfile: Dockerfile
+    depends_on:
+      - bott
+    environment:
+      BOTT_API_ORIGIN: http://bott:7777
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+
+volumes:
+  bott_pgdata:

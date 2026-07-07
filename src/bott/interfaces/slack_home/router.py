@@ -85,6 +85,7 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
         """Compact 'skills I've practiced' strip from the SKILL.md library dir."""
         try:
             import os as _os
+
             from bott.shared import config as _cfg
             d = _cfg.bott_skills_dir()
             names = sorted(n for n in _os.listdir(d) if _os.path.isdir(_os.path.join(d, n)))

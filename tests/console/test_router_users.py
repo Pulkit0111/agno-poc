@@ -1,9 +1,8 @@
 import pytest
+from agno.db.sqlite import SqliteDb
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from agno.db.sqlite import SqliteDb
 
-import bott.interfaces.console.router as router_mod
 from bott.interfaces.console import sessions
 from bott.interfaces.console.router import build_console_router
 
@@ -36,7 +35,7 @@ def test_tags_admin_flag(client, monkeypatch):
         {"user_id": "admin@x.com", "last_active": 100.0},
         {"user_id": "m@x.com", "last_active": 90.0},
     ])
-    _as(client)
+    _as(client, email="admin@x.com")  # must authenticate as a REAL admin (BOTT_ADMINS above)
     rows = client.get("/api/console/v1/users").json()["users"]
     assert rows == [
         {"user_id": "admin@x.com", "last_active": 100.0, "is_admin": True},

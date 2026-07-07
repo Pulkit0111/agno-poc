@@ -10,7 +10,6 @@ import pytest
 
 from bott.shared.action_policy import Decision, classify
 
-
 # ---- Slack -----------------------------------------------------------------
 
 def test_slack_reads_allowed():
@@ -65,6 +64,15 @@ def test_github_merge_gates(monkeypatch):
     assert classify("github", "PUT", path="/repos/o/r/pulls/3/merge").verdict == "gate"
 
 
+def test_github_write_denied_when_allowlist_unset(monkeypatch):
+    """Fail closed: a blank/unset ALLOWED_POST_REPOS must deny every repo, not allow every
+    repo — a prior bug let an empty allowlist skip the restriction and auto-approve safe
+    writes (issue comments, labels, etc.) on ANY repo the GitHub App can reach."""
+    monkeypatch.delenv("ALLOWED_POST_REPOS", raising=False)
+    d = classify("github", "POST", path="/repos/o/r/issues/5/comments")
+    assert d.verdict == "deny" and "allow" in d.reason.lower()
+
+
 def test_github_contents_and_delete_denied(monkeypatch):
     monkeypatch.setenv("ALLOWED_POST_REPOS", "o/r")
     # Code changes belong to the build pipeline (plan→approve→implement), not raw API writes.
@@ -113,6 +121,7 @@ def test_decision_dataclass_shape():
 @pytest.fixture(autouse=True)
 def _tmp_db(tmp_path, monkeypatch):
     import os
+
     from bott.shared import db
     from bott.shared.schema import init_schema
     url = os.getenv("TEST_DATABASE_URL")

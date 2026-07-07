@@ -8,6 +8,7 @@ import {
   useCreateSchedule, usePauseSchedule, useResumeSchedule,
   useRunScheduleNow, useDeleteSchedule, useSchedules,
 } from "@/lib/use-schedules";
+import { useMe } from "@/lib/use-me";
 
 const KINDS = [
   { value: "security", label: "Security digest" },
@@ -23,6 +24,7 @@ const FREQUENCIES = [
 ];
 
 export default function SchedulesPage() {
+  const { data: me } = useMe();
   const { data: schedules, isLoading, isError } = useSchedules();
   const pause = usePauseSchedule();
   const resume = useResumeSchedule();
@@ -52,7 +54,7 @@ export default function SchedulesPage() {
         {isLoading && <div className="space-y-2 p-4"><Skeleton className="h-9" /><Skeleton className="h-9" /></div>}
         {isError && (
           <div className="px-4 py-8 text-center text-sm text-destructive">
-            Couldn't load — try refreshing the page.
+            Couldn&apos;t load — try refreshing the page.
           </div>
         )}
         {!isLoading && !isError && !schedules?.length && (
@@ -69,17 +71,26 @@ export default function SchedulesPage() {
             <Badge variant="outline" className={s.enabled ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}>
               {s.enabled ? "Active" : "Paused"}
             </Badge>
-            <div className="flex flex-none gap-1.5">
-              <Button size="sm" variant="outline" onClick={() => runNow.mutate(s.id)}>Run now</Button>
-              {s.enabled
-                ? <Button size="sm" variant="ghost" onClick={() => pause.mutate(s.id)}>Pause</Button>
-                : <Button size="sm" variant="ghost" onClick={() => resume.mutate(s.id)}>Resume</Button>}
-              <Button size="sm" variant="ghost" onClick={() => del.mutate(s.id)}>Remove</Button>
-            </div>
+            {me?.is_admin && (
+              <div className="flex flex-none gap-1.5">
+                <Button size="sm" variant="outline" onClick={() => runNow.mutate(s.id)}>Run now</Button>
+                {s.enabled
+                  ? <Button size="sm" variant="ghost" onClick={() => pause.mutate(s.id)}>Pause</Button>
+                  : <Button size="sm" variant="ghost" onClick={() => resume.mutate(s.id)}>Resume</Button>}
+                <Button size="sm" variant="ghost" onClick={() => del.mutate(s.id)}>Remove</Button>
+              </div>
+            )}
           </div>
         ))}
       </div>
 
+      {!me?.is_admin && (
+        <p className="text-sm text-muted-foreground">
+          Creating, pausing, or removing schedules needs an admin — ask one to make changes here.
+        </p>
+      )}
+
+      {me?.is_admin && (
       <div className="max-w-lg rounded-xl border bg-card shadow-sm">
         <div className="border-b px-4 py-2.5 text-sm font-semibold">New schedule</div>
         <div className="space-y-3 p-4">
@@ -138,6 +149,7 @@ export default function SchedulesPage() {
           </Button>
         </div>
       </div>
+      )}
     </div>
   );
 }

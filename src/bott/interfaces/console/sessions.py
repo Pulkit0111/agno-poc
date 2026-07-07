@@ -1,6 +1,10 @@
 """HMAC-signed console session tokens. Stateless: payload is base64url JSON
-(email, is_admin, exp) + SHA-256 HMAC. No DB row per session; revocation is
-secret rotation. Secret comes from CONSOLE_SESSION_SECRET."""
+(email, is_admin, exp) + SHA-256 HMAC. No DB row per session; full revocation of one
+already-issued token is still secret rotation (which invalidates every session at once) —
+but the `is_admin` CLAIM baked in at login is re-checked live against the current
+BOTT_ADMINS list on every verify, not trusted for the token's whole lifetime. Without that,
+removing someone from BOTT_ADMINS didn't take effect until their week-old cookie expired on
+its own. Secret comes from CONSOLE_SESSION_SECRET."""
 
 from __future__ import annotations
 
@@ -42,4 +46,15 @@ def verify_session(token: str) -> dict | None:
         return None
     if payload.get("exp", 0) < time.time():
         return None
-    return {"email": payload["email"], "is_admin": bool(payload["is_admin"])}
+    email = payload["email"]
+    is_admin = bool(payload["is_admin"])
+    if is_admin:
+        # Downgrade-only live re-check: if BOTT_ADMINS is configured and this email is no
+        # longer in it, the admin claim baked in at login is stale — revoke it now instead
+        # of waiting out the token's TTL. Never upgrades a non-admin claim, and does
+        # nothing when BOTT_ADMINS is unset (nothing to check against).
+        from bott.shared.config import bott_admins
+        admins = bott_admins()
+        if admins and email.lower() not in admins:
+            is_admin = False
+    return {"email": email, "is_admin": is_admin}

@@ -2,20 +2,37 @@
 
 from __future__ import annotations
 
+import pytest
+
+from bott.shared import db
 from bott.shared.persistence import standup
 from bott.skills import dsm
 
 
-def test_round_and_responses_round_trip(tmp_path):
-    db = str(tmp_path / "s.db")
-    standup.open_round("core", "2026-06-18", "C1", "111.1", db_file=db)
-    assert standup.get_round("core", "2026-06-18", db_file=db) == {"channel": "C1", "thread_ts": "111.1"}
-    standup.add_response("core", "2026-06-18", "U1", "did x", "do y", "blocked on infra", db_file=db)
-    standup.add_response("core", "2026-06-18", "U2", "a", "b", "", db_file=db)
-    rs = standup.responses("core", "2026-06-18", db_file=db)
+@pytest.fixture
+def engine(monkeypatch, tmp_path):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("AGENTOS_DB_PATH", str(tmp_path / "s.db"))
+    db.get_engine(fresh=True)
+    yield
+
+
+def test_round_and_responses_round_trip(engine):
+    standup.open_round("core", "2026-06-18", "C1", "111.1")
+    assert standup.get_round("core", "2026-06-18") == {"channel": "C1", "thread_ts": "111.1"}
+    standup.add_response("core", "2026-06-18", "U1", "did x", "do y", "blocked on infra")
+    standup.add_response("core", "2026-06-18", "U2", "a", "b", "")
+    rs = standup.responses("core", "2026-06-18")
     assert [r["user"] for r in rs] == ["U1", "U2"]
     # A different day is a different round.
-    assert standup.responses("core", "2026-06-19", db_file=db) == []
+    assert standup.responses("core", "2026-06-19") == []
+
+
+def test_open_round_upserts_on_conflict(engine):
+    """Re-opening the same team+date updates the thread root instead of erroring."""
+    standup.open_round("core", "2026-06-18", "C1", "111.1")
+    standup.open_round("core", "2026-06-18", "C2", "222.2")
+    assert standup.get_round("core", "2026-06-18") == {"channel": "C2", "thread_ts": "222.2"}
 
 
 def test_render_submissions_groups_blockers():

@@ -3,8 +3,7 @@ import os
 import pytest
 from sqlalchemy import text
 
-from bott.shared import db
-from bott.shared import approvals
+from bott.shared import approvals, db
 from bott.shared.persistence import queue
 
 

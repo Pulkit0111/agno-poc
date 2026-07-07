@@ -1,7 +1,7 @@
 import pytest
+from agno.db.sqlite import SqliteDb
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from agno.db.sqlite import SqliteDb
 
 from bott.interfaces.console import sessions
 from bott.interfaces.console.router import build_console_router

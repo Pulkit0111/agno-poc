@@ -61,8 +61,9 @@ def test_concierge_schedules_excluded_from_home(tmp_path):
 
 def test_list_raw_excludes_concierge_and_shows_enabled_state(tmp_path):
     from agno.db.sqlite import SqliteDb
-    from bott.skills import scheduling
+
     from bott.interfaces.slack_home import service
+    from bott.skills import scheduling
 
     db = SqliteDb(db_file=str(tmp_path / "s.db"))
     scheduling.create_security_digest(db, channel="#sec", cron="0 9 * * *")
@@ -78,8 +79,9 @@ def test_list_raw_excludes_concierge_and_shows_enabled_state(tmp_path):
 
 def test_pause_then_resume_round_trip(tmp_path):
     from agno.db.sqlite import SqliteDb
-    from bott.skills import scheduling
+
     from bott.interfaces.slack_home import service
+    from bott.skills import scheduling
 
     db = SqliteDb(db_file=str(tmp_path / "s.db"))
     sch = scheduling.create_security_digest(db, channel="#sec", cron="0 9 * * *")
@@ -91,6 +93,7 @@ def test_pause_then_resume_round_trip(tmp_path):
 
 def test_pause_missing_schedule_returns_false(tmp_path):
     from agno.db.sqlite import SqliteDb
+
     from bott.interfaces.slack_home import service
 
     db = SqliteDb(db_file=str(tmp_path / "s.db"))

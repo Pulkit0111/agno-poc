@@ -13,7 +13,7 @@ import json
 import os
 
 from bott.shared import codex_tokens, config
-from bott.shared.config import bott_admins, model_provider, role_model_id
+from bott.shared.config import bott_admins, model_provider
 from bott.shared.persistence.records import get_setting, set_setting
 
 # Sensible fallbacks so the model picker is never empty even if a live catalog fetch fails

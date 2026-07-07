@@ -21,7 +21,7 @@ export default function EngagementsPage() {
 
       <div className="rounded-xl border bg-card shadow-sm">
         {isLoading && <div className="space-y-2 p-4"><Skeleton className="h-9" /><Skeleton className="h-9" /></div>}
-        {isError && <div className="px-4 py-8 text-center text-sm text-destructive">Couldn't load — try refreshing the page.</div>}
+        {isError && <div className="px-4 py-8 text-center text-sm text-destructive">Couldn&apos;t load — try refreshing the page.</div>}
         {!isLoading && !isError && !engagements?.length && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">No channels mapped yet.</div>
         )}

@@ -135,6 +135,11 @@ cp .env.example .env           # then fill in the vars below
 Requires **agno ≥ 2.2.2** (the isolation fix for CVE-2025-64168); the lockfile pins a current
 version. Tables are created automatically on first run (SQLite locally, or your Postgres).
 
+Optional: `npm i -g @openai/codex` on whatever host runs the console API, for the
+device-auth "Connect ChatGPT" flow (Settings → Models). Not needed anywhere else — inference
+itself never shells out to the CLI, only this one-time login handshake does. Without it, the
+"paste `~/.codex/auth.json` manually" fallback on the same page still works.
+
 ## Run
 
 ```bash
@@ -166,8 +171,18 @@ All settings come from the environment (see `.env.example`). Key groups:
 - **Core:** `DATABASE_URL` (Postgres; unset → local SQLite), `BOTT_SECRET_KEY` (Fernet),
   `BOTT_ADMINS` (comma-separated admin emails), `ALLOWED_EMAIL_DOMAIN` (default `axelerant.com`).
 - **Model:** `MODEL_PROVIDER` (`codex` | `bedrock` | `openrouter`, default `codex`),
-  `BOTT_CHAT_MODEL` / `BOTT_HEAVY_MODEL`, `OPENROUTER_API_KEY` / AWS creds as applicable. The
-  org Codex token is connected once (host `~/.codex/auth.json` or App Home → Connect Codex).
+  `BOTT_CHAT_MODEL` / `BOTT_BUILD_MODEL` / `BOTT_REVIEW_MODEL` (set these explicitly — leaving
+  them all to default to the same `BOTT_MODEL` id triggers a runtime auto-swap for review
+  instead of a chosen reviewer), `OPENROUTER_API_KEY` / AWS creds as applicable. Connect the
+  org Codex login once from the console's Models page ("Connect ChatGPT" — click through a
+  device code, no manual file copying; needs the `codex` CLI installed on whatever host runs
+  the console API) or Slack App Home → Connect Codex (paste `~/.codex/auth.json`, for hosts
+  without the CLI). Optional `FALLBACK_MODEL_PROVIDER` (+ `FALLBACK_MODEL_ID`) degrades to a
+  second provider if the shared Codex login ever breaks, instead of every LLM call failing at
+  once; `BOTT_ADMINS` gets a Slack DM either way so someone notices and reconnects it.
+  `CODEX_MAX_CONCURRENT_REQUESTS` / `CODEX_MAX_CONCURRENT_PER_USER` (default 4 / 2) cap how
+  many Codex calls run at once org-wide and per-user, since everyone shares one account's
+  rate-limit pool; `MODEL_RETRY_DELAY_S` (default 3) is the base retry backoff.
 - **Slack:** `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`.
 - **GitHub App (build/review/triage PRs):** `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` /
   `_PATH`, `GITHUB_WEBHOOK_SECRET`, `ALLOWED_POST_REPOS` (allowlist), `REVIEW_SLACK_CHANNEL`.
@@ -176,6 +191,34 @@ All settings come from the environment (see `.env.example`). Key groups:
   (`GOOGLE_SERVICE_ACCOUNT_PATH` + domain-wide delegation for the `gmail/drive/calendar
   .readonly` scopes), Memra (`MEMRA_*`), Spin (`SPIN_*`). Each is independent — leave any
   unset and that connector simply stays off.
+
+## Backups
+
+There is no automatic backup of the Postgres database — losing it loses conversation
+history, connected accounts/tokens, review history, approvals, and authored skills. Run
+`scripts/backup_db.sh` (needs `DATABASE_URL`) to write a compressed dump; schedule it (cron
+or a systemd timer — see the script header for both) rather than running it by hand.
+
+```bash
+DATABASE_URL=postgresql://user:pass@host:5432/bott scripts/backup_db.sh
+# restore: gunzip -c backups/bott-<timestamp>.sql.gz | psql "$DATABASE_URL"
+```
+
+## Deployment
+
+`Dockerfile` (this app) and `console/Dockerfile` (the web console) build production images
+— both are exercised by hand (build + run + hit `/readyz`) as part of adding them, not just
+written on faith. `docker-compose.prod.yml` shows how the three pieces (Postgres, the app,
+the console) fit together; it's a reference to adapt, not a turnkey deploy (secrets belong
+in a real secret store, not an `env_file:` block).
+
+```bash
+docker build -t bott-app .
+docker build -t bott-console -f console/Dockerfile console
+```
+
+`.github/workflows/ci.yml` runs `ruff` + `pytest` and the console's `tsc`/lint/test/build on
+every push and PR to `main` — nothing merges un-checked anymore.
 
 ## Test & validate
 

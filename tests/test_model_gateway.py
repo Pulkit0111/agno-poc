@@ -67,6 +67,14 @@ def test_openrouter_model_still_carries_retry_policy(monkeypatch):
     assert m.exponential_backoff is True
 
 
+def test_retry_delay_is_longer_than_a_personal_api_keys_default():
+    """Regression: the old 1s base delay (1/2/4s across 3 retries — 7s total) was sized for
+    a personal API key's rate limits. A whole org sharing ONE ChatGPT subscription's 429s
+    often mean "wait tens of seconds," not one — the base delay must be longer than the
+    library's own default of 1s."""
+    assert model_mod._COMMON["delay_between_retries"] > 1
+
+
 def test_role_fallback_chain(monkeypatch):
     """build/review fall back to heavy, then to the single BOTT_MODEL."""
     from bott.shared.config import role_model_id
@@ -130,14 +138,65 @@ def test_review_no_swap_when_models_differ(monkeypatch):
     assert model_mod.build_model("review").id == "gpt-5.5"
 
 
-def test_codex_not_connected_propagates(monkeypatch):
+def test_codex_not_connected_does_not_crash_construction(monkeypatch):
+    """Regression: build_model("chat") runs once at agent-construction time, at app import —
+    it used to re-raise CodexNotConnected there, which crashed the ENTIRE app (Slack AND the
+    admin console) before an admin could ever reach the Connect-Codex button to fix it. It
+    must instead return a usable model object (with placeholder credentials the underlying
+    CodexModel re-checks on every actual call), so the app/console stay reachable."""
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
+    monkeypatch.delenv("FALLBACK_MODEL_PROVIDER", raising=False)
+    from bott.shared import alerts
     from bott.shared import codex_tokens as ct
+    monkeypatch.setattr(alerts, "alert_admins", lambda text: None)
+    alerts._last_sent.clear()
+
     def boom(): raise ct.CodexNotConnected("nope")
+
     monkeypatch.setattr(model_mod, "get_valid_token", boom)
-    with pytest.raises(ct.CodexNotConnected):
-        model_mod.build_model("chat")
+    m = model_mod.build_model("chat")  # must not raise
+    assert type(m).__name__ == "CodexModel"
+
+
+def test_codex_not_connected_alerts_admins(monkeypatch):
+    """Regression: a broken shared Codex login used to fail silently — nobody found out
+    until a user noticed Bott stopped responding to every single request."""
+    _no_setting_override(monkeypatch)
+    monkeypatch.setenv("MODEL_PROVIDER", "codex")
+    monkeypatch.delenv("FALLBACK_MODEL_PROVIDER", raising=False)
+    from bott.shared import alerts
+    from bott.shared import codex_tokens as ct
+    alerted = []
+    monkeypatch.setattr(alerts, "alert_admins", lambda text: alerted.append(text))
+    alerts._last_sent.clear()
+
+    def boom(): raise ct.CodexNotConnected("refresh failed")
+
+    monkeypatch.setattr(model_mod, "get_valid_token", boom)
+    model_mod.build_model("chat")
+    assert alerted and "refresh failed" in alerted[0]
+
+
+def test_codex_not_connected_falls_back_when_configured(monkeypatch):
+    """When an admin has opted a secondary provider in, a broken Codex login degrades to it
+    instead of taking every single one of Bott's LLM calls down at once."""
+    _no_setting_override(monkeypatch)
+    monkeypatch.setenv("MODEL_PROVIDER", "codex")
+    monkeypatch.setenv("FALLBACK_MODEL_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+    monkeypatch.setenv("FALLBACK_MODEL_ID", "anthropic/claude-sonnet-4.6")
+    from bott.shared import alerts
+    from bott.shared import codex_tokens as ct
+    monkeypatch.setattr(alerts, "alert_admins", lambda text: None)
+    alerts._last_sent.clear()
+
+    def boom(): raise ct.CodexNotConnected("nope")
+
+    monkeypatch.setattr(model_mod, "get_valid_token", boom)
+    m = model_mod.build_model("chat")
+    assert m.id == "anthropic/claude-sonnet-4.6"
+    assert type(m).__name__ == "OpenRouter"
 
 
 def test_settings_override_beats_env(monkeypatch):

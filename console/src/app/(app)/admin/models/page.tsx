@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useConnectCodex, useModels, useSetModelOverride } from "@/lib/use-models";
+import { CodexConnect } from "@/components/system/codex-connect";
+import { useModels, useSetModelOverride } from "@/lib/use-models";
 
 const ROLES = [
   { key: "chat", label: "Chat", hint: "answers, digests, agendas" },
@@ -15,8 +14,6 @@ const ROLES = [
 export default function ModelsPage() {
   const { data, isLoading } = useModels();
   const setOverride = useSetModelOverride();
-  const connectCodex = useConnectCodex();
-  const [authJson, setAuthJson] = useState("");
 
   if (isLoading || !data) {
     return <div className="space-y-3"><Skeleton className="h-24" /><Skeleton className="h-24" /></div>;
@@ -59,7 +56,7 @@ export default function ModelsPage() {
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-muted-foreground">
           <span className="font-medium text-amber-700 dark:text-amber-400">Review currently equals Build.</span>{" "}
           {data.swap_preview
-            ? <>The reviewer would judge its own author's work — anti-affinity will auto-swap review to <span className="font-mono">{data.swap_preview}</span> at run time.</>
+            ? <>The reviewer would judge its own author&apos;s work — anti-affinity will auto-swap review to <span className="font-mono">{data.swap_preview}</span> at run time.</>
             : "No safe alternate model was found — review will run against the same weights as build."}
         </div>
       )}
@@ -90,18 +87,39 @@ export default function ModelsPage() {
         </table>
       </div>
 
-      <div className="max-w-lg rounded-xl border bg-card p-4 shadow-sm">
-        <div className="mb-2 text-sm font-semibold">Connect Codex</div>
-        <textarea
-          className="h-24 w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-xs"
-          placeholder='Paste ~/.codex/auth.json contents'
-          value={authJson}
-          onChange={(e) => setAuthJson(e.target.value)}
-        />
-        <Button className="mt-2" disabled={!authJson || connectCodex.isPending} onClick={() => connectCodex.mutate(authJson, { onSuccess: () => setAuthJson("") })}>
-          Connect
-        </Button>
-      </div>
+      <CodexConnect connected={data.providers.find((p) => p.name === "codex")?.usable ?? false} />
+
+      {data.codex_usage && (
+        <div className="max-w-lg rounded-xl border bg-card p-4 shadow-sm">
+          <div className="mb-2 text-sm font-semibold">Codex usage (last hour)</div>
+          <p className="text-xs text-muted-foreground">
+            Everyone shares this one login — watch this if replies start slowing down or erroring.
+          </p>
+          <div className="mt-3 flex gap-6">
+            <div>
+              <div className="text-2xl font-semibold">{data.codex_usage.requests}</div>
+              <div className="text-xs text-muted-foreground">requests</div>
+            </div>
+            <div>
+              <div className="text-2xl font-semibold">{data.codex_usage.output_tokens.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground">output tokens</div>
+            </div>
+          </div>
+          {data.codex_usage.top_users.length > 0 && (
+            <div className="mt-3 border-t pt-3">
+              <div className="mb-1 text-xs font-medium text-muted-foreground">Busiest users</div>
+              <ul className="space-y-0.5 text-xs">
+                {data.codex_usage.top_users.map((u) => (
+                  <li key={u.user_id} className="flex justify-between">
+                    <span className="text-muted-foreground">{u.user_id}</span>
+                    <span className="font-mono">{u.requests}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -67,7 +67,8 @@ def claim_one() -> Optional[dict]:
         )).fetchone()
         if not row:
             return None
-        c.execute(text("UPDATE jobs SET status='running' WHERE id=:id"), {"id": row[0]})
+        c.execute(text("UPDATE jobs SET status='running', claimed_at=:ts WHERE id=:id"),
+                  {"ts": time.time(), "id": row[0]})
         return {"id": int(row[0]), "kind": row[1], "args": json.loads(row[2]),
                 "user_id": row[3], "attempts": int(row[4])}
 
@@ -85,11 +86,19 @@ def requeue(job_id: int) -> None:
         ), {"id": job_id})
 
 
-def recover_orphans() -> int:
+def recover_orphans(stale_after_s: Optional[int] = None) -> int:
+    """Fail jobs stuck in 'running' for longer than `stale_after_s` — NOT every running job
+    unconditionally. Under multiple worker instances, a blanket sweep on every boot would
+    wrongly fail a job a different, still-alive instance is legitimately mid-way through;
+    scoping to staleness only catches genuinely orphaned jobs (the instance that claimed
+    them crashed and never came back)."""
+    from bott.shared.config import job_orphan_stale_after_s
+    cutoff = time.time() - (stale_after_s if stale_after_s is not None else job_orphan_stale_after_s())
     with get_engine().begin() as c:
         res = c.execute(text(
             "UPDATE jobs SET status='failed', error='interrupted by restart' "
-            "WHERE status='running'"))
+            "WHERE status='running' AND (claimed_at IS NULL OR claimed_at < :cutoff)"
+        ), {"cutoff": cutoff})
         return res.rowcount or 0
 
 
@@ -140,11 +149,24 @@ def job_counts() -> dict:
 def worker_main(handler: Callable[[dict], None], poll: float = 1.0,
                 stop: Optional[threading.Event] = None) -> None:
     """Claim -> handle -> complete loop. Run as a thread today or a process tomorrow."""
+    from bott.shared.alerts import alert_admins, alert_admins_throttled
+
     init_queue()
     recover_orphans()
     stop = stop or threading.Event()
     while not stop.is_set():
-        job = claim_one()
+        try:
+            job = claim_one()
+        except Exception as e:  # noqa: BLE001 — claim_one is the one call outside the
+            # per-job try/except below; without this guard a DB hiccup here would kill the
+            # whole worker thread silently (nobody drains the queue again until a restart).
+            log.error("worker: claim_one failed, backing off: %s", e)
+            alert_admins_throttled(
+                "worker-claim-failed",
+                f"Bott's background job worker can't reach the queue: {e}",
+            )
+            stop.wait(min(30, poll * 5))
+            continue
         if job is None:
             stop.wait(poll)
             continue
@@ -159,3 +181,7 @@ def worker_main(handler: Callable[[dict], None], poll: float = 1.0,
                 stop.wait(min(10, 2 ** job["attempts"]))
             else:
                 complete(job["id"], error=f"{e}\n{traceback.format_exc()}")
+                alert_admins(
+                    f"A background job (id {job['id']}, kind {job.get('kind', '?')}) "
+                    f"failed after {_MAX_ATTEMPTS} attempts: {e}"
+                )

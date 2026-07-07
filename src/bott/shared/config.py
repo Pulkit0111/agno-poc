@@ -74,12 +74,6 @@ def gate_thresholds() -> "GateThresholds":
     )
 
 
-def db_path() -> str:
-    """Path to the SQLite task/trace DB. Overridable for deployments and tests;
-    defaults to the original repo-root filename for backward compatibility."""
-    return os.getenv("REVIEW_DB_PATH", "review_poc.db")
-
-
 def agentos_db_path() -> str:
     """Path to the shared Agno SqliteDb that backs AgentOS sessions/metrics and (now)
     Slack sessions. Separate from the worker's task/trace DB (review_poc.db)."""
@@ -487,6 +481,29 @@ def openrouter_api_key() -> str | None:
     return os.getenv("OPENROUTER_API_KEY") or None
 
 
+def fallback_model_provider() -> str | None:
+    """Optional secondary provider (`bedrock` or `openrouter`) build_model() switches to
+    when the primary provider is `codex` and the shared org login is broken (token missing,
+    refresh failed). Unset by default: no fallback, so a Codex outage surfaces as a clear
+    error — plus an admin alert — instead of silently degrading to a different model with
+    nobody told. Set FALLBACK_MODEL_PROVIDER=bedrock (or openrouter) to opt in."""
+    v = (os.getenv("FALLBACK_MODEL_PROVIDER") or "").strip().lower()
+    return v or None
+
+
+# Sane, capable defaults if a fallback provider is enabled but FALLBACK_MODEL_ID isn't set —
+# these are provider-specific ids, unlike the codex model ids in BOTT_*_MODEL, so they can't
+# just reuse whatever's already configured for the primary (codex) provider.
+_FALLBACK_MODEL_DEFAULTS: dict[str, str] = {
+    "bedrock": "anthropic.claude-sonnet-4-6-v1:0",
+    "openrouter": "anthropic/claude-sonnet-4.6",
+}
+
+
+def fallback_model_id(provider: str) -> str:
+    return os.getenv("FALLBACK_MODEL_ID") or _FALLBACK_MODEL_DEFAULTS.get(provider, "")
+
+
 # --- Build-fix: implement pipeline budget -------------------------------------
 @dataclass
 class ImplementBudget:
@@ -527,6 +544,36 @@ def codex_backend_base_url() -> str:
 
 def codex_refresh_margin_s() -> int:
     return int(os.getenv("CODEX_REFRESH_MARGIN_S", "300"))
+
+
+def codex_max_concurrent_requests() -> int:
+    """Org-wide cap on simultaneous in-flight Codex calls. Everyone shares ONE ChatGPT
+    subscription, so a burst of concurrent Slack messages from different users must queue
+    behind this cap instead of all hitting the backend at once and 429ing each other."""
+    return int(os.getenv("CODEX_MAX_CONCURRENT_REQUESTS", "4"))
+
+
+def codex_max_concurrent_per_user() -> int:
+    """Per-user cap, smaller than the org-wide one, so a single heavy user (or a runaway
+    loop) can't claim every concurrent slot and starve everyone else's share."""
+    return int(os.getenv("CODEX_MAX_CONCURRENT_PER_USER", "2"))
+
+
+def job_orphan_stale_after_s() -> int:
+    """How long a job may sit in 'running' before orphan recovery (queue.py) is willing to
+    fail it as crashed. Must exceed the longest legitimate job runtime — otherwise a
+    still-genuinely-running job (this instance's own, or another instance's under multi-
+    replica deployment) gets wrongly marked failed mid-way through. Default (30 min) gives
+    real margin over BUILD_TIMEOUT_S's own default (900s / 15 min)."""
+    return int(os.getenv("JOB_ORPHAN_STALE_AFTER_S", "1800"))
+
+
+def model_retry_delay_s() -> int:
+    """Base delay (seconds) between retries on a transient provider error, doubled each
+    attempt (see model.py's _COMMON). The old default of 1s (1/2/4s across 3 retries — 7s
+    total) is sized for a personal API key's rate limits, not a whole org sharing ONE
+    ChatGPT subscription, where a 429 often means "wait tens of seconds," not one."""
+    return int(os.getenv("MODEL_RETRY_DELAY_S", "3"))
 
 
 def bott_admins() -> set[str]:

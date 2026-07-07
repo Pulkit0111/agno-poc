@@ -74,10 +74,10 @@ def test_drive_and_calendar_registered_and_listed():
 
 
 def test_drive_calendar_wired_when_configured(monkeypatch):
-    import bott.skills.connectors.confluence_read as cr
-    import bott.skills.connectors.jira_read as jr
-    import bott.skills.connectors.drive as drive
     import bott.skills.connectors.calendar as calendar
+    import bott.skills.connectors.confluence_read as cr
+    import bott.skills.connectors.drive as drive
+    import bott.skills.connectors.jira_read as jr
     monkeypatch.setattr(jr.config, "jira_configured", lambda: False)
     monkeypatch.setattr(cr.config, "confluence_configured", lambda: False)
     monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)

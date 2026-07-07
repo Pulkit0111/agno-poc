@@ -1,7 +1,7 @@
 import pytest
+from agno.db.sqlite import SqliteDb
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from agno.db.sqlite import SqliteDb
 
 from bott.interfaces.console import sessions
 from bott.interfaces.console.router import build_console_router
@@ -18,6 +18,7 @@ def client(tmp_path, monkeypatch):
     # in tests/console/test_read_helpers.py: a fresh SQLite file per test via
     # AGENTOS_DB_PATH (or a shared TEST_DATABASE_URL Postgres if the suite sets one).
     import os
+
     from bott.shared import db as db_mod
     from bott.shared.schema import init_schema
     url = os.getenv("TEST_DATABASE_URL")
@@ -38,8 +39,9 @@ def _as(client, email="m@x.com"):
 
 
 def test_list_is_scoped_to_caller(client):
-    from bott.shared.persistence import action_items
     import time
+
+    from bott.shared.persistence import action_items
     action_items.add_item("m@x.com", "mine", time.time())
     action_items.add_item("other@x.com", "not mine", time.time())
     _as(client, "m@x.com")
@@ -48,8 +50,9 @@ def test_list_is_scoped_to_caller(client):
 
 
 def test_done_marks_complete(client):
-    from bott.shared.persistence import action_items
     import time
+
+    from bott.shared.persistence import action_items
     iid = action_items.add_item("m@x.com", "task", time.time())
     _as(client, "m@x.com")
     assert client.post(f"/api/console/v1/action-items/{iid}/done").json() == {"status": "done"}
@@ -57,8 +60,9 @@ def test_done_marks_complete(client):
 
 
 def test_done_wrong_owner_is_404(client):
-    from bott.shared.persistence import action_items
     import time
+
+    from bott.shared.persistence import action_items
     iid = action_items.add_item("other@x.com", "task", time.time())
     _as(client, "m@x.com")
     r = client.post(f"/api/console/v1/action-items/{iid}/done")
@@ -66,8 +70,9 @@ def test_done_wrong_owner_is_404(client):
 
 
 def test_snooze_default_is_24h(client):
-    from bott.shared.persistence import action_items
     import time
+
+    from bott.shared.persistence import action_items
     iid = action_items.add_item("m@x.com", "task", time.time())
     _as(client, "m@x.com")
     r = client.post(f"/api/console/v1/action-items/{iid}/snooze", json={})

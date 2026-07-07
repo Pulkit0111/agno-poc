@@ -1,7 +1,7 @@
 import pytest
+from agno.db.sqlite import SqliteDb
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from agno.db.sqlite import SqliteDb
 
 from bott.interfaces.console import sessions
 from bott.interfaces.console.router import build_console_router
@@ -30,6 +30,7 @@ def client(tmp_path, monkeypatch):
     # pattern as tests/console/test_router_action_items.py's `client` fixture — so
     # skills written/pinned in one test don't leak into the next via the cached engine.
     import os
+
     from bott.shared import db as db_mod
     from bott.shared.schema import init_schema
     url = os.getenv("TEST_DATABASE_URL")
@@ -56,8 +57,9 @@ def test_list_shows_builtin_skill(client, skills_dir):
 
 
 def test_authored_skill_is_not_builtin(client, skills_dir):
-    from bott.shared.persistence import skills_store
     import time
+
+    from bott.shared.persistence import skills_store
     skills_store.upsert_skill("greeter", "greeter", "Says hello", "content", "m@x.com", time.time())
     _as(client)
     rows = client.get("/api/console/v1/skills").json()["skills"]
@@ -67,8 +69,9 @@ def test_authored_skill_is_not_builtin(client, skills_dir):
 
 
 def test_pin_requires_admin(client, skills_dir):
-    from bott.shared.persistence import skills_store
     import time
+
+    from bott.shared.persistence import skills_store
     skills_store.upsert_skill("greeter", "greeter", "Says hello", "content", "m@x.com", time.time())
     _as(client, admin=False)
     assert client.post("/api/console/v1/skills/greeter/pin", json={"pinned": True}).status_code == 403
@@ -84,8 +87,9 @@ def test_retire_refuses_builtin(client, skills_dir):
 
 
 def test_retire_refuses_pinned(client, skills_dir):
-    from bott.shared.persistence import skills_store
     import time
+
+    from bott.shared.persistence import skills_store
     skills_store.upsert_skill("greeter", "greeter", "Says hello", "content", "m@x.com", time.time())
     skills_store.set_pinned("greeter", True)
     _as(client, admin=True)
@@ -95,8 +99,9 @@ def test_retire_refuses_pinned(client, skills_dir):
 
 
 def test_retire_authored_unpinned_succeeds(client, skills_dir):
-    from bott.shared.persistence import skills_store
     import time
+
+    from bott.shared.persistence import skills_store
     skills_store.upsert_skill("greeter", "greeter", "Says hello", "content", "m@x.com", time.time())
     _as(client, admin=True)
     assert client.post("/api/console/v1/skills/greeter/retire").json() == {"retired": True}

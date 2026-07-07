@@ -48,7 +48,7 @@ function ApprovalsInner() {
         {isLoading && <div className="space-y-2 p-4"><Skeleton className="h-10" /><Skeleton className="h-10" /></div>}
         {isError && (
           <div className="px-4 py-8 text-center text-sm text-destructive">
-            Couldn't load — try refreshing the page.
+            Couldn&apos;t load — try refreshing the page.
           </div>
         )}
         {!isLoading && !isError && !approvals?.length && (

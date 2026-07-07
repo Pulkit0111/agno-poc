@@ -2,6 +2,7 @@ import { execSync } from "child_process";
 import path from "path";
 import type { FullConfig } from "@playwright/test";
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- required by Playwright's globalSetup signature
 async function globalSetup(_config: FullConfig) {
   // Mints a real HMAC session token by calling the backend's own session issuer directly —
   // there is no HTTP backdoor for this. Requires CONSOLE_SESSION_SECRET to be set in THIS

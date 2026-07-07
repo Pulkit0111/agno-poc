@@ -31,7 +31,6 @@ export function ReviewTrendsChart({ byWeek }: { byWeek: Record<string, Record<st
         })}
         {weeks.map((week, i) => {
           const counts = byWeek[week];
-          const total = Object.values(counts).reduce((a, b) => a + b, 0);
           const x = padL + i * colW + colW * 0.28;
           const bw = colW * 0.44;
           let y = padT + plotH;

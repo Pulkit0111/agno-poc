@@ -61,6 +61,26 @@ def test_callback_failed_exchange_is_401(client, monkeypatch):
     assert r.status_code == 401
 
 
+def test_callback_rejects_wrong_email_domain(client, monkeypatch):
+    """Regression: any Slack-authenticated email used to get a console session — the
+    allowed-domain setting existed but was never actually checked."""
+    monkeypatch.setattr(oidc, "exchange_code",
+                        lambda code: {"email": "someone@gmail.com", "name": "Outsider"})
+    client.cookies.set("oidc_state", "s1")
+    r = client.get("/api/console/auth/callback?code=c&state=s1")
+    assert r.status_code == 403
+    assert r.json()["detail"]["error"]["code"] == "wrong_domain"
+    assert sessions.COOKIE_NAME not in r.cookies
+
+
+def test_callback_domain_check_is_case_insensitive(client, monkeypatch):
+    monkeypatch.setattr(oidc, "exchange_code",
+                        lambda code: {"email": "admin@Axelerant.COM", "name": "A"})
+    client.cookies.set("oidc_state", "s1")
+    r = client.get("/api/console/auth/callback?code=c&state=s1")
+    assert r.status_code == 307
+
+
 def test_me_requires_session(client):
     r = client.get("/api/console/v1/me")
     assert r.status_code == 401

@@ -24,12 +24,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Configure logging BEFORE any other import that might log — several modules imported
+# below (and this file's own module-level code) log at import time, and without this
+# call those records were silently dropped (root logger had no handler) and the secret-
+# redaction filter never ran. Idempotent, so calling it again in main() is harmless.
+from bott.shared.observability.logging_setup import get_logger, setup_logging
+
+setup_logging()
+
 from agno.os import AgentOS
 
 from bott.agents.bott_agent import build_bott_agent
 from bott.shared.codex import start_model_backend
 from bott.shared.db import build_db
-from bott.shared.observability.logging_setup import get_logger
 
 log = get_logger("bott.app")
 
@@ -138,8 +145,46 @@ if should_mount_console():
 else:
     log.info("Console API NOT mounted — set CONSOLE_SESSION_SECRET to enable.")
 
+# Set by main() once the worker thread starts; read fresh on every /readyz request.
+_worker_thread_ref = None
+
+
+@app.get("/readyz")
+def readyz():
+    """Real readiness — unlike AgentOS's own /health (a bare "yes" regardless of DB or
+    worker state), this actually checks the database is reachable and the background job
+    worker thread is alive. Codex being disconnected is reported as a warning, not a
+    failure: restarting the process wouldn't fix a broken login, so treating it as "not
+    ready" would just cause a pointless crash-restart loop under an orchestrator that acts
+    on this endpoint."""
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text as _sql_text
+
+    from bott.shared.db import get_engine
+
+    problems: list[str] = []
+    warnings: list[str] = []
+    try:
+        with get_engine().connect() as c:
+            c.execute(_sql_text("SELECT 1"))
+    except Exception as e:  # noqa: BLE001 — reporting a DB problem, not raising one
+        problems.append(f"database unreachable: {e}")
+    if _worker_thread_ref is not None and not _worker_thread_ref.is_alive():
+        problems.append("background job worker is not running")
+    if _model_provider() == "codex":
+        try:
+            from bott.shared import codex_tokens
+            if not codex_tokens.is_connected():
+                warnings.append("codex not connected — chat/build/review will fail until reconnected")
+        except Exception:  # noqa: BLE001 — a broken check must not itself fail readiness
+            pass
+    ready = not problems
+    return JSONResponse(status_code=200 if ready else 503,
+                        content={"ready": ready, "problems": problems, "warnings": warnings})
+
 
 def main() -> None:
+    setup_logging()  # idempotent — belt-and-suspenders in case of an unusual import order
     # Start the model backend BEFORE serving. (AgentOS owns the FastAPI lifespan, so
     # startup hooks on the app are ignored — we manage the proxy around serve() here.)
     # Dev-only: CODEX_DEV_PROXY=1 starts the local npx proxy (legacy path); the default
@@ -161,11 +206,13 @@ def main() -> None:
 
     from bott.interfaces.slack_app import handle_task
 
+    global _worker_thread_ref
     _worker_stop = threading.Event()
     _worker_thread = threading.Thread(
         target=queue.worker_main, args=(handle_task,), kwargs={"stop": _worker_stop}, daemon=True
     )
     _worker_thread.start()
+    _worker_thread_ref = _worker_thread
     log.info("PR-review worker started.")
 
     try:

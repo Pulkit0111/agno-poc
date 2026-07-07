@@ -1,7 +1,7 @@
 import pytest
+from agno.db.sqlite import SqliteDb
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from agno.db.sqlite import SqliteDb
 
 from bott.interfaces.console import sessions
 from bott.interfaces.console.router import build_console_router
@@ -20,6 +20,7 @@ def client(tmp_path, monkeypatch):
     # Needed here because prompts_store uses get_engine() internally (not the injected
     # agno db), so its table must exist in that engine's fresh per-test database.
     import os
+
     from bott.shared import db as db_mod
     from bott.shared.schema import init_schema
     url = os.getenv("TEST_DATABASE_URL")

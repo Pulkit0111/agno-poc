@@ -20,6 +20,10 @@ export default function PromptsPage() {
   const [note, setNote] = useState("");
 
   useEffect(() => {
+    // Hydrating locally-editable state (draft/note) from data that loads asynchronously
+    // after `active` switches — not derived/synced state, so the usual "don't setState in
+    // an effect" advice doesn't apply here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (data) setDraft(data.current);
     setNote("");
   }, [data, active]);

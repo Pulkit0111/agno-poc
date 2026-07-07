@@ -37,7 +37,7 @@ from bott.skills.skill_authoring import skill_authoring_tools
 from bott.skills.sprint_report import sprint_report_tools
 from bott.skills.system_status import system_status_tools
 from bott.skills.web_publish import web_publish_tools
-from bott.skills.workspace_tools import build_workspace_tools
+from bott.skills.workspace_tools import build_workspace_tools, scope_workspace_to_user
 
 # Explicit allowlist of read-only GithubTools functions exposed to the bot.
 # Using include_tools (allowlist) instead of exclude_tools (denylist) so that any
@@ -173,6 +173,10 @@ def build_agent(user_id: str, db=None) -> Agent:
         description=get_identity(),
         instructions=[get_voice(), *SKILL_INSTRUCTIONS],
         tools=tools,
+        # Points the workspace file/shell tools at the calling user's own subdirectory for
+        # the duration of each tool call (see workspace_tools.py) — a no-op for every other
+        # tool, since it only sets a var those toolkits read.
+        tool_hooks=[scope_workspace_to_user],
         skills=skills,
         num_history_runs=20,
         add_history_to_context=True,

@@ -28,8 +28,13 @@ agent-ui/
 # Local tooling / harness state
 .claude/
 .superpowers/
-# Local design/plan docs (not tracked)
-docs/
+# Local design/plan docs (not tracked) — EXCEPT the operationally load-bearing ones below.
+# The rest of docs/ (architecture notes, specs) is fine to lose to a wiped laptop; the
+# go-live setup guide and test scenarios are not — they're the only copy of that knowledge
+# and must survive via `git clone` alone, not one person's machine.
+docs/*
+!docs/SETUP.md
+!docs/TEST-SCENARIOS.md
 agentos.db
 agentos.db-*
 

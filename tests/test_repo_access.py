@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import base64
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import httpx
-import pytest
 
 import bott.skills.repo_access as ra
 from bott.agents.code_review.github.client import GitHubClient
-
 
 # ---------------------------------------------------------------------------
 # Helpers

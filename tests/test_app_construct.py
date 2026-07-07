@@ -88,3 +88,92 @@ def test_app_constructs(monkeypatch):
     paths = {getattr(r, "path", "") for r in app.app.routes}
     assert "/health" in paths
     assert any("schedule" in p for p in paths)  # scheduler mounted
+
+
+def test_readyz_reports_ok_when_db_reachable_and_no_worker_started(monkeypatch):
+    """Regression guard for AgentOS's own /health always saying "ok" regardless of DB or
+    worker state — /readyz must actually check the database. worker_thread_ref is None
+    outside main(), so the worker-liveness check is skipped rather than false-failing."""
+    from fastapi.testclient import TestClient
+
+    from bott.interfaces import app
+    client = TestClient(app.app)
+    r = client.get("/readyz")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ready"] is True
+    assert body["problems"] == []
+
+
+def test_readyz_reports_not_ready_when_worker_thread_died(monkeypatch):
+    import threading
+
+    from fastapi.testclient import TestClient
+
+    from bott.interfaces import app
+
+    dead_thread = threading.Thread(target=lambda: None)
+    dead_thread.start()
+    dead_thread.join()  # already finished — is_alive() is False
+    monkeypatch.setattr(app, "_worker_thread_ref", dead_thread)
+
+    client = TestClient(app.app)
+    r = client.get("/readyz")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["ready"] is False
+    assert any("worker" in p for p in body["problems"])
+
+
+def test_readyz_reports_not_ready_when_db_unreachable(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from bott.interfaces import app
+
+    def boom():
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr("bott.shared.db.get_engine", boom)
+    client = TestClient(app.app)
+    r = client.get("/readyz")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["ready"] is False
+    assert any("database unreachable" in p for p in body["problems"])
+
+
+def test_readyz_warns_but_stays_ready_when_codex_disconnected(monkeypatch):
+    """Codex being disconnected must NOT flip readiness — restarting the process wouldn't
+    fix a broken login, so treating this as "not ready" would just crash-loop uselessly."""
+    from fastapi.testclient import TestClient
+
+    from bott.interfaces import app
+    from bott.shared import codex_tokens
+
+    monkeypatch.setattr(app, "_model_provider", lambda: "codex")
+    monkeypatch.setattr(codex_tokens, "is_connected", lambda: False)
+    client = TestClient(app.app)
+    r = client.get("/readyz")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ready"] is True
+    assert any("codex not connected" in w for w in body["warnings"])
+
+
+def test_importing_app_configures_logging():
+    """Regression guard: app.py must call setup_logging() at import time.
+
+    Without this, the root logger has no handler, every bott.* INFO log is
+    silently dropped, and the secret-redaction filter never runs on WARNING/
+    ERROR records either. `bott.interfaces.app` is imported (directly or
+    transitively) by every test in this suite, so by the time this test runs
+    the root logger must already carry the configured handler + filter.
+    """
+    import logging
+
+    import bott.interfaces.app  # noqa: F401 — import side effect is what's under test
+
+    root = logging.getLogger()
+    assert root.handlers, "root logger has no handler — setup_logging() was never called"
+    filter_types = {type(f).__name__ for h in root.handlers for f in h.filters}
+    assert "_RedactFilter" in filter_types, "secret-redaction filter is not attached"

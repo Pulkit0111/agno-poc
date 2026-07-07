@@ -5,9 +5,14 @@ import { toast } from "sonner";
 import { api, ApiError } from "./api";
 
 export type ProviderInfo = { name: string; usable: boolean; hint: string; models: string[] };
+export type CodexUsage = {
+  window_s: number; requests: number; output_tokens: number;
+  top_users: { user_id: string; requests: number }[];
+};
 export type ModelsState = {
   provider: string; chat: string; build: string; review: string;
   conflict: boolean; swap_preview: string | null; providers: ProviderInfo[];
+  codex_usage: CodexUsage | null;
 };
 
 export function useModels() {
@@ -36,5 +41,36 @@ export function useConnectCodex() {
       }),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't connect Codex."),
     onSuccess: (data) => { toast.success(data.message); qc.invalidateQueries({ queryKey: ["models"] }); },
+  });
+}
+
+export type CodexLoginStart = { url?: string; code?: string; raw?: string };
+
+export function useStartCodexLogin() {
+  return useMutation({
+    mutationFn: () => api<CodexLoginStart>("/api/console/v1/models/codex-login/start", { method: "POST" }),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't start login."),
+  });
+}
+
+export function useCodexLoginStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: ["codex-login-status"],
+    queryFn: () => api<{ connected: boolean }>("/api/console/v1/models/codex-login/status"),
+    enabled,
+    refetchInterval: enabled ? 3000 : false,
+  });
+}
+
+export function useDisconnectCodex() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ connected: boolean }>("/api/console/v1/models/codex-login/disconnect", { method: "POST" }),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't disconnect."),
+    onSuccess: () => {
+      toast.success("Disconnected.");
+      qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["codex-login-status"] });
+    },
   });
 }

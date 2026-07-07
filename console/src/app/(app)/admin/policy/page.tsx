@@ -43,7 +43,7 @@ export default function PolicyPage() {
       <div className="rounded-xl border bg-card shadow-sm">
         <div className="border-b px-4 py-2.5 text-sm font-semibold">Overrides</div>
         {isLoading && <div className="space-y-2 p-4"><Skeleton className="h-9" /></div>}
-        {isError && <div className="px-4 py-8 text-center text-sm text-destructive">Couldn't load — try refreshing the page.</div>}
+        {isError && <div className="px-4 py-8 text-center text-sm text-destructive">Couldn&apos;t load — try refreshing the page.</div>}
         {!isLoading && !isError && !overrides?.length && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">No overrides set — everything runs on its default rules.</div>
         )}

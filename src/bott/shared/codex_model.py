@@ -33,6 +33,17 @@ def _ensure_json_word(input_messages: list, response_format) -> list:
     ]
 
 
+def _record_usage(user_id, model_id: str, assistant_message) -> None:
+    """Best-effort usage-visibility hook — a broken recorder must never break the actual
+    model call it's observing."""
+    try:
+        from bott.shared.codex_usage import record_call
+        output_tokens = getattr(assistant_message.metrics, "output_tokens", 0) or 0
+        record_call(user_id, model_id, output_tokens)
+    except Exception:  # noqa: BLE001 — visibility must never break the call it's watching
+        pass
+
+
 def _provider_error(exc: Exception, model_name: str, model_id: str):
     """Wrap a backend exception as Agno's ModelProviderError, carrying the REAL HTTP status.
     Agno's retry loop treats 400/401/403/404/413/422 as non-retryable — but only when
@@ -127,42 +138,50 @@ def _make_codex_model_class():
 
         def invoke(self, messages, assistant_message, response_format=None, tools=None,
                    tool_choice=None, run_response=None, compress_tool_results=False):  # type: ignore[override]
-            from agno.exceptions import ModelProviderError
             from agno.models.response import ModelResponse
-            assistant_message.metrics.start_timer()
-            final = ModelResponse(content="")
-            tool_use: dict = {}
-            try:
-                for event in self.get_client().responses.create(
-                    **self._stream_kwargs(messages, response_format, tools, tool_choice, compress_tool_results)
-                ):
-                    delta, tool_use = self._parse_provider_response_delta(event, assistant_message, tool_use)
-                    self._merge_delta(final, delta)
-            except Exception as exc:  # noqa: BLE001 — surface as Agno's provider error
-                raise _provider_error(exc, self.name, self.id) from exc
-            finally:
-                assistant_message.metrics.stop_timer()
-            return final
+
+            from bott.shared.codex_concurrency import acquire_sync
+            user_id = getattr(run_response, "user_id", None)
+            with acquire_sync(user_id):
+                assistant_message.metrics.start_timer()
+                final = ModelResponse(content="")
+                tool_use: dict = {}
+                try:
+                    for event in self.get_client().responses.create(
+                        **self._stream_kwargs(messages, response_format, tools, tool_choice, compress_tool_results)
+                    ):
+                        delta, tool_use = self._parse_provider_response_delta(event, assistant_message, tool_use)
+                        self._merge_delta(final, delta)
+                except Exception as exc:  # noqa: BLE001 — surface as Agno's provider error
+                    raise _provider_error(exc, self.name, self.id) from exc
+                finally:
+                    assistant_message.metrics.stop_timer()
+                    _record_usage(user_id, self.id, assistant_message)
+                return final
 
         async def ainvoke(self, messages, assistant_message, response_format=None, tools=None,
                           tool_choice=None, run_response=None, compress_tool_results=False):  # type: ignore[override]
-            from agno.exceptions import ModelProviderError
             from agno.models.response import ModelResponse
-            assistant_message.metrics.start_timer()
-            final = ModelResponse(content="")
-            tool_use: dict = {}
-            try:
-                stream = await self.get_async_client().responses.create(
-                    **self._stream_kwargs(messages, response_format, tools, tool_choice, compress_tool_results)
-                )
-                async for event in stream:
-                    delta, tool_use = self._parse_provider_response_delta(event, assistant_message, tool_use)
-                    self._merge_delta(final, delta)
-            except Exception as exc:  # noqa: BLE001 — surface as Agno's provider error
-                raise _provider_error(exc, self.name, self.id) from exc
-            finally:
-                assistant_message.metrics.stop_timer()
-            return final
+
+            from bott.shared.codex_concurrency import acquire_async
+            user_id = getattr(run_response, "user_id", None)
+            async with acquire_async(user_id):
+                assistant_message.metrics.start_timer()
+                final = ModelResponse(content="")
+                tool_use: dict = {}
+                try:
+                    stream = await self.get_async_client().responses.create(
+                        **self._stream_kwargs(messages, response_format, tools, tool_choice, compress_tool_results)
+                    )
+                    async for event in stream:
+                        delta, tool_use = self._parse_provider_response_delta(event, assistant_message, tool_use)
+                        self._merge_delta(final, delta)
+                except Exception as exc:  # noqa: BLE001 — surface as Agno's provider error
+                    raise _provider_error(exc, self.name, self.id) from exc
+                finally:
+                    assistant_message.metrics.stop_timer()
+                    _record_usage(user_id, self.id, assistant_message)
+                return final
 
     return CodexModel
 

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: bott
+          POSTGRES_USER: bott
+          POSTGRES_PASSWORD: bott
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bott -d bott"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies (incl. dev extras)
+        run: uv sync --frozen --extra dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests scripts
+
+      - name: Test (SQLite — a fresh temp file per test, how the suite runs day to day)
+        run: uv run pytest -q
+
+      - name: Test (Postgres — catches Postgres-only SQL issues SQLite can't)
+        run: uv run pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql://bott:bott@localhost:5432/bott
+
+  console:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc --noEmit -p tsconfig.json
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build

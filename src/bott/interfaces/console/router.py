@@ -92,6 +92,7 @@ class ScheduleCreateBody(BaseModel):
 
 def _skills():
     from agno.skills import LocalSkills, Skills
+
     from bott.shared import config
     return Skills(loaders=[LocalSkills(config.bott_skills_dir())])
 
@@ -151,6 +152,10 @@ def build_console_router(db) -> APIRouter:
         info = oidc.exchange_code(code)
         if not info:
             raise _err(401, "oidc_failed", "Slack sign-in failed — try again.")
+        domain = info["email"].rsplit("@", 1)[-1].lower()
+        if domain != config.allowed_email_domain().lower():
+            log.warning("console login rejected — wrong domain: %s", info["email"])
+            raise _err(403, "wrong_domain", "This console is restricted to company accounts.")
         is_admin = info["email"] in config.bott_admins()
         token = sessions.issue_session(info["email"], is_admin)
         base = os.getenv("CONSOLE_BASE_URL", "http://localhost:3000").rstrip("/")
@@ -237,33 +242,33 @@ def build_console_router(db) -> APIRouter:
 
     @r.post("/api/console/v1/schedules/{schedule_id}/pause")
     def pause_schedule(request: Request, schedule_id: str) -> dict:
-        current_user(request)
+        require_admin(current_user(request))
         if not schedule_service.pause(db, schedule_id):
             raise _err(404, "not_found", "That schedule doesn't exist.")
         return {"enabled": False}
 
     @r.post("/api/console/v1/schedules/{schedule_id}/resume")
     def resume_schedule(request: Request, schedule_id: str) -> dict:
-        current_user(request)
+        require_admin(current_user(request))
         if not schedule_service.resume(db, schedule_id):
             raise _err(404, "not_found", "That schedule doesn't exist.")
         return {"enabled": True}
 
     @r.post("/api/console/v1/schedules/{schedule_id}/run-now")
     def run_schedule_now(request: Request, schedule_id: str, background_tasks: BackgroundTasks) -> dict:
-        current_user(request)
+        require_admin(current_user(request))
         background_tasks.add_task(schedule_service.trigger_now, schedule_id)
         return {"triggered": True}
 
     @r.delete("/api/console/v1/schedules/{schedule_id}")
     def delete_schedule(request: Request, schedule_id: str) -> dict:
-        current_user(request)
+        require_admin(current_user(request))
         schedule_service.remove(db, [schedule_id])
         return {"deleted": True}
 
     @r.post("/api/console/v1/schedules")
     def create_schedule(request: Request, body: ScheduleCreateBody) -> dict:
-        current_user(request)
+        require_admin(current_user(request))
         if body.frequency is not None and body.frequency not in _VALID_FREQUENCIES:
             raise _err(400, "bad_frequency", f"Unknown cadence: {body.frequency}")
         if not _TIME_RE.fullmatch(body.time):
@@ -368,6 +373,7 @@ def build_console_router(db) -> APIRouter:
         if not skills_store.delete_skill(slug):
             raise _err(404, "not_found", "That skill doesn't exist.")
         import shutil
+
         from bott.shared import config
         shutil.rmtree(f"{config.bott_skills_dir()}/{slug}", ignore_errors=True)
         # NOTE: this Skills() instance is per-request and discarded right after — reload()
@@ -381,7 +387,7 @@ def build_console_router(db) -> APIRouter:
 
     @r.post("/api/console/v1/reports/run")
     def run_report(request: Request, body: ReportRunBody) -> dict:
-        current_user(request)
+        require_admin(current_user(request))
         if body.kind == "security":
             from bott.skills.advisories import drupal_security_advisories
             return {"result": drupal_security_advisories()}
@@ -441,10 +447,17 @@ def build_console_router(db) -> APIRouter:
                 "name": name, "usable": usable, "hint": hint,
                 "models": models_mod.available_models(name) if (usable and name == provider) else [],
             })
+        codex_usage = None
+        if any(p["name"] == "codex" and p["usable"] for p in providers):
+            from bott.shared.codex_usage import usage_summary
+            try:
+                codex_usage = usage_summary()
+            except Exception as e:  # noqa: BLE001 — usage visibility is a nice-to-have
+                log.warning("codex usage_summary failed: %s", e)
         return {
             "provider": provider, "chat": active["chat"], "build": active["build"],
             "review": active["review"], "conflict": conflict, "swap_preview": swap_preview,
-            "providers": providers,
+            "providers": providers, "codex_usage": codex_usage,
         }
 
     @r.post("/api/console/v1/models")
@@ -466,6 +479,34 @@ def build_console_router(db) -> APIRouter:
         if message.startswith(("Sorry, that's not allowed", "Couldn't read that auth.json")):
             raise _err(400, "connect_failed", message)
         return {"message": message}
+
+    # ── Connect ChatGPT (device-auth) ────────────────────────────────────────────────
+    # Preferred over the paste-JSON flow above: click Connect, get a URL + code, approve
+    # in a browser, and this flips to connected on its own — no manual auth.json copying.
+    # Falls back to needing the `codex` CLI installed on whatever host runs the console API
+    # (not every worker — inference itself never shells out to the CLI).
+
+    @r.post("/api/console/v1/models/codex-login/start")
+    def start_codex_login_route(request: Request) -> dict:
+        require_admin(current_user(request))
+        from bott.shared.codex_login import start_codex_login
+        result = start_codex_login()
+        if "error" in result:
+            raise _err(400, "codex_login_failed", result["error"])
+        return result
+
+    @r.get("/api/console/v1/models/codex-login/status")
+    def codex_login_status_route(request: Request) -> dict:
+        require_admin(current_user(request))
+        from bott.shared.codex_login import codex_login_status
+        return codex_login_status()
+
+    @r.post("/api/console/v1/models/codex-login/disconnect")
+    def disconnect_codex_login_route(request: Request) -> dict:
+        require_admin(current_user(request))
+        from bott.shared.codex_login import disconnect_codex_login
+        disconnect_codex_login()
+        return {"connected": False}
 
     @r.get("/api/console/v1/engagements")
     def list_engagements(request: Request) -> dict:
@@ -545,6 +586,7 @@ def build_console_router(db) -> APIRouter:
         user = current_user(request)
         require_admin(user)
         import time
+
         from bott.shared.persistence import records
         since = time.time() - days * 86400
         return {"by_week": records.trace_stats_by_week(since_epoch=since)}

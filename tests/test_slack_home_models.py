@@ -93,7 +93,7 @@ def test_set_models_matrix_keys_written(store):
     assert "not allowed" in out.lower()
     assert get_setting("model.chat") is None
 
-    r1 = m.apply_model_override("admin@axelerant.com", "model.chat", "gpt-5.4-mini")
+    m.apply_model_override("admin@axelerant.com", "model.chat", "gpt-5.4-mini")
     r2 = m.apply_model_override("admin@axelerant.com", "model.build", "gpt-5.5-codex")
     r3 = m.apply_model_override("admin@axelerant.com", "model.review", "gpt-5.5")
     assert get_setting("model.chat") == "gpt-5.4-mini"

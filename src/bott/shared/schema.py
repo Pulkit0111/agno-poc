@@ -32,6 +32,11 @@ JOBS = Table(
     Column("dedup_key", Text),
     Column("error", Text),
     Column("created", Float, nullable=False),
+    # Set when a job transitions to 'running' (claim_one). Lets orphan recovery (queue.py)
+    # tell "genuinely still running on another instance" apart from "orphaned by a crash" —
+    # a blanket `WHERE status='running'` on every boot would wrongly fail a job another,
+    # still-alive instance is legitimately mid-way through.
+    Column("claimed_at", Float, nullable=True),
 )
 Index("idx_jobs_pending", JOBS.c.status, JOBS.c.id)
 
@@ -150,6 +155,53 @@ PROMPT_VERSIONS = Table(
     Column("created", Float, nullable=False),
 )
 Index("idx_prompt_versions_name", PROMPT_VERSIONS.c.prompt_name, PROMPT_VERSIONS.c.id)
+
+
+# Usage ledger for the shared org Codex account (codex_usage.py owns the DML). Not a
+# billing meter — the ChatGPT subscription has no per-token price — this is a health
+# signal: request/token volume over a rolling window, since the whole org shares one
+# account's rate-limit pool and would otherwise have no warning before hitting it.
+CODEX_USAGE = Table(
+    "codex_usage",
+    METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", Text),
+    Column("model_id", Text, nullable=False),
+    Column("output_tokens", Integer, nullable=False, server_default=_sql_text("0")),
+    Column("created", Float, nullable=False),
+)
+Index("idx_codex_usage_created", CODEX_USAGE.c.created)
+
+
+# DSM/standup collection state (persistence/standup.py owns the DML). Used to live in a
+# separate raw-sqlite3 file that ignored DATABASE_URL entirely — in production that meant
+# writing to local disk instead of the shared database (lost on container recreation,
+# invisible to any other replica). Moved onto the same shared engine as everything else.
+STANDUP_ROUNDS = Table(
+    "standup_rounds",
+    METADATA,
+    Column("team", Text, nullable=False),
+    Column("date", Text, nullable=False),
+    Column("channel", Text, nullable=False),
+    Column("thread_ts", Text, nullable=False),
+    Column("created", Float, nullable=False),
+    PrimaryKeyConstraint("team", "date"),
+)
+
+STANDUP_RESPONSES = Table(
+    "standup_responses",
+    METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("team", Text, nullable=False),
+    Column("date", Text, nullable=False),
+    Column("user_id", Text, nullable=False),
+    Column("yesterday", Text),
+    Column("today", Text),
+    Column("blockers", Text),
+    Column("created", Float, nullable=False),
+)
+Index("idx_standup_responses", STANDUP_RESPONSES.c.team, STANDUP_RESPONSES.c.date,
+      STANDUP_RESPONSES.c.id)
 
 
 def init_schema(engine=None) -> None:

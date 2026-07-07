@@ -4,6 +4,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def _tmp_db(tmp_path, monkeypatch):
     import os
+
     from bott.shared import db
     from bott.shared.schema import init_schema
     url = os.getenv("TEST_DATABASE_URL")
