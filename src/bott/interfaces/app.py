@@ -121,6 +121,15 @@ agent_os = AgentOS(
 )
 app = agent_os.get_app()
 
+# AgentOS reads OS_SECURITY_KEY itself (AgnoAPISettings is a pydantic BaseSettings) and,
+# when set, requires `Authorization: Bearer <key>` on every AgentOS-native route (agent
+# runs, sessions, memory, config, ...). Routes with their OWN auth are unaffected: the
+# Slack interface + App Home gateway (Slack signature), /webhook/github (HMAC),
+# /api/console/* (session cookie), and /health + /readyz (unauthenticated healthchecks)
+# are all mounted outside the security-key dependency.
+if not os.getenv("OS_SECURITY_KEY"):
+    log.warning("AgentOS API is unauthenticated — set OS_SECURITY_KEY in production.")
+
 # PR-review GitHub webhook (auto-review on PR opened/ready) — enqueues to the durable
 # worker started in main(). Import-safe (no env needed at import).
 from bott.agents.code_review.webhook import router as _webhook_router  # noqa: E402
@@ -137,8 +146,15 @@ if _slack_signing and _slack_token:
 
 # Web console API (Next.js console app talks to /api/console/*). Env-gated on a session
 # secret — no secret, no cookies, so we don't mount an auth surface that can't sign anything.
-from bott.interfaces.console.router import build_console_router, should_mount_console  # noqa: E402
+# A HALF-configured console (console-intent vars set, secret missing) fails LOUD here
+# instead of silently 404ing the whole console UI.
+from bott.interfaces.console.router import (  # noqa: E402
+    build_console_router,
+    require_console_env,
+    should_mount_console,
+)
 
+require_console_env()
 if should_mount_console():
     app.include_router(build_console_router(_db))
     log.info("Console API mounted at /api/console.")

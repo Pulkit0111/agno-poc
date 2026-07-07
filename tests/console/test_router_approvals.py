@@ -60,10 +60,10 @@ def test_decision_approve_dispatches_api(client, monkeypatch):
     monkeypatch.setattr(router_mod.approvals, "decide",
                         lambda i, approved, decided_by: seen.update(d=(i, approved, decided_by)) or True)
     monkeypatch.setattr(router_mod, "_dispatch_api", lambda i: seen.update(api=i))
-    _as(client, "m@x.com")
+    _as(client, "adm@x.com", is_admin=True)
     r = client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
     assert r.json() == {"status": "approved"}
-    assert seen["d"] == (7, True, "m@x.com")
+    assert seen["d"] == (7, True, "adm@x.com")
     assert seen["api"] == 7
 
 
@@ -73,15 +73,43 @@ def test_decision_approve_build_dispatches_build(client, monkeypatch):
     monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: row)
     monkeypatch.setattr(router_mod.approvals, "decide", lambda *a, **k: True)
     monkeypatch.setattr(router_mod, "_dispatch_build", lambda i: seen.update(build=i))
-    _as(client, "m@x.com")
+    _as(client, "adm@x.com", is_admin=True)
     client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
     assert seen["build"] == 7
+
+
+def test_decision_is_admin_only_even_for_own_request(client, monkeypatch):
+    # ROW belongs to m@x.com — the requester deciding their own approval would defeat
+    # the human-sign-off gate, so it must be a 403, with no decide/dispatch side effects.
+    seen = {}
+    monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: dict(ROW))
+    monkeypatch.setattr(router_mod.approvals, "decide",
+                        lambda *a, **k: seen.update(decided=True) or True)
+    monkeypatch.setattr(router_mod, "_dispatch_api", lambda i: seen.update(api=i))
+    _as(client, "m@x.com")
+    r = client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
+    assert r.status_code == 403
+    assert r.json()["detail"]["error"]["code"] == "admin_only"
+    assert seen == {}
+
+
+def test_admin_may_decide_own_request(client, monkeypatch):
+    # Single-admin orgs must not deadlock: an admin CAN approve their own request.
+    row = dict(ROW, user_id="adm@x.com")
+    seen = {}
+    monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: row)
+    monkeypatch.setattr(router_mod.approvals, "decide", lambda *a, **k: True)
+    monkeypatch.setattr(router_mod, "_dispatch_api", lambda i: seen.update(api=i))
+    _as(client, "adm@x.com", is_admin=True)
+    r = client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
+    assert r.json() == {"status": "approved"}
+    assert seen["api"] == 7
 
 
 def test_decision_already_decided_is_409(client, monkeypatch):
     monkeypatch.setattr(router_mod.approvals, "get_request",
                         lambda i: dict(ROW, status="approved"))
-    _as(client, "m@x.com")
+    _as(client, "adm@x.com", is_admin=True)
     r = client.post("/api/console/v1/approvals/7/decision", json={"approve": False})
     assert r.status_code == 409
     assert r.json()["detail"]["error"]["code"] == "already_decided"
@@ -89,7 +117,7 @@ def test_decision_already_decided_is_409(client, monkeypatch):
 
 def test_decision_missing_is_404(client, monkeypatch):
     monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: None)
-    _as(client, "m@x.com")
+    _as(client, "adm@x.com", is_admin=True)
     assert client.post("/api/console/v1/approvals/9/decision", json={"approve": True}).status_code == 404
 
 
@@ -101,7 +129,7 @@ def test_decision_race_lost_is_409_and_no_dispatch(client, monkeypatch):
     monkeypatch.setattr(router_mod.approvals, "decide", lambda *a, **k: False)
     monkeypatch.setattr(router_mod, "_dispatch_api", lambda i: seen.update(api=i))
     monkeypatch.setattr(router_mod, "_dispatch_build", lambda i: seen.update(build=i))
-    _as(client, "m@x.com")
+    _as(client, "adm@x.com", is_admin=True)
     r = client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
     assert r.status_code == 409
     assert r.json()["detail"]["error"]["code"] == "already_decided"

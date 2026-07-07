@@ -19,12 +19,20 @@ export default function ModelsPage() {
     return <div className="space-y-3"><Skeleton className="h-24" /><Skeleton className="h-24" /></div>;
   }
 
+  const codex = data.providers.find((p) => p.name === "codex");
+  const codexConnected = codex?.usable ?? false;
+  const codexModels = codex?.models ?? [];
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-lg font-semibold tracking-tight">Models</h1>
-        <p className="text-sm text-muted-foreground">Which model does which job — chat, build, review</p>
+        <p className="text-sm text-muted-foreground">
+          ChatGPT (Codex) is Bott&apos;s only model provider — connect it here and pick which model does which job
+        </p>
       </div>
+
+      <CodexConnect connected={codexConnected} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {ROLES.map((role) => {
@@ -38,15 +46,19 @@ export default function ModelsPage() {
               </div>
               <div className="mt-2 font-mono text-sm">{current}</div>
               <div className="mt-1 text-xs text-muted-foreground">{role.hint}</div>
-              <select
-                className="mt-3 w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-xs"
-                value={current}
-                onChange={(e) => setOverride.mutate({ key: `model.${role.key}`, value: e.target.value })}
-              >
-                {data.providers.find((p) => p.name === data.provider)?.models.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
+              {codexModels.length > 0 ? (
+                <select
+                  className="mt-3 w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-xs"
+                  value={current}
+                  onChange={(e) => setOverride.mutate({ key: `model.${role.key}`, value: e.target.value })}
+                >
+                  {codexModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="mt-3 text-xs text-muted-foreground">Connect ChatGPT above to pick a model.</div>
+              )}
             </div>
           );
         })}
@@ -60,34 +72,6 @@ export default function ModelsPage() {
             : "No safe alternate model was found — review will run against the same weights as build."}
         </div>
       )}
-
-      <div className="rounded-xl border bg-card shadow-sm">
-        <div className="border-b px-4 py-2.5 text-sm font-semibold">Providers</div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-muted-foreground">
-              <th className="px-4 py-2 font-medium">Provider</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium">Models</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.providers.map((p) => (
-              <tr key={p.name} className="border-t">
-                <td className="px-4 py-2 font-medium capitalize">{p.name}</td>
-                <td className="px-4 py-2">
-                  <Badge variant="outline" className={p.usable ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}>
-                    {p.usable ? "Healthy" : p.hint}
-                  </Badge>
-                </td>
-                <td className="px-4 py-2 text-xs text-muted-foreground">{p.models.length || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <CodexConnect connected={data.providers.find((p) => p.name === "codex")?.usable ?? false} />
 
       {data.codex_usage && (
         <div className="max-w-lg rounded-xl border bg-card p-4 shadow-sm">

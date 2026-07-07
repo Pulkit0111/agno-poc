@@ -271,10 +271,10 @@ def build_connect_codex_modal() -> dict:
     }
 
 
+# CODEX-ONLY (product decision): Bedrock/OpenRouter are deliberately absent from the App
+# Home provider picker. The backend gateway still understands them; the UI offers Codex only.
 _PROVIDER_OPTIONS = [
     ("Codex (ChatGPT)", "codex"),
-    ("Amazon Bedrock", "bedrock"),
-    ("OpenRouter", "openrouter"),
 ]
 
 

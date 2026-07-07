@@ -20,6 +20,40 @@ from bott.shared.observability.logging_setup import get_logger, redact
 log = get_logger("bott.build_fix.pipeline")
 
 
+class ImplementTimeout(RuntimeError):
+    """The implement agent ran past its wall-clock budget (ImplementBudget.timeout_s)."""
+
+
+def _run_agent_bounded(agent, prompt: str, timeout_s: float):
+    """Run agent.run(prompt) under a wall-clock budget. The worker is a plain thread (sync
+    context), so the pragmatic mechanism is a single-use executor with a bounded join: on
+    timeout the job FAILS CLEANLY (the raised error reaches the worker's normal
+    job-failure path — Slack thread + logs) instead of hanging forever. The abandoned
+    agent thread can't be killed, but its in-flight model call is bounded by the Codex
+    client timeout, so it winds down instead of holding resources indefinitely.
+
+    NOTE: the error text deliberately avoids the words "timeout"/"timed out" — even as the
+    substring in "BUILD_TIMEOUT_S" — because the Slack failure renderer
+    (build_failure_message) pattern-matches those as a transient GitHub network problem,
+    which would tell the user the wrong story.
+    """
+    import concurrent.futures as cf
+
+    ex = cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="bott-implement")
+    fut = ex.submit(agent.run, prompt)
+    try:
+        return fut.result(timeout=timeout_s)
+    except cf.TimeoutError:
+        raise ImplementTimeout(
+            f"the change ran over its {int(timeout_s)}s wall-clock budget and was stopped "
+            "before finishing — try a narrower change, or ask an admin to raise the "
+            "build time budget"
+        ) from None
+    finally:
+        # Never wait for a still-running agent thread — that would defeat the budget.
+        ex.shutdown(wait=False, cancel_futures=True)
+
+
 def plan_from_repo(
     owner: str,
     name: str,
@@ -52,7 +86,8 @@ def plan_from_repo(
             telemetry=False,
             markdown=False,
         )
-        run = agent.run(f"Requested change:\n{request_text}\n\nProduce the plan.")
+        run = _run_agent_bounded(agent, f"Requested change:\n{request_text}\n\nProduce the plan.",
+                                 budget.timeout_s)
         plan_text = (getattr(run, "content", "") or "").strip()
         return plan_text or request_text
     except Exception as exc:  # noqa: BLE001 — never raise into the worker
@@ -107,7 +142,8 @@ def _clone_and_run_agent(owner: str, name: str, plan_text: str, *, token, model_
         telemetry=False,
         markdown=False,
     )
-    run = agent.run(f"Implement this approved plan:\n\n{plan_text}")
+    run = _run_agent_bounded(agent, f"Implement this approved plan:\n\n{plan_text}",
+                             budget.timeout_s)
     note = getattr(run, "content", "") or ""
     return handle.path, _diff_summary(handle.path), note, handle
 

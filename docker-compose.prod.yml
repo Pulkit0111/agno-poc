@@ -1,16 +1,33 @@
-# Reference production-shaped stack: Postgres + the Python app + the console, wired
-# together. Not meant to be used as-is (secrets belong in a real secret store, not env:
-# blocks) — this documents how the three pieces fit, and is a starting point to adapt.
+# Production stack for the Bott POC — Postgres + the Python app + the web console.
+# This is the supported deploy path:
 #
-# Run: docker compose -f docker-compose.prod.yml up --build
+#   cp .env.example .env   # fill in the required vars (see docs/SETUP.md)
+#   docker compose -f docker-compose.prod.yml up --build -d
+#
+# Topology: ONE cloudflared tunnel points at the console. Two ways to run it:
+#   (a) cloudflared on the host dialing 127.0.0.1:3000 (config.yml ingress
+#       `service: http://localhost:3000`), or
+#   (b) in-stack: set CLOUDFLARE_TUNNEL_TOKEN in .env and start with
+#       `--profile tunnel`; the Cloudflare dashboard ingress must then target
+#       `http://console:3000` (the docker-network name, not localhost).
+# The console proxies /api/*, /slack/* and /webhook/* to the bott service over the
+# internal docker network (BOTT_API_ORIGIN below). Neither bott nor Postgres publishes
+# a host port — bott's native AgentOS API has weak auth, so it must stay reachable only
+# from the console on the internal network.
+#
+# All configuration (including BOTT_PORT and POSTGRES_PASSWORD) comes from ./.env —
+# compose reads it both for ${...} interpolation here and via env_file for the containers.
 
 services:
   db:
     image: pgvector/pgvector:pg17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: bott
       POSTGRES_USER: bott
-      POSTGRES_PASSWORD: bott
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # No ports: — Postgres is only reachable on the internal docker network.
+    # (Backups: `docker compose -f docker-compose.prod.yml exec -T db pg_dump ...`.)
     volumes:
       - bott_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,19 +40,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://bott:bott@db:5432/bott
-      # Everything else (SLACK_*, BOTT_SECRET_KEY, BOTT_ADMINS, MODEL_PROVIDER, ...) comes
-      # from a real .env / secret store at deploy time — see .env.example.
     env_file:
       - .env
-    ports:
-      - "7777:7777"
+    environment:
+      DATABASE_URL: postgresql://bott:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/bott
+      BOTT_PORT: ${BOTT_PORT:-7777}
+    # No ports: — deliberately NOT published to the host. The AgentOS API's native auth
+    # is weak; all external traffic enters through the console, which proxies to
+    # http://bott:${BOTT_PORT} over the internal network.
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:7777/readyz', timeout=4).status < 500 else 1)"]
+      test: ["CMD", "python", "-c", "import os,urllib.request,sys; p=os.environ.get('BOTT_PORT','7777'); sys.exit(0 if urllib.request.urlopen(f'http://localhost:{p}/readyz', timeout=4).status < 500 else 1)"]
       interval: 30s
       timeout: 5s
       start_period: 30s
@@ -45,14 +63,39 @@ services:
     build:
       context: console
       dockerfile: Dockerfile
+    restart: unless-stopped
     depends_on:
-      - bott
-    environment:
-      BOTT_API_ORIGIN: http://bott:7777
+      bott:
+        condition: service_healthy
     env_file:
       - .env
+    environment:
+      BOTT_API_ORIGIN: http://bott:${BOTT_PORT:-7777}
+    # Loopback bind: the cloudflared tunnel runs on this host and dials localhost:3000,
+    # so binding 127.0.0.1 keeps the console off the LAN — the tunnel is the only way in.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      # The runner image is node:22-slim (no curl/wget); node's global fetch does the job.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # Optional: run the cloudflared tunnel inside the stack instead of on the host.
+  # Needs a remotely-managed tunnel token (Cloudflare dashboard → Zero Trust →
+  # Networks → Tunnels → your tunnel → token), with the public-hostname ingress
+  # pointing at http://console:3000. Start with:
+  #   docker compose -f docker-compose.prod.yml --profile tunnel up -d
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env (or run cloudflared on the host instead)}
+    depends_on:
+      console:
+        condition: service_healthy
 
 volumes:
   bott_pgdata:

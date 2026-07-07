@@ -7,8 +7,9 @@ import os
 import re
 import secrets
 import time
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -42,6 +43,55 @@ def _secure() -> bool:
 def should_mount_console() -> bool:
     """Console mounts only when a session secret exists — no secret, no cookies."""
     return bool(os.getenv("CONSOLE_SESSION_SECRET"))
+
+
+_CONSOLE_INTENT_VARS = ("SLACK_CLIENT_ID", "CONSOLE_BASE_URL")
+
+
+def require_console_env() -> None:
+    """Fail LOUD at startup on a half-configured console. Console-intent vars present
+    without a session secret means the console UI would just 404 with only a log line to
+    explain why. A Slack-only install (no console vars at all) stays valid — skip mounting."""
+    if os.getenv("CONSOLE_SESSION_SECRET"):
+        return
+    present = [v for v in _CONSOLE_INTENT_VARS if os.getenv(v)]
+    if present:
+        raise RuntimeError(
+            f"CONSOLE_SESSION_SECRET is not set, but {' and '.join(present)} "
+            "indicate the web console is intended. Set CONSOLE_SESSION_SECRET to a long "
+            "random string (the console API cannot sign session cookies without it), "
+            "or unset the console vars for a Slack-only install."
+        )
+
+
+_CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _origin_tuple(url: str) -> tuple[str, str, int | None]:
+    """(scheme, host, effective port) for origin comparison — default ports normalized."""
+    p = urlsplit(url)
+    scheme = p.scheme.lower()
+    port = p.port or {"https": 443, "http": 80}.get(scheme)
+    return (scheme, (p.hostname or "").lower(), port)
+
+
+def csrf_guard(request: Request) -> None:
+    """CSRF defence for the cookie-authed console (session cookie is SameSite=Lax, which
+    still permits cross-site top-level POST navigations). Browsers always attach `Origin`
+    to cross-origin mutating requests, so a mismatch against CONSOLE_BASE_URL's origin is
+    rejected; `Referer` is the fallback signal. Requests carrying NEITHER header (curl,
+    server-to-server clients with a valid session cookie) are allowed through."""
+    if request.method in _CSRF_SAFE_METHODS:
+        return
+    expected = _origin_tuple(os.getenv("CONSOLE_BASE_URL", "http://localhost:3000"))
+    origin = request.headers.get("origin")
+    if origin:
+        if _origin_tuple(origin) != expected:
+            raise _err(403, "bad_origin", "Cross-origin request rejected.")
+        return
+    referer = request.headers.get("referer")
+    if referer and _origin_tuple(referer) != expected:
+        raise _err(403, "bad_origin", "Cross-origin request rejected.")
 
 
 def current_user(request: Request) -> dict:
@@ -135,7 +185,9 @@ class ClassifyBody(BaseModel):
 
 
 def build_console_router(db) -> APIRouter:
-    r = APIRouter()
+    # csrf_guard runs on EVERY console route (it no-ops on safe methods) so no future
+    # mutating endpoint can be added without CSRF protection.
+    r = APIRouter(dependencies=[Depends(csrf_guard)])
 
     @r.get("/api/console/auth/login")
     def login() -> RedirectResponse:
@@ -199,11 +251,14 @@ def build_console_router(db) -> APIRouter:
     def decide_approval(request: Request, approval_id: int, body: DecisionBody,
                         background_tasks: BackgroundTasks) -> dict:
         user = current_user(request)
+        # DECIDING is admin-only — a requester approving their own request would defeat
+        # the human-sign-off gate. (Viewing stays requester-or-admin; admins MAY approve
+        # their own requests so single-admin orgs don't deadlock.)
+        if not user["is_admin"]:
+            raise _err(403, "admin_only", "Only an admin can decide approvals.")
         row = approvals.get_request(approval_id)
         if not row:
             raise _err(404, "not_found", "That approval doesn't exist.")
-        if row["user_id"] != user["email"] and not user["is_admin"]:
-            raise _err(403, "not_yours", "Only the requester or an admin can decide this.")
         if row["status"] != "pending":
             raise _err(409, "already_decided", f"Already {row['status']}.")
         if not approvals.decide(approval_id, approved=body.approve, decided_by=user["email"]):
@@ -430,10 +485,20 @@ def build_console_router(db) -> APIRouter:
     @r.get("/api/console/v1/models")
     def get_models(request: Request) -> dict:
         user = current_user(request)
-        require_admin(user)
         from bott.interfaces.slack_home import models as models_mod
         from bott.shared.model import _review_anti_affinity
         active = models_mod._active()
+        if not user["is_admin"]:
+            # Members get just enough for the Home-page status banner: is Codex
+            # connected. No key hints, no usage, no model catalog.
+            usable, _hint = models_mod.provider_key_status("codex")
+            return {
+                "provider": active["provider"], "chat": active["chat"],
+                "build": active["build"], "review": active["review"],
+                "conflict": False, "swap_preview": None,
+                "providers": [{"name": "codex", "usable": usable, "hint": None, "models": []}],
+                "codex_usage": None,
+            }
         provider = active["provider"]
         conflict = active["review"] == active["build"]
         swap_preview = None

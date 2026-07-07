@@ -127,7 +127,8 @@ def _build_codex_model(model_id: str, overrides: dict):
             alert_admins_throttled(
                 "codex-disconnected",
                 f"Bott's shared Codex (ChatGPT) login is broken ({e}) — falling back to "
-                f"{fallback} until it's reconnected. Reconnect it from Settings → Connect Codex.",
+                f"{fallback} until it's reconnected. Reconnect it from the console "
+                "(Models page).",
             )
             log.error("codex unavailable (%s) — falling back to provider=%s", e, fallback)
             return _build_for_provider(fallback, fallback_model_id(fallback), overrides)
@@ -135,7 +136,7 @@ def _build_codex_model(model_id: str, overrides: dict):
         alert_admins_throttled(
             "codex-disconnected",
             f"Bott's shared Codex (ChatGPT) login is broken: {e}. Every codex: model call "
-            "will fail until an admin reconnects it (Settings → Connect Codex).",
+            "will fail until an admin reconnects it from the console (Models page).",
         )
         log.error("codex unavailable at model-construction time (%s) — returning a model that "
                   "re-checks the connection on each actual use instead of failing to build at "

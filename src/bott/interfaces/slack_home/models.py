@@ -120,14 +120,15 @@ def models_section(is_admin: bool) -> list[dict]:
             f"chat `{a['chat']}`  ·  build `{a['build']}`  ·  review `{a['review']}`\n"
             f"{affinity}\n{icon} {hint}")
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
-    elements: list[dict] = []
-    if provider == "codex":
-        elements.append({"type": "button", "text": {"type": "plain_text", "text": "Connect Codex (org)"},
-                         "action_id": "models_connect_codex"})
-    elements.append({"type": "button", "text": {"type": "plain_text", "text": "Change provider"},
-                     "action_id": "models_set_provider"})
-    elements.append({"type": "button", "text": {"type": "plain_text", "text": "Change models"},
-                     "action_id": "models_set_models"})
+    # CODEX-ONLY surface (product decision): App Home offers Codex connect/status and the
+    # model picker only. The Bedrock/OpenRouter connect flows and the provider switcher are
+    # hidden — the backend gateway still understands those providers; this is UI trimming.
+    elements: list[dict] = [
+        {"type": "button", "text": {"type": "plain_text", "text": "Connect Codex (org)"},
+         "action_id": "models_connect_codex"},
+        {"type": "button", "text": {"type": "plain_text", "text": "Change models"},
+         "action_id": "models_set_models"},
+    ]
     blocks.append({"type": "actions", "elements": elements})
     return blocks
 

@@ -7,8 +7,16 @@ gets stuck using an expired token — the client is rebuilt whenever the token r
 
 from __future__ import annotations
 
+import asyncio
+
+import httpx
+
 from bott.shared import config
 from bott.shared.codex_tokens import get_valid_token
+
+# Connect must fail fast — it never legitimately takes long; the total/read ceiling is the
+# configurable one (long streamed build/review responses), see config.codex_timeout_s().
+_CONNECT_TIMEOUT_S = 10.0
 
 
 def _ensure_json_word(input_messages: list, response_format) -> list:
@@ -170,6 +178,12 @@ def _make_codex_model_class():
                 final = ModelResponse(content="")
                 tool_use: dict = {}
                 try:
+                    # Token resolution is sync I/O (DB read + Fernet decrypt on a cache
+                    # miss; on rotation a blocking HTTP refresh under the org advisory
+                    # lock) — run it in a worker thread so one call's refresh can never
+                    # freeze the event loop for every other user. get_async_client()'s own
+                    # _refresh_if_rotated then hits the just-warmed in-memory token cache.
+                    await asyncio.to_thread(self._refresh_if_rotated)
                     stream = await self.get_async_client().responses.create(
                         **self._stream_kwargs(messages, response_format, tools, tool_choice, compress_tool_results)
                     )
@@ -180,7 +194,8 @@ def _make_codex_model_class():
                     raise _provider_error(exc, self.name, self.id) from exc
                 finally:
                     assistant_message.metrics.stop_timer()
-                    _record_usage(user_id, self.id, assistant_message)
+                    # sync DB INSERT — keep it off the event loop too
+                    await asyncio.to_thread(_record_usage, user_id, self.id, assistant_message)
                 return final
 
     return CodexModel
@@ -207,6 +222,12 @@ def make_codex_model(model_id: str, access_token: str, account_id: str, **overri
     # The ChatGPT/Codex backend rejects the Responses API `store=true` ("Store must be set
     # to false"); it does not persist responses. Force it off (callers may still override).
     overrides.setdefault("store", False)
+    # A real timeout on BOTH clients (OpenAI/AsyncOpenAI share these client params): the
+    # default is None, and a hung upstream stream would otherwise hang forever while
+    # holding one of the few org-wide concurrency slots — a handful of hung calls used to
+    # freeze chat for the whole org.
+    overrides.setdefault("timeout", httpx.Timeout(config.codex_timeout_s(),
+                                                  connect=_CONNECT_TIMEOUT_S))
     return _get_codex_model_class()(
         id=model_id,
         base_url=config.codex_backend_base_url(),

@@ -9,12 +9,21 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname),
   },
   async rewrites() {
-    // Dev only: same-origin /api/* proxied to FastAPI. In prod both sit
-    // behind one tunnel/reverse-proxy, so this rewrite is a no-op there.
+    // Load-bearing in production, not just dev: the single cloudflared tunnel
+    // points at the console (port 3000), and everything destined for the
+    // Python API arrives through this origin — the console API (/api/*),
+    // Slack Events/interactivity (/slack/*), and the GitHub webhook
+    // (/webhook/*). These rewrites proxy the raw request through unchanged
+    // (Slack signature verification happens on the raw body server-side, so
+    // no body handling belongs here).
     // BOTT_API_ORIGIN overrides the target — the backend's own default port
     // is 7777 (src/bott/interfaces/app.py), configurable via BOTT_PORT.
     const apiOrigin = process.env.BOTT_API_ORIGIN ?? "http://localhost:7777";
-    return [{ source: "/api/:path*", destination: `${apiOrigin}/api/:path*` }];
+    return [
+      { source: "/api/:path*", destination: `${apiOrigin}/api/:path*` },
+      { source: "/slack/:path*", destination: `${apiOrigin}/slack/:path*` },
+      { source: "/webhook/:path*", destination: `${apiOrigin}/webhook/:path*` },
+    ];
   },
 };
 

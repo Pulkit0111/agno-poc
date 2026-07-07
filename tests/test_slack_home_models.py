@@ -106,3 +106,23 @@ def test_set_models_warns_on_review_equals_build(store):
     m.apply_model_override("admin@axelerant.com", "model.build", "gpt-5.5")
     out = m.apply_model_override("admin@axelerant.com", "model.review", "gpt-5.5")
     assert "review = build" in out  # visible conflict warning (runtime auto-swap covers it)
+
+
+def test_app_home_models_panel_is_codex_only(store):
+    """Product decision: App Home offers ONLY Codex — no provider switcher, no
+    Bedrock/OpenRouter connect flows. (The backend gateway still understands them.)"""
+    blocks = m.models_section(is_admin=True)
+    action_ids = [el.get("action_id") for b in blocks for el in b.get("elements", [])]
+    assert "models_connect_codex" in action_ids
+    assert "models_set_models" in action_ids
+    assert "models_set_provider" not in action_ids  # provider switcher removed from Home
+    rendered = str(blocks).lower()
+    assert "bedrock" not in rendered and "openrouter" not in rendered
+
+
+def test_provider_picker_modal_offers_codex_only(store):
+    from bott.interfaces.slack_home import blocks as blocks_mod
+    modal = blocks_mod.build_set_provider_modal()
+    values = [o["value"] for blk in modal["blocks"] if blk.get("type") == "input"
+              for o in blk["element"]["options"]]
+    assert values == ["codex"]

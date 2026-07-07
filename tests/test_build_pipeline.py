@@ -1,5 +1,8 @@
 # tests/test_build_pipeline.py
 import subprocess
+import time
+
+import pytest
 
 from bott.agents.build_fix import pipeline
 from bott.agents.build_fix.core.models import ImplementResult
@@ -70,3 +73,59 @@ def test_diff_summary_detects_new_untracked_file(tmp_path):
 def test_diff_summary_empty_when_clean(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     assert pipeline._diff_summary(str(tmp_path)) == ""
+
+
+def test_run_agent_bounded_enforces_wall_clock_budget():
+    """A hung/hanging implement agent must fail the job cleanly (so the error reaches the
+    worker's failure path → Slack thread), never hang forever."""
+    class SlowAgent:
+        def run(self, prompt):
+            time.sleep(1.0)
+            return "too late"
+
+    t0 = time.time()
+    with pytest.raises(pipeline.ImplementTimeout) as ei:
+        pipeline._run_agent_bounded(SlowAgent(), "go", 0.05)
+    assert time.time() - t0 < 0.9        # returned at the budget, not at agent completion
+    msg = str(ei.value).lower()
+    assert "budget" in msg
+    # build_failure_message pattern-matches "timeout"/"timed out" as a TRANSIENT GitHub
+    # network problem — the budget error must not trip that and tell the wrong story
+    # (so no "BUILD_TIMEOUT_S" in the text either: it CONTAINS the substring "timeout")
+    assert "timeout" not in msg and "timed out" not in msg
+
+
+def test_run_agent_bounded_returns_agent_result():
+    class FastAgent:
+        def run(self, prompt):
+            return f"ran:{prompt}"
+
+    assert pipeline._run_agent_bounded(FastAgent(), "x", 5) == "ran:x"
+
+
+def test_implement_agent_runs_under_configured_budget(monkeypatch, tmp_path):
+    """_clone_and_run_agent must hand ImplementBudget.timeout_s (BUILD_TIMEOUT_S) to the
+    bounded runner — the budget existed in config but was never enforced."""
+    class _Handle:
+        path = str(tmp_path)
+
+        def cleanup(self):
+            pass
+
+    monkeypatch.setattr(pipeline, "writable_clone", lambda *a, **k: _Handle())
+    monkeypatch.setenv("BUILD_TIMEOUT_S", "123")
+    seen = {}
+
+    def fake_bounded(agent, prompt, timeout_s):
+        seen["timeout_s"] = timeout_s
+
+        class _Run:
+            content = "done; tests green"
+
+        return _Run()
+
+    monkeypatch.setattr(pipeline, "_run_agent_bounded", fake_bounded)
+    _path, _diff, note, _handle = pipeline._clone_and_run_agent(
+        "o", "r", "plan", token=None, model_id=None)
+    assert seen["timeout_s"] == 123
+    assert note.startswith("done")

@@ -238,6 +238,11 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             return {"challenge": data.get("challenge")}
         event = data.get("event") or {}
         if event.get("type") == "app_home_opened":
+            # Slack retries after ~3s without an ack — ack retries without re-publishing
+            # (mirrors agno's own Slack router). Chat events below are NOT dropped: they
+            # forward with the retry headers intact so downstream dedup keeps working.
+            if request.headers.get("X-Slack-Retry-Num"):
+                return {"ok": True}
             background_tasks.add_task(publish_home, event.get("user"))
             return {"ok": True}
         # Not a Home event — hand chat (DMs, mentions) to Agno's interface unchanged.
@@ -247,6 +252,10 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
     async def slack_interactivity(request: Request, background_tasks: BackgroundTasks):
         body = await request.body()
         _verify(body, request)
+        # Slack retries after ~3s without an ack; re-processing a retry double-opens
+        # modals and double-fires actions. Mirror agno's own Slack router: ack, do nothing.
+        if request.headers.get("X-Slack-Retry-Num"):
+            return {"ok": True}
         form = await request.form()
         raw = form.get("payload")
         if not isinstance(raw, str) or not raw:
@@ -382,10 +391,29 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             elif cmd in ("approval_approve", "approval_dismiss"):
                 # Approve/Dismiss buttons surface when the agent needs human sign-off.
                 # action_id carries the decision; value carries the approval id.
+                # ADMIN-ONLY: the card renders in whatever channel/thread asked for it, so
+                # ANY member can click these buttons — gate the decision itself, like the
+                # models_* handlers do. (Admins may approve their own requests, so a
+                # single-admin org can't deadlock.)
                 approval_id_str = action.get("value") or ""
                 ch = (payload.get("channel") or {}).get("id")
                 msg = payload.get("message") or {}
                 thread_ts = msg.get("thread_ts") or msg.get("ts")
+                actor_email = _resolve_email(user_id) if user_id else ""
+                if not models._is_admin(actor_email):
+                    if user_id:
+                        try:
+                            if ch:
+                                client.chat_postEphemeral(
+                                    channel=ch, user=user_id,
+                                    text="Only admins can decide approvals.")
+                            else:  # Home-tab click — no channel to be ephemeral in; DM instead.
+                                client.chat_postMessage(
+                                    channel=user_id,
+                                    text="Only admins can decide approvals.")
+                        except Exception:  # noqa: BLE001 — the refusal note is best-effort
+                            pass
+                    return {"ok": True}
                 if approval_id_str and user_id:
                     try:
                         flipped = approvals.decide(

@@ -546,6 +546,16 @@ def codex_refresh_margin_s() -> int:
     return int(os.getenv("CODEX_REFRESH_MARGIN_S", "300"))
 
 
+def codex_timeout_s() -> float:
+    """Total per-request ceiling (read/write/pool) for one Codex backend call; connect is
+    capped separately (~10s) in codex_model. Without this the OpenAI client runs with NO
+    timeout — a single hung upstream stream hangs forever while holding one of the few
+    org-wide concurrency slots (codex_max_concurrent_requests), so a handful of hung calls
+    freezes chat for the whole org. Generous by default: heavy build/review responses
+    stream for minutes."""
+    return float(os.getenv("CODEX_TIMEOUT_S", "300"))
+
+
 def codex_max_concurrent_requests() -> int:
     """Org-wide cap on simultaneous in-flight Codex calls. Everyone shares ONE ChatGPT
     subscription, so a burst of concurrent Slack messages from different users must queue

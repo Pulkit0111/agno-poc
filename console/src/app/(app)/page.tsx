@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CircleCheck, CircleX, LoaderCircle } from "lucide-react";
 import { ApprovalRow } from "@/components/approvals/approval-row";
+import { CodexStatusBanner } from "@/components/system/codex-status-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { relativeTime } from "@/lib/time";
 import { useApprovals, useDecide } from "@/lib/use-approvals";
@@ -44,6 +45,8 @@ export default function HomePage() {
             : "Nothing is waiting on you"}
         </p>
       </div>
+
+      <CodexStatusBanner />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Tile label="Waiting on you" value={approvals?.length ?? "…"} hint="approvals to decide" href="/approvals" />

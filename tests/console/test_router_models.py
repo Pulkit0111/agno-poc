@@ -23,9 +23,29 @@ def _as(client, email="m@x.com", admin=False):
     client.cookies.set(sessions.COOKIE_NAME, sessions.issue_session(email, admin))
 
 
-def test_get_models_requires_admin(client):
+def test_get_models_member_gets_trimmed_codex_status(client, monkeypatch):
+    import bott.interfaces.slack_home.models as models_mod
+    monkeypatch.setattr(models_mod, "_active", lambda: {
+        "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5-codex", "review": "gpt-5.5",
+    })
+    monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
     _as(client, admin=False)
-    assert client.get("/api/console/v1/models").status_code == 403
+    body = client.get("/api/console/v1/models").json()
+    assert body["providers"] == [{"name": "codex", "usable": True, "hint": None, "models": []}]
+    assert body["codex_usage"] is None
+    assert body["conflict"] is False
+
+
+def test_get_models_member_sees_disconnected_codex(client, monkeypatch):
+    import bott.interfaces.slack_home.models as models_mod
+    monkeypatch.setattr(models_mod, "_active", lambda: {
+        "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5-codex", "review": "gpt-5.5",
+    })
+    monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (False, "not connected"))
+    _as(client, admin=False)
+    body = client.get("/api/console/v1/models").json()
+    assert body["providers"][0]["usable"] is False
+    assert body["providers"][0]["hint"] is None
 
 
 def test_get_models_no_conflict(client, monkeypatch):

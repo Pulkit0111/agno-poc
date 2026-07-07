@@ -135,10 +135,11 @@ cp .env.example .env           # then fill in the vars below
 Requires **agno ≥ 2.2.2** (the isolation fix for CVE-2025-64168); the lockfile pins a current
 version. Tables are created automatically on first run (SQLite locally, or your Postgres).
 
-Optional: `npm i -g @openai/codex` on whatever host runs the console API, for the
-device-auth "Connect ChatGPT" flow (Settings → Models). Not needed anywhere else — inference
-itself never shells out to the CLI, only this one-time login handshake does. Without it, the
-"paste `~/.codex/auth.json` manually" fallback on the same page still works.
+Optional: `npm i -g @openai/codex` on whatever host runs the console API **bare-metal**, for
+the device-auth "Connect ChatGPT" flow (Settings → Models) — the docker image already ships
+the `codex` CLI, so the compose deployment needs nothing extra. Not needed anywhere else —
+inference itself never shells out to the CLI, only this one-time login handshake does.
+Without it, the "paste `~/.codex/auth.json` manually" fallback on the same page still works.
 
 ## Run
 
@@ -156,8 +157,10 @@ serves on `BOTT_PORT` (default `7777`).
 
 ### Public URL (Slack events + GitHub webhook)
 
-Slack's Events API and the GitHub webhook reach the app over HTTPS. Point a tunnel/host at
-`http://localhost:7777` and register:
+Slack's Events API and the GitHub webhook reach the app over HTTPS. In the compose
+deployment the tunnel points at the **console** (`http://localhost:3000`), which proxies
+these paths to the app — see [Deployment](#deployment). For a bare `bott-app` run without
+the console, tunnel straight to `http://localhost:$BOTT_PORT` (default `7777`). Register:
 
 - Slack **Event Subscriptions** → `https://<host>/slack/events` (subscribe to `message.im`,
   `app_mention`, `app_home_opened`); enable the **App Home** tab.
@@ -204,18 +207,57 @@ DATABASE_URL=postgresql://user:pass@host:5432/bott scripts/backup_db.sh
 # restore: gunzip -c backups/bott-<timestamp>.sql.gz | psql "$DATABASE_URL"
 ```
 
+Under the compose deployment Postgres has no host port, so dump from inside the container
+instead — see step 6 of [Deployment](#deployment) for the cron line.
+
 ## Deployment
 
-`Dockerfile` (this app) and `console/Dockerfile` (the web console) build production images
-— both are exercised by hand (build + run + hit `/readyz`) as part of adding them, not just
-written on faith. `docker-compose.prod.yml` shows how the three pieces (Postgres, the app,
-the console) fit together; it's a reference to adapt, not a turnkey deploy (secrets belong
-in a real secret store, not an `env_file:` block).
+`docker-compose.prod.yml` is the supported deploy path: Postgres + the app (`Dockerfile`)
++ the web console (`console/Dockerfile`) on one internal docker network, with **one**
+cloudflared tunnel on the host pointing at the console. The console proxies `/api/*`,
+`/slack/*` and `/webhook/*` to the app; neither the app nor Postgres publishes a host
+port (the AgentOS API's native auth is weak — it stays internal). The app image ships the
+`codex` CLI so the admin "Connect ChatGPT" device-auth flow works inside the container.
 
-```bash
-docker build -t bott-app .
-docker build -t bott-console -f console/Dockerfile console
-```
+1. **Configure:** `cp .env.example .env` and fill in — required: `SLACK_BOT_TOKEN`,
+   `SLACK_SIGNING_SECRET`, `BOTT_SECRET_KEY`, `BOTT_ADMINS`, `CONSOLE_SESSION_SECRET`,
+   `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`, `CONSOLE_BASE_URL` (the public tunnel URL,
+   step 2), `POSTGRES_PASSWORD`, `OS_SECURITY_KEY`; plus `GITHUB_*` if Build & Fix /
+   PR review is used. `BOTT_PORT` (default 7777) is honored everywhere if you change it.
+2. **Tunnel:** a **named** cloudflared tunnel with a stable hostname must point at the
+   console. Quick tunnels (random `trycloudflare.com` URLs) break the Slack request-URL
+   registration on every restart; a named tunnel keeps the hostname. Two ways to run it:
+   - **On the host:** a `config.yml` ingress with `service: http://localhost:3000`
+     (the console's loopback bind), running under the tunnel's credentials file.
+     The org already has the named tunnel **`bott`** (hostnames
+     `bott.tyagipulkit.com` and `bott-b.tyagipulkit.com`) — reuse it by moving its
+     `~/.cloudflared/` credentials + config to the deploy host and changing the
+     ingress `service:` to `http://localhost:3000`.
+   - **In-stack (no host cloudflared):** convert/create the tunnel as remotely-managed
+     in the Cloudflare dashboard (Zero Trust → Networks → Tunnels), set its public
+     hostname to `http://console:3000`, put the tunnel token in `.env` as
+     `CLOUDFLARE_TUNNEL_TOKEN`, and start compose with `--profile tunnel`.
+   Creating one from scratch instead:
+   ```bash
+   cloudflared tunnel create bott
+   cloudflared tunnel route dns bott bott.example.com
+   cloudflared tunnel run --url http://localhost:3000 bott   # or a config-file ingress
+   ```
+3. **Start:** `docker compose -f docker-compose.prod.yml up --build -d` — the app
+   container stamps/upgrades Alembic on boot, then serves.
+4. **Register URLs** against the tunnel base (`https://bott.example.com`):
+   - Slack **Event Subscriptions** → `https://<host>/slack/events`
+   - Slack **Interactivity & Shortcuts** → `https://<host>/slack/interactivity`
+   - Slack **OpenID Connect redirect** (console login, under the app's Basic Information
+     / OAuth settings) → `https://<host>/api/console/auth/callback`
+   - GitHub App **webhook** → `https://<host>/webhook/github`
+5. **Connect the model:** an admin opens the console → **Models** → **Connect ChatGPT**
+   and completes the device-auth code. After this, everyone can use Bott.
+6. **Backups:** Postgres isn't published to the host, so run `pg_dump` inside the db
+   container on a schedule (the containerized equivalent of `scripts/backup_db.sh`):
+   ```
+   0 2 * * * cd /path/to/agno && docker compose -f docker-compose.prod.yml exec -T db pg_dump -U bott bott | gzip > backups/bott-$(date -u +\%Y\%m\%dT\%H\%M\%SZ).sql.gz
+   ```
 
 `.github/workflows/ci.yml` runs `ruff` + `pytest` and the console's `tsc`/lint/test/build on
 every push and PR to `main` — nothing merges un-checked anymore.
