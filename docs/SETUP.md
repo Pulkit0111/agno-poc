@@ -95,13 +95,14 @@ Then connect the org Codex token **one of two ways**:
 This is what lets you talk to Bott. Bott receives Slack events over **HTTPS request URLs**, so the server must be reachable at a public URL.
 
 ### 6a. Make the server reachable
-- **Deployed (docker compose — the normal case):** ONE **named** cloudflared tunnel on the
-  host points at the **console** on `http://localhost:3000`; the console proxies `/slack/*`,
-  `/api/*` and `/webhook/*` to the app internally. `BASE` is the tunnel's stable hostname
-  (e.g. `https://bott.example.com`). See **§15 — Production deployment** for the runbook.
-  > Use a **named** tunnel, not a quick tunnel: quick tunnels (random `trycloudflare.com`
-  > URLs) get a new hostname on every restart, which breaks the Slack request URLs you
-  > register in 6b until you re-register them. A named tunnel keeps the same hostname.
+- **Deployed (docker compose — the normal case):** the deployer's own ingress (reverse
+  proxy or tunnel — nginx/Caddy/Traefik/cloudflared/LB) terminates HTTPS and points at the
+  **console** on `http://127.0.0.1:3000`; the console proxies `/slack/*`, `/api/*` and
+  `/webhook/*` to the app internally. `BASE` is your public HTTPS hostname. See **§15 —
+  Production deployment** for the runbook.
+  > Use a **stable** hostname: the Slack request URLs you register in 6b are tied to it, so
+  > a hostname that changes on restart (e.g. a quick `trycloudflare.com` tunnel) breaks them
+  > until you re-register. Any stable domain/subdomain you control is fine.
 - **Local testing (bare `uv run bott-app`, no console):** tunnel straight to the app's port
   (`BOTT_PORT`, default `7777`), e.g.:
   ```bash
@@ -322,43 +323,36 @@ proxies `/api/*` to :8000).
 
 ---
 
-## §15 — Production deployment (docker compose + one tunnel) (🧑‍💻 You)
+## §15 — Production deployment (docker compose) (🧑‍💻 Deployer)
 
 The supported deploy: `docker-compose.prod.yml` runs Postgres + the app + the console on
 one internal docker network. Only the console touches the host (loopback `127.0.0.1:3000`);
-a single **named** cloudflared tunnel exposes it. The app and Postgres publish **no** host
-ports — the console proxies `/slack/*`, `/api/*` and `/webhook/*` to the app internally.
-The app image ships the `codex` CLI, so the admin "Connect ChatGPT" login runs inside the
-container — no host-side Codex setup needed.
+the app and Postgres publish **no** host ports — the console proxies `/slack/*`, `/api/*`
+and `/webhook/*` to the app internally. The app image ships the `codex` CLI, so the admin
+"Connect ChatGPT" login runs inside the container — no host-side Codex setup needed.
+
+**Ingress is yours to provide:** put any reverse proxy or tunnel (nginx, Caddy, Traefik,
+cloudflared, a cloud LB, …) in front, terminate HTTPS on a stable public hostname, and
+forward to `http://127.0.0.1:3000`.
 
 1. **Config:** `cp .env.example .env` and fill in. Required:
-   `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `BOTT_SECRET_KEY`, `BOTT_ADMINS`,
+   `SLACK_BOT_TOKEN`, `SLACK_TOKEN`, `SLACK_SIGNING_SECRET`, `BOTT_SECRET_KEY`, `BOTT_ADMINS`,
    `CONSOLE_SESSION_SECRET`, `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`,
-   `CONSOLE_BASE_URL` (the tunnel URL from step 2), `POSTGRES_PASSWORD`,
-   `OS_SECURITY_KEY` — plus `GITHUB_*` (§9) if Build & Fix / PR review is used.
-   Changing `BOTT_PORT` is safe: the compose wiring and healthchecks all honor it.
-2. **Named tunnel** (stable hostname — see the §6a note on why not a quick tunnel).
-   The org already has one: tunnel **`bott`**, hostnames `bott.tyagipulkit.com` and
-   `bott-b.tyagipulkit.com`. Reuse it one of two ways:
-   - **Host cloudflared:** copy the tunnel's `~/.cloudflared/` credentials JSON +
-     `config.yml` to the deploy host and set the ingress to
-     `service: http://localhost:3000`; run `cloudflared tunnel run bott` (as a service).
-   - **In-stack:** make the tunnel remotely-managed in the Cloudflare dashboard
-     (Zero Trust → Networks → Tunnels), point its public hostname at
-     `http://console:3000`, set `CLOUDFLARE_TUNNEL_TOKEN` in `.env`, and start compose
-     with `--profile tunnel` — no cloudflared install on the host at all.
-   Creating a fresh tunnel instead:
-   ```bash
-   cloudflared tunnel create bott
-   cloudflared tunnel route dns bott bott.example.com
-   cloudflared tunnel run --url http://localhost:3000 bott
-   ```
+   `CONSOLE_BASE_URL` (your public HTTPS URL from step 2), `POSTGRES_PASSWORD`,
+   `OS_SECURITY_KEY` — plus `GITHUB_*` (§9) if Build & Fix / PR review is used (GitHub App
+   key must be inline in `GITHUB_APP_PRIVATE_KEY`; `.secrets/` isn't in the image).
+   Generate the four infra secrets with `openssl rand -hex 32` (Fernet one-liner for
+   `BOTT_SECRET_KEY`). Changing `BOTT_PORT` is safe: compose wiring + healthchecks honor it.
+2. **Ingress:** point your reverse proxy / tunnel at `http://127.0.0.1:3000` with HTTPS on
+   your stable hostname, and set `CONSOLE_BASE_URL` to that URL. If the proxy isn't on this
+   host, change the console `ports:` bind in `docker-compose.prod.yml` to a reachable one.
 3. **Start the stack:**
    ```bash
    docker compose -f docker-compose.prod.yml up --build -d
    ```
    The app container brings the DB schema under Alembic on boot, then serves.
-4. **Register the request URLs** with `BASE = https://bott.example.com`:
+   `https://<your-host>` should load the console login page.
+4. **Register the request URLs** with `BASE = https://<your-host>`:
    - Slack **Event Subscriptions** → `BASE/slack/events`
    - Slack **Interactivity & Shortcuts** → `BASE/slack/interactivity`
    - Slack **OpenID Connect redirect URL** (console login) → `BASE/api/console/auth/callback`

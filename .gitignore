@@ -1,7 +1,6 @@
 # Secrets — never commit
 .env
-.env.deploy
-.env.*.local
+handoff-credentials.env
 .secrets/
 *.pem
 

@@ -158,9 +158,10 @@ serves on `BOTT_PORT` (default `7777`).
 ### Public URL (Slack events + GitHub webhook)
 
 Slack's Events API and the GitHub webhook reach the app over HTTPS. In the compose
-deployment the tunnel points at the **console** (`http://localhost:3000`), which proxies
-these paths to the app — see [Deployment](#deployment). For a bare `bott-app` run without
-the console, tunnel straight to `http://localhost:$BOTT_PORT` (default `7777`). Register:
+deployment your ingress (reverse proxy / tunnel) terminates HTTPS and points at the
+**console** (`http://127.0.0.1:3000`), which proxies these paths to the app — see
+[Deployment](#deployment). For a bare `bott-app` run without the console, point ingress
+straight at `http://localhost:$BOTT_PORT` (default `7777`). Register:
 
 - Slack **Event Subscriptions** → `https://<host>/slack/events` (subscribe to `message.im`,
   `app_mention`, `app_home_opened`); enable the **App Home** tab.
@@ -213,46 +214,42 @@ instead — see step 6 of [Deployment](#deployment) for the cron line.
 ## Deployment
 
 `docker-compose.prod.yml` is the supported deploy path: Postgres + the app (`Dockerfile`)
-+ the web console (`console/Dockerfile`) on one internal docker network, with **one**
-cloudflared tunnel on the host pointing at the console. The console proxies `/api/*`,
-`/slack/*` and `/webhook/*` to the app; neither the app nor Postgres publishes a host
-port (the AgentOS API's native auth is weak — it stays internal). The app image ships the
-`codex` CLI so the admin "Connect ChatGPT" device-auth flow works inside the container.
++ the web console (`console/Dockerfile`) on one internal docker network. The console is the
+only entry point (bound to `127.0.0.1:3000`) and proxies `/api/*`, `/slack/*` and
+`/webhook/*` to the app; neither the app nor Postgres publishes a host port (the AgentOS
+API's native auth is weak — it stays internal). The app image ships the `codex` CLI so the
+admin "Connect ChatGPT" device-auth flow works inside the container.
+
+**Ingress is deployer-provided.** Bring your own reverse proxy or tunnel (nginx, Caddy,
+Traefik, cloudflared, a cloud LB — whatever you run) to terminate HTTPS on a stable public
+hostname and forward to `http://127.0.0.1:3000`. Use a **stable** hostname: the Slack /
+GitHub request URLs are registered against it once (step 4) and a changing hostname breaks
+them. If your proxy isn't on the compose host, change the console `ports:` bind in
+`docker-compose.prod.yml` accordingly.
 
 1. **Configure:** `cp .env.example .env` and fill in — required: `SLACK_BOT_TOKEN`,
-   `SLACK_SIGNING_SECRET`, `BOTT_SECRET_KEY`, `BOTT_ADMINS`, `CONSOLE_SESSION_SECRET`,
-   `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`, `CONSOLE_BASE_URL` (the public tunnel URL,
-   step 2), `POSTGRES_PASSWORD`, `OS_SECURITY_KEY`; plus `GITHUB_*` if Build & Fix /
-   PR review is used. `BOTT_PORT` (default 7777) is honored everywhere if you change it.
-2. **Tunnel:** a **named** cloudflared tunnel with a stable hostname must point at the
-   console. Quick tunnels (random `trycloudflare.com` URLs) break the Slack request-URL
-   registration on every restart; a named tunnel keeps the hostname. Two ways to run it:
-   - **On the host:** a `config.yml` ingress with `service: http://localhost:3000`
-     (the console's loopback bind), running under the tunnel's credentials file.
-     The org already has the named tunnel **`bott`** (hostnames
-     `bott.tyagipulkit.com` and `bott-b.tyagipulkit.com`) — reuse it by moving its
-     `~/.cloudflared/` credentials + config to the deploy host and changing the
-     ingress `service:` to `http://localhost:3000`.
-   - **In-stack (no host cloudflared):** convert/create the tunnel as remotely-managed
-     in the Cloudflare dashboard (Zero Trust → Networks → Tunnels), set its public
-     hostname to `http://console:3000`, put the tunnel token in `.env` as
-     `CLOUDFLARE_TUNNEL_TOKEN`, and start compose with `--profile tunnel`.
-   Creating one from scratch instead:
-   ```bash
-   cloudflared tunnel create bott
-   cloudflared tunnel route dns bott bott.example.com
-   cloudflared tunnel run --url http://localhost:3000 bott   # or a config-file ingress
-   ```
+   `SLACK_TOKEN`, `SLACK_SIGNING_SECRET`, `BOTT_SECRET_KEY`, `BOTT_ADMINS`,
+   `CONSOLE_SESSION_SECRET`, `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`, `CONSOLE_BASE_URL`
+   (your public HTTPS URL from the ingress note above), `POSTGRES_PASSWORD`,
+   `OS_SECURITY_KEY`; plus `GITHUB_*` if Build & Fix / PR review is used (the GitHub App
+   private key must be inline in `GITHUB_APP_PRIVATE_KEY` — `.secrets/` is not in the
+   image). `BOTT_PORT` (default 7777) is honored everywhere if you change it. Generate the
+   four infra secrets with `openssl rand -hex 32` (and `BOTT_SECRET_KEY` via the Fernet
+   one-liner in `.env.example`).
+2. **Ingress:** stand up your reverse proxy / tunnel → `http://127.0.0.1:3000` with HTTPS
+   on your public hostname, and set `CONSOLE_BASE_URL` to that URL.
 3. **Start:** `docker compose -f docker-compose.prod.yml up --build -d` — the app
-   container stamps/upgrades Alembic on boot, then serves.
-4. **Register URLs** against the tunnel base (`https://bott.example.com`):
+   container stamps/upgrades Alembic on boot, then serves. `https://<your-host>` should
+   load the console login page.
+4. **Register URLs** against your public base (`https://<your-host>`):
    - Slack **Event Subscriptions** → `https://<host>/slack/events`
    - Slack **Interactivity & Shortcuts** → `https://<host>/slack/interactivity`
    - Slack **OpenID Connect redirect** (console login, under the app's Basic Information
      / OAuth settings) → `https://<host>/api/console/auth/callback`
    - GitHub App **webhook** → `https://<host>/webhook/github`
 5. **Connect the model:** an admin opens the console → **Models** → **Connect ChatGPT**
-   and completes the device-auth code. After this, everyone can use Bott.
+   and completes the device-auth code (needs a login to the org ChatGPT/Codex account).
+   After this, everyone can use Bott.
 6. **Backups:** Postgres isn't published to the host, so run `pg_dump` inside the db
    container on a schedule (the containerized equivalent of `scripts/backup_db.sh`):
    ```
