@@ -146,6 +146,16 @@ def job_counts() -> dict:
     return {r[0]: int(r[1]) for r in rows}
 
 
+def count_failed_since(ts: float) -> int:
+    """COUNT of jobs that failed and were created at/after `ts` — powers the console
+    health 'failed in the last 24h' badge."""
+    with get_engine().connect() as c:
+        row = c.execute(text(
+            "SELECT COUNT(*) FROM jobs WHERE status='failed' AND created >= :ts"
+        ), {"ts": ts}).fetchone()
+    return int(row[0]) if row else 0
+
+
 def worker_main(handler: Callable[[dict], None], poll: float = 1.0,
                 stop: Optional[threading.Event] = None) -> None:
     """Claim -> handle -> complete loop. Run as a thread today or a process tomorrow."""

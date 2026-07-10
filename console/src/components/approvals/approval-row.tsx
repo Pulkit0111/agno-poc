@@ -1,7 +1,11 @@
+"use client";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/ui/status-pill";
 import { relativeTime } from "@/lib/time";
 import type { Approval } from "@/lib/types";
+import { useMe } from "@/lib/use-me";
 
 export function ApprovalRow({
   approval,
@@ -12,6 +16,8 @@ export function ApprovalRow({
   onDecide: (id: number, approve: boolean) => void;
   onOpen?: (id: number) => void;
 }) {
+  const { data: me } = useMe();
+
   return (
     <div className="flex items-start gap-3 border-b px-4 py-3 last:border-b-0">
       <Badge variant="outline" className="mt-0.5 font-mono text-[11px]">
@@ -27,16 +33,20 @@ export function ApprovalRow({
           requested {relativeTime(approval.created)}
         </div>
       </button>
-      <div className="flex flex-none gap-1.5">
-        <Button size="sm" variant="outline"
-          className="border-green-600/30 text-green-700 hover:bg-green-600/10 dark:text-green-400"
-          onClick={() => onDecide(approval.id, true)}>
-          Approve
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => onDecide(approval.id, false)}>
-          Dismiss
-        </Button>
-      </div>
+      {me?.is_admin ? (
+        <div className="flex flex-none gap-1.5">
+          <Button size="sm" variant="outline"
+            className="border-green-600/30 text-green-700 hover:bg-green-600/10 dark:text-green-400"
+            onClick={() => onDecide(approval.id, true)}>
+            Approve
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => onDecide(approval.id, false)}>
+            Dismiss
+          </Button>
+        </div>
+      ) : (
+        <StatusPill tone="accent" label="Awaiting admin" className="mt-0.5 flex-none" />
+      )}
     </div>
   );
 }

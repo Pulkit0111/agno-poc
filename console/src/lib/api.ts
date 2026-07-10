@@ -22,10 +22,16 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let message = "Something went wrong on the server.";
   try {
     const body = await res.json();
-    code = body?.detail?.error?.code ?? code;
-    message = body?.detail?.error?.message ?? message;
+    // FastAPI wraps errors as { detail: { error: {...} } }; also accept a bare { error: {...} }.
+    code = body?.detail?.error?.code ?? body?.error?.code ?? code;
+    message = body?.detail?.error?.message ?? body?.error?.message ?? message;
   } catch {
     /* non-JSON error body — keep defaults */
   }
   throw new ApiError(res.status, code, message);
+}
+
+/** True when the error is an HTTP 403 (forbidden) — e.g. an admin-only endpoint hit by a member. */
+export function isForbidden(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403;
 }

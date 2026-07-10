@@ -5,24 +5,29 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
+import { useMe } from "@/lib/use-me";
 
-const PAGES = [
+type Page = { label: string; href: string; admin?: boolean };
+
+const PAGES: Page[] = [
   { label: "Home", href: "/" },
   { label: "Approvals", href: "/approvals" },
-  { label: "Activity", href: "/activity" },
   { label: "Schedules", href: "/schedules" },
   { label: "Action items", href: "/action-items" },
   { label: "Skills", href: "/skills" },
   { label: "Reports", href: "/reports" },
   { label: "Connectors", href: "/connectors" },
-  { label: "Admin · Models", href: "/admin/models" },
-  { label: "Admin · Engagements", href: "/admin/engagements" },
-  { label: "Admin · Policy", href: "/admin/policy" },
-  { label: "Admin · Prompts", href: "/admin/prompts" },
-  { label: "Admin · Users & roles", href: "/admin/users" },
-  { label: "Admin · System", href: "/admin/system" },
+  { label: "Admin · Activity", href: "/activity", admin: true },
+  { label: "Admin · Health", href: "/admin/health", admin: true },
+  { label: "Admin · Reviews", href: "/admin/reviews", admin: true },
+  { label: "Admin · Models", href: "/admin/models", admin: true },
+  { label: "Admin · Engagements", href: "/admin/engagements", admin: true },
+  { label: "Admin · Policy", href: "/admin/policy", admin: true },
+  { label: "Admin · Prompts", href: "/admin/prompts", admin: true },
+  { label: "Admin · Users", href: "/admin/users", admin: true },
 ];
 
+// Both run actions are admin-only (they hit admin report endpoints).
 const RUN_ACTIONS = [
   { label: "Run security check", kind: "security" },
   { label: "Run portfolio snapshot", kind: "portfolio" },
@@ -31,6 +36,10 @@ const RUN_ACTIONS = [
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
+  const { data: me } = useMe();
+  const isAdmin = me?.is_admin ?? false;
+
+  const pages = PAGES.filter((p) => isAdmin || !p.admin);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -66,7 +75,7 @@ export function CommandPalette() {
           <Command.List className="max-h-80 overflow-y-auto p-2">
             <Command.Empty className="px-2 py-6 text-center text-sm text-muted-foreground">No matches.</Command.Empty>
             <Command.Group heading="Pages" className="text-xs font-medium text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
-              {PAGES.map((p) => (
+              {pages.map((p) => (
                 <Command.Item
                   key={p.href}
                   onSelect={() => { setOpen(false); router.push(p.href); }}
@@ -76,17 +85,19 @@ export function CommandPalette() {
                 </Command.Item>
               ))}
             </Command.Group>
-            <Command.Group heading="Actions" className="text-xs font-medium text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
-              {RUN_ACTIONS.map((a) => (
-                <Command.Item
-                  key={a.kind}
-                  onSelect={() => runAction(a.kind)}
-                  className="cursor-pointer rounded-md px-2 py-2 text-sm data-[selected=true]:bg-accent"
-                >
-                  {a.label}
-                </Command.Item>
-              ))}
-            </Command.Group>
+            {isAdmin && (
+              <Command.Group heading="Actions" className="text-xs font-medium text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                {RUN_ACTIONS.map((a) => (
+                  <Command.Item
+                    key={a.kind}
+                    onSelect={() => runAction(a.kind)}
+                    className="cursor-pointer rounded-md px-2 py-2 text-sm data-[selected=true]:bg-accent"
+                  >
+                    {a.label}
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
           </Command.List>
         </Command>
       </div>

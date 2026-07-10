@@ -1,8 +1,9 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingState, ErrorState, NoAccessState } from "@/components/common/states";
 import { CodexConnect } from "@/components/system/codex-connect";
+import { isForbidden } from "@/lib/api";
 import { useModels, useSetModelOverride } from "@/lib/use-models";
 
 const ROLES = [
@@ -12,11 +13,20 @@ const ROLES = [
 ] as const;
 
 export default function ModelsPage() {
-  const { data, isLoading } = useModels();
+  const { data, isLoading, isError, error, refetch } = useModels();
   const setOverride = useSetModelOverride();
 
-  if (isLoading || !data) {
-    return <div className="space-y-3"><Skeleton className="h-24" /><Skeleton className="h-24" /></div>;
+  // Distinguish the three states so we never spin a skeleton forever:
+  // a genuine load, a 403 for non-admins, and any other failure.
+  if (isLoading) {
+    return <LoadingState rows={2} />;
+  }
+  if (isError) {
+    if (isForbidden(error)) return <NoAccessState />;
+    return <ErrorState onRetry={() => refetch()} message="Couldn't load models — try again." />;
+  }
+  if (!data) {
+    return <ErrorState onRetry={() => refetch()} message="Couldn't load models — try again." />;
   }
 
   const codex = data.providers.find((p) => p.name === "codex");

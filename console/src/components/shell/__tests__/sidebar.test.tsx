@@ -2,6 +2,9 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
+// The Approvals nav item renders a live count badge (admin-only) backed by a
+// TanStack query; stub the hook so these render tests need no QueryClient.
+vi.mock("@/lib/use-approval-count", () => ({ useApprovalCount: () => ({ data: { pending: 0 } }) }));
 
 import { SidebarNav } from "../sidebar";
 

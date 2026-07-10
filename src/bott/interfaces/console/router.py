@@ -36,6 +36,20 @@ def _err(code: int, slug: str, message: str) -> HTTPException:
     return HTTPException(code, detail={"error": {"code": slug, "message": message}})
 
 
+def _jobs_summary() -> dict:
+    """Console-facing job tallies derived from the queue's raw status counts. The queue
+    uses 'pending'/'running'/'done'/'failed'; 'pending' surfaces as 'queued' here. Shared
+    by the /jobs/counts and /health endpoints so they can't drift."""
+    counts = queue.job_counts()
+    return {
+        "running": counts.get("running", 0),
+        "queued": counts.get("pending", 0),
+        "done": counts.get("done", 0),
+        "failed": counts.get("failed", 0),
+        "failed_24h": queue.count_failed_since(time.time() - 86400),
+    }
+
+
 def _secure() -> bool:
     return os.getenv("CONSOLE_BASE_URL", "").startswith("https://")
 
@@ -107,9 +121,9 @@ def require_admin(user: dict) -> dict:
     return user
 
 
-def _dispatch_build(approval_id: int) -> None:
+def _dispatch_build(approval_id: int) -> int | None:
     from bott.interfaces.slack_home.router import dispatch_approved_build
-    dispatch_approved_build(approval_id)
+    return dispatch_approved_build(approval_id)
 
 
 def _dispatch_api(approval_id: int) -> None:
@@ -199,18 +213,26 @@ def build_console_router(db) -> APIRouter:
 
     @r.get("/api/console/auth/callback")
     def callback(request: Request, code: str = "", state: str = "") -> RedirectResponse:
+        base = os.getenv("CONSOLE_BASE_URL", "http://localhost:3000").rstrip("/")
+
+        def _login_error(slug: str) -> RedirectResponse:
+            # Bounce back to the styled login page with a slug the frontend renders,
+            # instead of surfacing a raw JSON error page. State cookie is cleared either way.
+            resp = RedirectResponse(f"{base}/login?error={slug}", status_code=307)
+            resp.delete_cookie(_STATE_COOKIE)
+            return resp
+
         if not state or state != request.cookies.get(_STATE_COOKIE):
-            raise _err(400, "bad_state", "Login flow expired — try again.")
+            return _login_error("bad_state")
         info = oidc.exchange_code(code)
         if not info:
-            raise _err(401, "oidc_failed", "Slack sign-in failed — try again.")
+            return _login_error("oidc_failed")
         domain = info["email"].rsplit("@", 1)[-1].lower()
         if domain != config.allowed_email_domain().lower():
             log.warning("console login rejected — wrong domain: %s", info["email"])
-            raise _err(403, "wrong_domain", "This console is restricted to company accounts.")
+            return _login_error("wrong_domain")
         is_admin = info["email"] in config.bott_admins()
         token = sessions.issue_session(info["email"], is_admin)
-        base = os.getenv("CONSOLE_BASE_URL", "http://localhost:3000").rstrip("/")
         resp = RedirectResponse(f"{base}/", status_code=307)
         resp.delete_cookie(_STATE_COOKIE)
         resp.set_cookie(sessions.COOKIE_NAME, token, httponly=True, samesite="lax",
@@ -236,6 +258,11 @@ def build_console_router(db) -> APIRouter:
             return {"approvals": approvals.pending_all(limit=50)}
         rows = approvals.pending_for(user["email"], limit=50)
         return {"approvals": [dict(row, user_id=user["email"]) for row in rows]}
+
+    @r.get("/api/console/v1/approvals/count")
+    def approvals_count(request: Request) -> dict:
+        require_admin(current_user(request))
+        return {"pending": approvals.pending_count()}
 
     @r.get("/api/console/v1/approvals/{approval_id}")
     def approval_detail(request: Request, approval_id: int) -> dict:
@@ -264,12 +291,19 @@ def build_console_router(db) -> APIRouter:
         if not approvals.decide(approval_id, approved=body.approve, decided_by=user["email"]):
             raise _err(409, "already_decided", "Someone else just decided this.")
         action = str(row.get("action", ""))
+        job_id: int | None = None
         if body.approve:
             if action.startswith(("build:", "triage:")):
-                _dispatch_build(approval_id)
+                # build/triage dispatch is synchronous, so the implement job id is available
+                # here — link the frontend straight to the run. (api:* dispatch runs in a
+                # background task and produces no queued job, so it has no id to return.)
+                job_id = _dispatch_build(approval_id)
             elif action.startswith("api:"):
                 background_tasks.add_task(_dispatch_api, approval_id)
-        return {"status": "approved" if body.approve else "dismissed"}
+        resp = {"status": "approved" if body.approve else "dismissed"}
+        if job_id is not None:
+            resp["job_id"] = job_id
+        return resp
 
     @r.get("/api/console/v1/jobs")
     def list_jobs(request: Request, scope: str = "mine", limit: int = 25) -> dict:
@@ -279,6 +313,11 @@ def build_console_router(db) -> APIRouter:
             require_admin(user)
             return {"jobs": queue.recent_jobs(limit=limit)}
         return {"jobs": queue.recent_jobs_for(user["email"], limit=limit)}
+
+    @r.get("/api/console/v1/jobs/counts")
+    def jobs_counts(request: Request) -> dict:
+        require_admin(current_user(request))
+        return _jobs_summary()
 
     @r.get("/api/console/v1/jobs/{job_id}")
     def job_detail_route(request: Request, job_id: int) -> dict:
@@ -645,6 +684,33 @@ def build_console_router(db) -> APIRouter:
             "admins_count": len(config.bott_admins()),
             "advisories": advisories,
         }
+
+    @r.get("/api/console/v1/health")
+    def health_route(request: Request) -> dict:
+        require_admin(current_user(request))
+        from bott.interfaces.slack_home import models as models_mod
+        from bott.interfaces.slack_home.connectors_panel import connector_statuses
+        from bott.shared import codex_tokens
+        from bott.shared.persistence import records
+        jobs = _jobs_summary()
+        raw = records.get_setting("webhook.github.last_received_at")
+        last_received_at = float(raw) if raw else None
+        return {
+            "model": {
+                "connected": codex_tokens.is_connected(),
+                "provider": models_mod._active()["provider"],
+            },
+            "jobs": {"running": jobs["running"], "queued": jobs["queued"],
+                     "failed_24h": jobs["failed_24h"]},
+            "connectors": connector_statuses(),
+            "webhook": {"last_received_at": last_received_at},
+        }
+
+    @r.get("/api/console/v1/reviews")
+    def list_reviews_route(request: Request) -> dict:
+        require_admin(current_user(request))
+        from bott.shared.persistence import records
+        return {"reviews": records.recent_reviews(limit=50)}
 
     @r.get("/api/console/v1/system/review-trends")
     def review_trends_route(request: Request, days: int = 30) -> dict:

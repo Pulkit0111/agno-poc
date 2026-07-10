@@ -50,15 +50,18 @@ def test_callback_rejects_bad_state(client, monkeypatch):
     monkeypatch.setattr(oidc, "exchange_code", lambda code: {"email": "a@x.com", "name": "A"})
     client.cookies.set("oidc_state", "s1")
     r = client.get("/api/console/auth/callback?code=c&state=WRONG")
-    assert r.status_code == 400
-    assert r.json()["detail"]["error"]["code"] == "bad_state"
+    assert r.status_code == 307
+    assert r.headers["location"] == "http://localhost:3000/login?error=bad_state"
+    assert sessions.COOKIE_NAME not in r.cookies
 
 
-def test_callback_failed_exchange_is_401(client, monkeypatch):
+def test_callback_failed_exchange_redirects_to_login(client, monkeypatch):
     monkeypatch.setattr(oidc, "exchange_code", lambda code: None)
     client.cookies.set("oidc_state", "s1")
     r = client.get("/api/console/auth/callback?code=c&state=s1")
-    assert r.status_code == 401
+    assert r.status_code == 307
+    assert r.headers["location"] == "http://localhost:3000/login?error=oidc_failed"
+    assert sessions.COOKIE_NAME not in r.cookies
 
 
 def test_callback_rejects_wrong_email_domain(client, monkeypatch):
@@ -68,8 +71,8 @@ def test_callback_rejects_wrong_email_domain(client, monkeypatch):
                         lambda code: {"email": "someone@gmail.com", "name": "Outsider"})
     client.cookies.set("oidc_state", "s1")
     r = client.get("/api/console/auth/callback?code=c&state=s1")
-    assert r.status_code == 403
-    assert r.json()["detail"]["error"]["code"] == "wrong_domain"
+    assert r.status_code == 307
+    assert r.headers["location"] == "http://localhost:3000/login?error=wrong_domain"
     assert sessions.COOKIE_NAME not in r.cookies
 
 

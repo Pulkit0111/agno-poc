@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { relativeTime } from "@/lib/time";
 import { usePrompt, useRevertPrompt, useSavePrompt } from "@/lib/use-prompts";
@@ -12,12 +13,13 @@ const PROMPTS = [
 ] as const;
 
 export default function PromptsPage() {
-  const [active, setActive] = useState<(typeof PROMPTS)[number]["key"]>("voice");
+  const [active, setActive] = useState<(typeof PROMPTS)[number]["key"]>("identity");
   const { data, isLoading } = usePrompt(active);
   const save = useSavePrompt(active);
   const revert = useRevertPrompt(active);
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState("");
+  const [pendingRevert, setPendingRevert] = useState<number | null>(null);
 
   useEffect(() => {
     // Hydrating locally-editable state (draft/note) from data that loads asynchronously
@@ -87,7 +89,7 @@ export default function PromptsPage() {
                     <div className="truncate text-sm font-medium">{v.note}</div>
                     <div className="text-xs text-muted-foreground">{v.author} · {relativeTime(v.created)}</div>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => revert.mutate(v.id)}>Revert to this</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setPendingRevert(v.id)}>Revert to this</Button>
                 </li>
               ))}
             </ul>
@@ -99,6 +101,15 @@ export default function PromptsPage() {
         Saved versions apply immediately to Ask Bott replies (App Home). The main Slack
         conversation picks up a new version on restart.
       </p>
+
+      <ConfirmDialog
+        open={pendingRevert !== null}
+        onOpenChange={(open) => { if (!open) setPendingRevert(null); }}
+        title="Revert to this version?"
+        description="This creates a new version from the older text. You can revert again anytime."
+        confirmLabel="Revert"
+        onConfirm={() => { if (pendingRevert !== null) revert.mutate(pendingRevert); }}
+      />
     </div>
   );
 }

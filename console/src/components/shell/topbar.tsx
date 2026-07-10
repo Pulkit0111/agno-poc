@@ -1,6 +1,6 @@
 "use client";
 
-import { Moon, Sun } from "lucide-react";
+import { Menu, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,16 +9,26 @@ const NAMES: Record<string, string> = {
   "/": "Home", "/approvals": "Approvals", "/activity": "Activity",
   "/schedules": "Schedules", "/action-items": "Action items",
   "/skills": "Skills", "/reports": "Reports", "/connectors": "Connectors",
+  "/admin/health": "Health", "/admin/reviews": "Reviews",
   "/admin/models": "Models", "/admin/engagements": "Engagements",
-  "/admin/users": "Users & roles", "/admin/system": "System",
-  "/admin/policy": "Policy", "/admin/prompts": "Prompts",
+  "/admin/users": "Users", "/admin/policy": "Policy",
+  "/admin/prompts": "Prompts",
 };
 
-export function Topbar() {
+export function Topbar({ onMenu }: { onMenu: () => void }) {
   const { resolvedTheme, setTheme } = useTheme();
   const pathname = usePathname();
   return (
-    <header className="flex items-center gap-3 border-b bg-card px-6 py-2.5">
+    <header className="flex items-center gap-3 border-b bg-card px-4 py-2.5 md:px-6">
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Open navigation"
+        className="md:hidden"
+        onClick={onMenu}
+      >
+        <Menu className="size-4" />
+      </Button>
       <span className="text-sm font-medium">{NAMES[pathname] ?? "Bott Console"}</span>
       <div className="ml-auto flex items-center gap-2">
         <Button

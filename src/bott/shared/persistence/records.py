@@ -315,6 +315,27 @@ def trace_stats_by_week(since_epoch: Optional[float] = None) -> dict[str, dict[s
     return dict(sorted(by_week.items()))
 
 
+def recent_reviews(limit: int = 50) -> list[dict]:
+    """Recent PR reviews for the console Reviews page: one row per review_traces entry,
+    newest first. ``url`` is the GitHub PR permalink derived from owner/name/pr_number
+    (None when any part is missing)."""
+    with get_engine().connect() as c:
+        rows = c.execute(text(
+            "SELECT owner, name, pr_number, final_verdict, created "
+            "FROM review_traces ORDER BY id DESC LIMIT :lim"
+        ), {"lim": limit}).fetchall()
+    out: list[dict] = []
+    for owner, name, pr_number, verdict, created in rows:
+        has_ref = bool(owner and name) and pr_number is not None
+        out.append({
+            "pr": f"{owner}/{name}#{pr_number}",
+            "verdict": verdict or "unknown",
+            "url": f"https://github.com/{owner}/{name}/pull/{pr_number}" if has_ref else None,
+            "created": created,
+        })
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Known users
 # ---------------------------------------------------------------------------

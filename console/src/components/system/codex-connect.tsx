@@ -64,17 +64,15 @@ export function CodexConnect({ connected }: { connected: boolean }) {
           Disconnect
         </Button>
       ) : device ? (
-        <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
-          <p>Finish in your browser (device login — there&apos;s no redirect back):</p>
-          {device.url && (
+        device.url && device.code ? (
+          <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+            <p>Finish in your browser (device login — there&apos;s no redirect back):</p>
             <p>
               1. Open{" "}
               <a href={device.url} target="_blank" rel="noreferrer" className="font-medium text-primary underline">
                 {device.url}
               </a>
             </p>
-          )}
-          {device.code && (
             <p className="flex items-center gap-2">
               <span>2. Enter code</span>
               <span className="rounded bg-background px-2 py-0.5 font-mono font-semibold">{device.code}</span>
@@ -82,9 +80,28 @@ export function CodexConnect({ connected }: { connected: boolean }) {
                 {copied ? "Copied" : "Copy"}
               </Button>
             </p>
-          )}
-          <p className="text-xs text-muted-foreground">Approve, then come back here — it flips to Connected on its own.</p>
-        </div>
+            <p className="text-xs text-muted-foreground">Approve, then come back here — it flips to Connected on its own.</p>
+            <p className="text-xs text-muted-foreground">Codes expire after a few minutes — start over if it stops working.</p>
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setDevice(null)}>
+              Cancel / start over
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+            <p className="font-medium text-destructive">Couldn&apos;t start the browser login.</p>
+            <p className="text-xs text-muted-foreground">
+              The CLI didn&apos;t return a link and code to act on. Raw output:
+            </p>
+            {device.raw && (
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background p-2 font-mono text-xs">
+                {device.raw}
+              </pre>
+            )}
+            <Button size="sm" variant="outline" onClick={() => setDevice(null)}>
+              Start over
+            </Button>
+          </div>
+        )
       ) : (
         <div className="space-y-2">
           <Button

@@ -1,12 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { toneClass, verdictMeta } from "@/lib/status";
 
-const VERDICT_COLOR: Record<string, string> = {
-  approve: "var(--status-good, #0ca30c)",
-  comment: "var(--status-warning, #fab219)",
-  request_changes: "var(--status-critical, #d03b3b)",
-};
 const VERDICT_ORDER = ["approve", "comment", "request_changes"];
 
 export function ReviewTrendsChart({ byWeek }: { byWeek: Record<string, Record<string, number>> }) {
@@ -50,7 +46,8 @@ export function ReviewTrendsChart({ byWeek }: { byWeek: Record<string, Record<st
                   <rect
                     key={verdict}
                     x={x} y={y + 1} width={bw} height={h}
-                    fill={VERDICT_COLOR[verdict] ?? "var(--muted-foreground, #898781)"}
+                    className={toneClass[verdictMeta(verdict).tone]}
+                    fill="currentColor"
                     rx={isTop ? 4 : 0}
                   />
                 );

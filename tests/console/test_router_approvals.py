@@ -106,6 +106,38 @@ def test_admin_may_decide_own_request(client, monkeypatch):
     assert seen["api"] == 7
 
 
+def test_count_requires_admin(client, monkeypatch):
+    monkeypatch.setattr(router_mod.approvals, "pending_count", lambda: 4)
+    _as(client, "m@x.com")
+    assert client.get("/api/console/v1/approvals/count").status_code == 403
+
+
+def test_count_admin_returns_pending(client, monkeypatch):
+    monkeypatch.setattr(router_mod.approvals, "pending_count", lambda: 4)
+    _as(client, "adm@x.com", is_admin=True)
+    assert client.get("/api/console/v1/approvals/count").json() == {"pending": 4}
+
+
+def test_decision_approve_build_returns_job_id(client, monkeypatch):
+    row = dict(ROW, action="build:moodflix")
+    monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: row)
+    monkeypatch.setattr(router_mod.approvals, "decide", lambda *a, **k: True)
+    monkeypatch.setattr(router_mod, "_dispatch_build", lambda i: 55)
+    _as(client, "adm@x.com", is_admin=True)
+    r = client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
+    assert r.json() == {"status": "approved", "job_id": 55}
+
+
+def test_decision_approve_api_has_no_job_id(client, monkeypatch):
+    # api:* dispatch runs in a background task with no queued job — response omits job_id.
+    monkeypatch.setattr(router_mod.approvals, "get_request", lambda i: dict(ROW))
+    monkeypatch.setattr(router_mod.approvals, "decide", lambda *a, **k: True)
+    monkeypatch.setattr(router_mod, "_dispatch_api", lambda i: None)
+    _as(client, "adm@x.com", is_admin=True)
+    r = client.post("/api/console/v1/approvals/7/decision", json={"approve": True})
+    assert r.json() == {"status": "approved"}
+
+
 def test_decision_already_decided_is_409(client, monkeypatch):
     monkeypatch.setattr(router_mod.approvals, "get_request",
                         lambda i: dict(ROW, status="approved"))

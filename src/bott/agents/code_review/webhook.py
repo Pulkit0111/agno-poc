@@ -11,16 +11,21 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import time
 
 from fastapi import APIRouter, Request, Response
 
 from bott.shared.config import github_webhook_secret, review_slack_channel
 from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import queue
-from bott.shared.persistence.records import seen_commit, seen_delivery
+from bott.shared.persistence.records import seen_commit, seen_delivery, set_setting
 
 router = APIRouter()
 log = get_logger("review.webhook")
+
+# Settings-KV key for the last verified webhook delivery timestamp — read by the console
+# health aggregate. Reuses the existing settings table; no new schema.
+WEBHOOK_LAST_RECEIVED_KEY = "webhook.github.last_received_at"
 
 _BOT_AUTHOR_HINTS = ("dependabot", "renovate", "[bot]")
 
@@ -41,6 +46,13 @@ async def github_webhook(request: Request) -> Response:
     body = await request.body()
     if not _verify(secret, body, request.headers.get("X-Hub-Signature-256")):
         return Response(status_code=401, content="bad signature")
+
+    # Record "last verified webhook received" for the console health aggregate. Best-effort:
+    # a settings-KV write failure must never turn away a legitimately-verified delivery.
+    try:
+        set_setting(WEBHOOK_LAST_RECEIVED_KEY, str(time.time()))
+    except Exception as e:  # noqa: BLE001
+        log.warning("webhook: failed to record last_received_at: %s", e)
 
     event = request.headers.get("X-GitHub-Event", "")
     delivery = request.headers.get("X-GitHub-Delivery", "")

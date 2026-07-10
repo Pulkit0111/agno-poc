@@ -1,108 +1,137 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
-import { JobDrawer, StatusBadge } from "@/components/jobs/job-drawer";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { relativeTime } from "@/lib/time";
-import { useJobs } from "@/lib/use-jobs";
+import { useState } from "react";
+import { JobDrawer } from "@/components/jobs/job-drawer";
+import { EmptyState, ErrorState, LoadingState, NoAccessState } from "@/components/common/states";
+import { StatusPill } from "@/components/ui/status-pill";
+import { isForbidden } from "@/lib/api";
+import { Time } from "@/lib/time";
+import { useActivity, type ActivityJob } from "@/lib/use-activity";
+import { useJobCounts } from "@/lib/use-job-counts";
 import { useMe } from "@/lib/use-me";
 
-const FILTERS = ["all", "running", "done", "failed"] as const;
+/** Map a raw job kind to a human label. Covers the known kinds; falls back to a title-case. */
+const KIND_LABELS: Record<string, string> = {
+  plan: "Build & Fix",
+  implement: "Build & Fix",
+  "build.implement": "Build & Fix",
+  review: "PR review",
+  rereview: "PR re-review",
+  triage: "Sentry triage",
+  sprint: "Sprint report",
+  sprint_snapshot: "Sprint snapshot",
+  delivery: "Delivery report",
+  security: "Security check",
+  portfolio: "Portfolio snapshot",
+};
 
-function ActivityInner() {
-  const router = useRouter();
-  const params = useSearchParams();
-  const { data: me } = useMe();
-  const scope = (params.get("scope") === "all" && me?.is_admin ? "all" : "mine") as "mine" | "all";
-  const status = params.get("status") ?? "all";
-  const rawId = params.get("id");
-  const parsedId = rawId === null ? NaN : Number(rawId);
-  const selected = Number.isFinite(parsedId) ? parsedId : null;
-  const { data: jobs, isLoading } = useJobs(scope, 50);
-  const visible = jobs?.filter((j) => status === "all" || j.status === status);
+function humanizeKind(kind: string): string {
+  if (KIND_LABELS[kind]) return KIND_LABELS[kind];
+  return kind
+    .replace(/[._]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
-  const setParam = (key: string, value: string | null) => {
-    const next = new URLSearchParams(params);
-    if (value === null) next.delete(key);
-    else next.set(key, value);
-    router.replace(`/activity?${next.toString()}`);
-  };
+function elapsed(sinceEpochSeconds: number): string {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - sinceEpochSeconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
 
+function Tile({ label, value, tone }: { label: string; value: number | string; tone?: "bad" }) {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
-          <p className="text-sm text-muted-foreground">Every run — builds, reviews, reports, scheduled jobs</p>
-        </div>
-        {me?.is_admin && (
-          <Tabs value={scope} onValueChange={(v) => setParam("scope", v === "mine" ? null : v)} className="ml-auto">
-            <TabsList>
-              <TabsTrigger value="mine">Mine</TabsTrigger>
-              <TabsTrigger value="all">All users</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        )}
+    <div className="rounded-xl border bg-card p-4 shadow-sm">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-2xl font-semibold tracking-tight ${tone === "bad" && value ? "text-red-700 dark:text-red-400" : ""}`}>
+        {value}
       </div>
-
-      <div className="flex gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f}
-            onClick={() => setParam("status", f === "all" ? null : f)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${
-              status === f ? "border-primary/40 bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
-
-      <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
-        {isLoading ? (
-          <div className="space-y-2 p-4"><Skeleton className="h-9" /><Skeleton className="h-9" /><Skeleton className="h-9" /></div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Run</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">When</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visible?.map((j) => (
-                <TableRow key={j.id} className="cursor-pointer" onClick={() => setParam("id", String(j.id))}>
-                  <TableCell className="font-medium">{j.kind}</TableCell>
-                  <TableCell><StatusBadge status={j.status} /></TableCell>
-                  <TableCell className="text-right text-xs text-muted-foreground">{relativeTime(j.created)}</TableCell>
-                </TableRow>
-              ))}
-              {!visible?.length && (
-                <TableRow>
-                  <TableCell colSpan={3} className="py-8 text-center text-sm text-muted-foreground">
-                    No runs {status !== "all" ? `with status “${status}”` : "yet"}.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        )}
-      </div>
-
-      <JobDrawer id={selected} onClose={() => setParam("id", null)} />
     </div>
   );
 }
 
-export default function ActivityPage() {
+function LiveDot() {
   return (
-    <Suspense>
-      <ActivityInner />
-    </Suspense>
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <span className="relative flex size-2">
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-500 opacity-60" />
+        <span className="relative inline-flex size-2 rounded-full bg-green-500" />
+      </span>
+      Live
+    </span>
+  );
+}
+
+export default function ActivityPage() {
+  const { data: me, isLoading: meLoading } = useMe();
+  const [selected, setSelected] = useState<number | null>(null);
+  const counts = useJobCounts();
+  const activity = useActivity();
+
+  if (meLoading) return <LoadingState rows={5} />;
+  if (!me?.is_admin) return <NoAccessState />;
+
+  const jobs = activity.data?.jobs;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start gap-4">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
+          <p className="text-sm text-muted-foreground">Everything Bott is working on, right now and just past</p>
+        </div>
+        <div className="ml-auto pt-1">
+          <LiveDot />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Tile label="Running now" value={counts.data?.running ?? 0} />
+        <Tile label="Done" value={counts.data?.done ?? 0} />
+        <Tile label="Failed (24h)" value={counts.data?.failed_24h ?? 0} tone="bad" />
+      </div>
+
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        {activity.isLoading ? (
+          <LoadingState rows={6} />
+        ) : activity.isError ? (
+          isForbidden(activity.error) ? (
+            <NoAccessState />
+          ) : (
+            <ErrorState message="Couldn't load the activity feed." onRetry={() => activity.refetch()} />
+          )
+        ) : !jobs?.length ? (
+          <EmptyState title="Nothing running" message="Bott isn't working on anything right now." />
+        ) : (
+          <ul>
+            {jobs.map((j: ActivityJob) => (
+              <li key={j.id}>
+                <button
+                  onClick={() => setSelected(j.id)}
+                  className="flex w-full items-center gap-3 border-b px-4 py-3 text-left last:border-b-0 hover:bg-muted/50"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{humanizeKind(j.kind)}</div>
+                    {j.user_id && (
+                      <div className="truncate text-xs text-muted-foreground">asked by {j.user_id}</div>
+                    )}
+                  </div>
+                  <StatusPill status={j.status} />
+                  <div className="w-24 flex-none text-right text-xs text-muted-foreground">
+                    {j.status === "running" ? (
+                      <span title="running for">{elapsed(j.created)}</span>
+                    ) : (
+                      <Time value={j.created} />
+                    )}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <JobDrawer id={selected} onClose={() => setSelected(null)} />
+    </div>
   );
 }

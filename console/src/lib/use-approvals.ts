@@ -14,11 +14,17 @@ export function useApprovals(scope: "mine" | "all" = "mine") {
   });
 }
 
+/**
+ * Decision response. `job_id` is present for build/triage approvals (something
+ * to watch run), absent for api approvals — consumers use it to link to the run.
+ */
+export type DecisionResult = { status: "approved" | "dismissed" | string; job_id?: number };
+
 export function useDecide() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, approve }: { id: number; approve: boolean }) =>
-      api<{ status: string }>(`/api/console/v1/approvals/${id}/decision`, {
+      api<DecisionResult>(`/api/console/v1/approvals/${id}/decision`, {
         method: "POST",
         body: JSON.stringify({ approve }),
       }),
@@ -34,7 +40,16 @@ export function useDecide() {
       ctx?.prev.forEach(([key, data]) => qc.setQueryData(key, data));
       toast.error(err instanceof ApiError ? err.message : "Couldn't record the decision.");
     },
-    onSuccess: (res) => toast.success(res.status === "approved" ? "Approved — running it now." : "Dismissed."),
+    onSuccess: (res) => {
+      if (res.status === "approved") {
+        // Link the toast to where the run shows up (the admin live feed).
+        toast.success("Approved — running it now", {
+          action: { label: "View run", onClick: () => { window.location.href = "/activity"; } },
+        });
+      } else {
+        toast.success("Dismissed.");
+      }
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
   });
 }

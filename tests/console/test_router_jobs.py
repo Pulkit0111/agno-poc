@@ -57,3 +57,19 @@ def test_job_detail_missing_404(client, monkeypatch):
     monkeypatch.setattr(router_mod.queue, "job_detail", lambda i: None)
     _as(client, "m@x.com")
     assert client.get("/api/console/v1/jobs/9").status_code == 404
+
+
+def test_jobs_counts_requires_admin(client, monkeypatch):
+    monkeypatch.setattr(router_mod.queue, "job_counts", lambda: {})
+    monkeypatch.setattr(router_mod.queue, "count_failed_since", lambda ts: 0)
+    _as(client, "m@x.com")
+    assert client.get("/api/console/v1/jobs/counts").status_code == 403
+
+
+def test_jobs_counts_maps_pending_to_queued(client, monkeypatch):
+    monkeypatch.setattr(router_mod.queue, "job_counts",
+                        lambda: {"pending": 2, "running": 1, "done": 5, "failed": 3})
+    monkeypatch.setattr(router_mod.queue, "count_failed_since", lambda ts: 1)
+    _as(client, "adm@x.com", is_admin=True)
+    assert client.get("/api/console/v1/jobs/counts").json() == {
+        "running": 1, "queued": 2, "done": 5, "failed": 3, "failed_24h": 1}

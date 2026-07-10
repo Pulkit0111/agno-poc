@@ -3,22 +3,19 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { StatusPill } from "@/components/ui/status-pill";
+import { EmptyState, ErrorState, LoadingState } from "@/components/common/states";
 import {
+  PolicyOverride,
   useAllowedRepos, useClassify, usePolicyOverrides,
   useRemovePolicyOverride, useSetPolicyOverride,
 } from "@/lib/use-policy";
 
-const VERDICT_STYLE: Record<string, string> = {
-  allow: "text-green-700 dark:text-green-400",
-  gate: "text-amber-700 dark:text-amber-400",
-  deny: "text-destructive",
-};
-
 const SYSTEMS = ["slack", "github", "atlassian", "http"];
 
 export default function PolicyPage() {
-  const { data: overrides, isLoading, isError } = usePolicyOverrides();
+  const { data: overrides, isLoading, isError, refetch } = usePolicyOverrides();
   const setOverride = useSetPolicyOverride();
   const removeOverride = useRemovePolicyOverride();
   const classify = useClassify();
@@ -28,10 +25,18 @@ export default function PolicyPage() {
   const [method, setMethod] = useState("");
   const [verdict, setVerdict] = useState("gate");
   const [reason, setReason] = useState("");
+  const [confirmSet, setConfirmSet] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<PolicyOverride | null>(null);
 
   const [testSystem, setTestSystem] = useState("");
   const [testMethod, setTestMethod] = useState("");
   const [testResult, setTestResult] = useState<{ verdict: string; reason: string } | null>(null);
+
+  function doSetOverride() {
+    setOverride.mutate({ system, method, verdict, reason }, {
+      onSuccess: () => { setSystem(""); setMethod(""); setReason(""); setVerdict("gate"); },
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -42,18 +47,18 @@ export default function PolicyPage() {
 
       <div className="rounded-xl border bg-card shadow-sm">
         <div className="border-b px-4 py-2.5 text-sm font-semibold">Overrides</div>
-        {isLoading && <div className="space-y-2 p-4"><Skeleton className="h-9" /></div>}
-        {isError && <div className="px-4 py-8 text-center text-sm text-destructive">Couldn&apos;t load — try refreshing the page.</div>}
+        {isLoading && <LoadingState rows={1} />}
+        {isError && <ErrorState onRetry={() => refetch()} message="Couldn't load overrides — try again." />}
         {!isLoading && !isError && !overrides?.length && (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">No overrides set — everything runs on its default rules.</div>
+          <EmptyState title="No overrides set" message="Everything runs on its default rules." />
         )}
-        {overrides?.map((o) => (
+        {!isLoading && !isError && overrides?.map((o) => (
           <div key={`${o.system}:${o.method}`} className="flex items-center gap-3 border-b px-4 py-3 last:border-b-0">
             <span className="font-mono text-xs text-muted-foreground">{o.system}</span>
             <span className="font-mono text-xs">{o.method}</span>
-            <Badge variant="outline" className={VERDICT_STYLE[o.verdict]}>{o.verdict}</Badge>
+            <StatusPill status={o.verdict} />
             <div className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{o.reason}</div>
-            <Button size="sm" variant="ghost" onClick={() => removeOverride.mutate({ system: o.system, method: o.method })}>
+            <Button size="sm" variant="ghost" onClick={() => setPendingRemove(o)}>
               Remove
             </Button>
           </div>
@@ -75,9 +80,7 @@ export default function PolicyPage() {
         <input className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" placeholder="Why (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
         <Button
           disabled={!system || !method || !reason || setOverride.isPending}
-          onClick={() => setOverride.mutate({ system, method, verdict, reason }, {
-            onSuccess: () => { setSystem(""); setMethod(""); setReason(""); setVerdict("gate"); },
-          })}
+          onClick={() => { if (verdict === "allow") setConfirmSet(true); else doSetOverride(); }}
         >
           Set override
         </Button>
@@ -98,7 +101,7 @@ export default function PolicyPage() {
         </Button>
         {testResult && (
           <div className="rounded-md border bg-muted p-2.5 text-sm">
-            <Badge variant="outline" className={VERDICT_STYLE[testResult.verdict]}>{testResult.verdict}</Badge>
+            <StatusPill status={testResult.verdict} />
             <span className="ml-2 text-muted-foreground">{testResult.reason}</span>
           </div>
         )}
@@ -111,6 +114,32 @@ export default function PolicyPage() {
           {repos?.length === 0 && <span className="text-sm text-muted-foreground">None configured.</span>}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmSet}
+        onOpenChange={setConfirmSet}
+        title="Remove the human gate?"
+        description={`Bott will be able to run ${system || "this"} ${method} without anyone approving first. You can switch this back anytime.`}
+        confirmLabel="Set to allow"
+        tone="danger"
+        onConfirm={doSetOverride}
+      />
+
+      <ConfirmDialog
+        open={!!pendingRemove}
+        onOpenChange={(open) => { if (!open) setPendingRemove(null); }}
+        title={pendingRemove?.verdict === "gate" ? "Remove the human gate?" : "Remove this override?"}
+        description={
+          pendingRemove
+            ? pendingRemove.verdict === "gate"
+              ? `Removing this override means Bott may run ${pendingRemove.system} ${pendingRemove.method} without waiting for a human. You can add the gate back anytime.`
+              : `${pendingRemove.system} ${pendingRemove.method} will fall back to its default rule. You can set this override again anytime.`
+            : undefined
+        }
+        confirmLabel="Remove override"
+        tone={pendingRemove?.verdict === "gate" ? "danger" : "default"}
+        onConfirm={() => { if (pendingRemove) removeOverride.mutate({ system: pendingRemove.system, method: pendingRemove.method }); }}
+      />
     </div>
   );
 }

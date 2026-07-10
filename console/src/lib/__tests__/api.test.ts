@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError } from "../api";
+import { api, ApiError, isForbidden } from "../api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -16,5 +16,14 @@ describe("api", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err.code).toBe("admin_only");
     expect(err.message).toBe("This needs an admin.");
+  });
+});
+
+describe("isForbidden", () => {
+  it("is true only for a 403 ApiError", () => {
+    expect(isForbidden(new ApiError(403, "admin_only", "nope"))).toBe(true);
+    expect(isForbidden(new ApiError(500, "boom", "server"))).toBe(false);
+    expect(isForbidden(new Error("plain"))).toBe(false);
+    expect(isForbidden(null)).toBe(false);
   });
 });

@@ -37,6 +37,19 @@ def test_enqueue_claim_complete_round_trip(engine):
     assert queue.claim_one() is None  # nothing left pending
 
 
+def test_count_failed_since(engine):
+    # One failed + one done job; count_failed_since counts only the failed one, and only
+    # when the cutoff is at/before its created time.
+    fid = queue.enqueue("review", {"pr": 1}, user_id="alice@x.com")
+    queue.claim_one()
+    queue.complete(fid, error="boom")
+    did = queue.enqueue("review", {"pr": 2}, user_id="alice@x.com")
+    queue.claim_one()
+    queue.complete(did)  # done, not failed
+    assert queue.count_failed_since(time.time() - 3600) == 1
+    assert queue.count_failed_since(time.time() + 3600) == 0
+
+
 def test_recover_orphans_leaves_recently_claimed_jobs_alone(engine):
     """Regression: recover_orphans() used to blanket-fail EVERY 'running' job on any boot —
     under multiple worker instances, restarting instance A would wrongly fail a job

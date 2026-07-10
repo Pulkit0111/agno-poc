@@ -30,7 +30,7 @@ export function useRemovePolicyOverride() {
     mutationFn: ({ system, method }: { system: string; method: string }) =>
       api(`/api/console/v1/policy/overrides/${system}/${method}`, { method: "DELETE" }),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't remove that override."),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["policy-overrides"] }),
+    onSuccess: () => { toast.success("Override removed."); qc.invalidateQueries({ queryKey: ["policy-overrides"] }); },
   });
 }
 
