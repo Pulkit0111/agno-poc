@@ -15,7 +15,7 @@ export default function EngagementsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight">Engagements</h1>
+        <h1 className="font-display text-lg tracking-tight">Engagements</h1>
         <p className="text-sm text-muted-foreground">Channel ↔ engagement wiring — how Bott knows where it is</p>
       </div>
 

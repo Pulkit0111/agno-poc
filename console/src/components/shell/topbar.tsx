@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 const NAMES: Record<string, string> = {
   "/": "Home", "/activity": "Activity",
   "/schedules": "Schedules", "/action-items": "Action items",
+  "/todos": "Todos",
   "/skills": "Skills", "/connectors": "Connectors",
   "/admin/system": "System",
   "/admin/models": "Models", "/admin/engagements": "Engagements",

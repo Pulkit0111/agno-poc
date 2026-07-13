@@ -39,7 +39,7 @@ export default function LoginPage() {
         <div className="mx-auto mb-4 grid size-11 place-items-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">
           B
         </div>
-        <h1 className="text-lg font-semibold tracking-tight">Bott Console</h1>
+        <h1 className="font-display text-lg tracking-tight">Bott Console</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Manage your approvals, schedules, skills and more. Conversations stay in Slack.
         </p>

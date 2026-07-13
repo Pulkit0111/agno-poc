@@ -33,7 +33,7 @@ export default function PromptsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight">Prompts</h1>
+        <h1 className="font-display text-lg tracking-tight">Prompts</h1>
         <p className="text-sm text-muted-foreground">Bott&apos;s identity and voice — versioned, revertible, never lost</p>
       </div>
       <div className="flex gap-2">

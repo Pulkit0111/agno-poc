@@ -318,7 +318,7 @@ export default function ConnectorsPage() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Connectors</h1>
+          <h1 className="font-display text-lg tracking-tight">Connectors</h1>
           <p className="text-sm text-muted-foreground">What Bott can reach on your behalf</p>
         </div>
         {!!me?.is_admin && (

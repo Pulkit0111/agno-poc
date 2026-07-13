@@ -41,7 +41,7 @@ export default function PolicyPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight">Policy</h1>
+        <h1 className="font-display text-lg tracking-tight">Policy</h1>
         <p className="text-sm text-muted-foreground">What runs freely, what waits for a human, what never runs</p>
       </div>
 

@@ -126,7 +126,7 @@ export default function UsersPage() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Users</h1>
+          <h1 className="font-display text-lg tracking-tight">Users</h1>
           <p className="text-sm text-muted-foreground">
             Everyone Bott knows. Invite people ahead of their first sign-in, and manage who can decide for Bott.
           </p>

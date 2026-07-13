@@ -44,7 +44,7 @@ export default function ModelsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight">Models</h1>
+        <h1 className="font-display text-lg tracking-tight">Models</h1>
         <p className="text-sm text-muted-foreground">
           ChatGPT (Codex) is Bott&apos;s only model provider — connect it here and pick which model does which job
         </p>
