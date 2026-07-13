@@ -44,8 +44,11 @@ export function useUpdateSkill(slug: string) {
         body: JSON.stringify(body),
       }),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't save that version."),
-    onSuccess: (data) => {
-      toast.success(`Saved as v${data.version} — Bott is using the new version now`);
+    onSuccess: () => {
+      // Deliberately no version number here: the PUT response's `version` is the
+      // skill_versions autoincrement id shared across ALL skills, not a per-slug
+      // counter — it would immediately diverge from the detail page's v{count}.
+      toast.success("Saved — Bott is using the new version now");
       qc.invalidateQueries({ queryKey: ["skill", slug] });
       qc.invalidateQueries({ queryKey: ["skills"] });
     },
@@ -81,7 +84,11 @@ export function usePinSkill() {
     mutationFn: ({ name, pinned }: { name: string; pinned: boolean }) =>
       api(`/api/console/v1/skills/${name}/pin`, { method: "POST", body: JSON.stringify({ pinned }) }),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't update that skill."),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["skills"] }),
+    onSuccess: (_data, { name, pinned }) => {
+      toast.success(pinned ? "Pinned — protected from retirement" : "Unpinned — this skill can be retired");
+      qc.invalidateQueries({ queryKey: ["skills"] });
+      qc.invalidateQueries({ queryKey: ["skill", name] });
+    },
   });
 }
 
@@ -90,6 +97,10 @@ export function useRetireSkill() {
   return useMutation({
     mutationFn: (name: string) => api(`/api/console/v1/skills/${name}/retire`, { method: "POST" }),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't retire that skill."),
-    onSuccess: () => { toast.success("Retired."); qc.invalidateQueries({ queryKey: ["skills"] }); },
+    onSuccess: (_data, name) => {
+      toast.success("Retired — Bott will stop using this skill");
+      qc.invalidateQueries({ queryKey: ["skills"] });
+      qc.invalidateQueries({ queryKey: ["skill", name] });
+    },
   });
 }

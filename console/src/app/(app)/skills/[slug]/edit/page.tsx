@@ -103,7 +103,7 @@ export default function SkillEditPage() {
           onChange={(e) => setNote(e.target.value)}
         />
         <Button
-          disabled={!note.trim() || body === originalBody || update.isPending}
+          disabled={!note.trim() || !body.trim() || body === originalBody || update.isPending}
           onClick={save}
         >
           Save changes
