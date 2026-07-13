@@ -206,3 +206,70 @@ def test_create_no_longer_requires_admin(client_and_db):
     tc, _db = client_and_db
     _as(tc, "member@x.com")
     assert _create_security(tc).status_code == 200
+
+
+# ---- console GET /schedules scopes personal rows to the requester --------------------
+
+def test_console_list_hides_other_users_personal_schedules(client_and_db):
+    tc, db = client_and_db
+    scheduling.create_security_digest(db, channel="#sec", cron="0 9 * * *")  # team row
+    scheduling.create_recurring_task(
+        db, user_id="a@x.com", task_name="a-brief", instruction="hi", cron="0 8 * * *")
+    scheduling.create_recurring_task(
+        db, user_id="b@x.com", task_name="b-brief", instruction="hi", cron="0 8 * * *")
+
+    _as(tc, "a@x.com")
+    rows = tc.get("/api/console/v1/schedules").json()["schedules"]
+    owners = {r["created_by"] for r in rows if r["personal"]}
+    assert owners == {"a@x.com"}                       # own personal row present, B's absent
+    assert any(r["channel"] == "#sec" for r in rows)   # team row still visible
+
+
+def test_console_list_shows_all_personal_schedules_to_admin(client_and_db):
+    tc, db = client_and_db
+    scheduling.create_recurring_task(
+        db, user_id="a@x.com", task_name="a-brief", instruction="hi", cron="0 8 * * *")
+    scheduling.create_recurring_task(
+        db, user_id="b@x.com", task_name="b-brief", instruction="hi", cron="0 8 * * *")
+
+    _as_admin(tc, "admin@x.com")
+    rows = tc.get("/api/console/v1/schedules").json()["schedules"]
+    owners = {r["created_by"] for r in rows if r["personal"]}
+    assert owners == {"a@x.com", "b@x.com"}
+
+
+# ---- Slack modal path stamps created_by (via the _submit_* helpers _do_submit calls) --
+
+def test_slack_modal_submit_stamps_created_by(tmp_path):
+    from bott.interfaces.slack_home import router as home_router
+
+    db = SqliteDb(db_file=str(tmp_path / "s3.db"))
+    values = {
+        "channel": {"v": {"selected_channel": "C42"}},
+        "frequency": {"v": {"selected_option": {"value": "daily"}}},
+        "time": {"v": {"selected_time": "09:00"}},
+    }
+    home_router._submit_security(db, values, created_by="slack-user@axelerant.com")
+    rows = schedule_service.list_raw(db)
+    assert len(rows) == 1
+    assert rows[0]["created_by"] == "slack-user@axelerant.com"
+
+
+# ---- Home blocks render the "(Personal)" suffix on personal rows ---------------------
+
+def test_home_blocks_render_personal_suffix():
+    from bott.interfaces.slack_home import blocks
+
+    personal_row = {
+        "icon": "🙋", "label": "daily-brief", "channel": "", "when": "Daily 8:00 AM",
+        "run_buttons": [{"text": "▶ Run now", "action_id": "run_now:s1", "value": "s1"}],
+        "remove_ids": ["s1"], "personal": True,
+    }
+    team_row = {
+        "icon": "🔒", "label": "Drupal advisories", "channel": "C5", "when": "Daily 9:00 AM",
+        "run_buttons": [{"text": "▶ Run now", "action_id": "run_now:s2", "value": "s2"}],
+        "remove_ids": ["s2"],
+    }
+    view = str(blocks.build_home_view([personal_row, team_row]))
+    assert "(Personal)" in view
+    assert view.count("(Personal)") == 1  # only the flagged row gets the suffix

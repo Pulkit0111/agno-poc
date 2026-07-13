@@ -361,11 +361,17 @@ def preview(frequency: str, time_str: str) -> dict:
     return {"next_run": format_next_run(next_epoch, tz), "cadence": cadence_text(cron, tz)}
 
 
-def list_raw(db: Any) -> list[dict]:
-    """One row per raw Schedule (including personal `concierge:` ones, flagged
-    ``personal``) — unlike list_rows(), which merges related schedules (e.g. DSM's 3
-    phases) into one display card, this is the 1:1 view the console needs for
-    pause/resume/remove-by-id."""
+def list_raw(db: Any, viewer_email: str | None = None,
+             include_all_personal: bool = False) -> list[dict]:
+    """One row per raw Schedule — unlike list_rows(), which merges related schedules
+    (e.g. DSM's 3 phases) into one display card, this is the 1:1 view the console needs
+    for pause/resume/remove-by-id.
+
+    Personal (``concierge:``) rows are private: only the viewer's own are included
+    (matched via `schedule_owner` against ``viewer_email``), unless
+    ``include_all_personal`` is set (admin view). Team rows are always visible to
+    everyone. With neither argument (the default), no personal rows appear at all —
+    the safe baseline for callers that don't identify a viewer."""
     mgr = ScheduleManager(db)
     rows = []
     for sch in mgr.list():
@@ -374,6 +380,10 @@ def list_raw(db: Any) -> list[dict]:
         except (TypeError, ValueError):
             meta = {}
         personal = sch.name.startswith("concierge:")
+        if personal and not include_all_personal:
+            owner = schedule_owner(sch)
+            if not viewer_email or not owner or owner.lower() != viewer_email.lower():
+                continue
         rows.append({
             "id": sch.id,
             "label": meta.get("label", sch.name),

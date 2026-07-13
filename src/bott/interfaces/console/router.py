@@ -349,8 +349,10 @@ def build_console_router(db) -> APIRouter:
 
     @r.get("/api/console/v1/schedules")
     def list_schedules(request: Request) -> dict:
-        current_user(request)
-        return {"schedules": schedule_service.list_raw(db)}
+        user = current_user(request)
+        # Personal (concierge:) rows are private — members see only their own; admins all.
+        return {"schedules": schedule_service.list_raw(
+            db, viewer_email=user["email"], include_all_personal=user["is_admin"])}
 
     @r.post("/api/console/v1/schedules/{schedule_id}/pause")
     def pause_schedule(request: Request, schedule_id: str) -> dict:

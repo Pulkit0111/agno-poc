@@ -59,10 +59,10 @@ def test_concierge_schedules_excluded_from_home(tmp_path):
     assert service.list_rows(db) == []
 
 
-def test_list_raw_flags_concierge_rows_as_personal_and_shows_enabled_state(tmp_path):
-    """list_raw() now includes personal (concierge:) rows too — schedules parity means the
-    console can manage them like any other, distinguished by the `personal` flag rather
-    than being silently dropped."""
+def test_list_raw_scopes_personal_rows_to_the_viewer(tmp_path):
+    """list_raw() includes personal (concierge:) rows only for their owner (or with
+    include_all_personal, the admin view) — team rows are visible to everyone, and a
+    bare call with no viewer shows no personal rows at all."""
     from agno.db.sqlite import SqliteDb
 
     from bott.interfaces.slack_home import service
@@ -74,13 +74,26 @@ def test_list_raw_flags_concierge_rows_as_personal_and_shows_enabled_state(tmp_p
         db, user_id="alice@axelerant.com", task_name="brief",
         instruction="hi", cron="0 8 * * *",
     )
+
+    # No viewer -> team rows only (the safe baseline).
     rows = service.list_raw(db)
-    assert len(rows) == 2
-    security_row = next(r for r in rows if r["channel"] == "#sec")
-    assert security_row["enabled"] is True
-    assert security_row["personal"] is False
+    assert len(rows) == 1
+    assert rows[0]["channel"] == "#sec"
+    assert rows[0]["enabled"] is True
+    assert rows[0]["personal"] is False
+
+    # The owner sees their own personal row.
+    rows = service.list_raw(db, viewer_email="alice@axelerant.com")
     concierge_row = next(r for r in rows if r["personal"] is True)
     assert concierge_row["created_by"] == "alice@axelerant.com"
+
+    # Another member does not.
+    rows = service.list_raw(db, viewer_email="bob@axelerant.com")
+    assert all(r["personal"] is False for r in rows)
+
+    # The admin view sees everything.
+    rows = service.list_raw(db, include_all_personal=True)
+    assert any(r["personal"] is True for r in rows)
 
 
 def test_pause_then_resume_round_trip(tmp_path):
