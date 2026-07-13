@@ -3,8 +3,10 @@
 import { useState, type KeyboardEvent } from "react";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/ui/status-pill";
 import { EmptyState, ErrorState, LoadingState } from "@/components/common/states";
 import { SnoozeMenu } from "@/components/action-items/snooze-menu";
+import { dueLabel } from "@/lib/snooze";
 import { relativeTime } from "@/lib/time";
 import {
   useActionItems, useCompleteActionItem, useCreateActionItem, useSnoozeActionItem,
@@ -17,14 +19,6 @@ const SOURCE_PHRASE: Record<ActionItemSource, string> = {
   console: "added here",
 };
 
-function dueLabel(remindAt: number): string {
-  const days = Math.round((remindAt * 1000 - Date.now()) / 86400000);
-  if (days <= 0) return "due today";
-  if (days === 1) return "due tomorrow";
-  if (days < 7) return `due ${new Date(remindAt * 1000).toLocaleDateString(undefined, { weekday: "short" })}`;
-  return `due ${new Date(remindAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
-}
-
 function ActionItemRow({ item }: { item: ActionItem }) {
   const complete = useCompleteActionItem();
   const snooze = useSnoozeActionItem();
@@ -33,10 +27,12 @@ function ActionItemRow({ item }: { item: ActionItem }) {
     <div className="flex items-center gap-3 border-b px-4 py-3 last:border-b-0">
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{item.text}</div>
-        <div className="truncate text-xs text-muted-foreground">
-          {SOURCE_PHRASE[item.source] ?? "added here"} · captured {relativeTime(item.created)}
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="truncate">
+            {SOURCE_PHRASE[item.source] ?? "added here"} · captured {relativeTime(item.created)}
+          </span>
           {item.status === "snoozed" && item.remind_at != null && (
-            <> · <span className="font-medium text-amber-700 dark:text-amber-400">{dueLabel(item.remind_at)}</span></>
+            <StatusPill tone="warn" label={dueLabel(item.remind_at)} className="flex-none" />
           )}
         </div>
       </div>

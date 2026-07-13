@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/use-schedules", async () => {
@@ -34,10 +34,16 @@ describe("ScheduleWizard", () => {
     fireEvent.click(screen.getByText("Next"));
 
     // Entering the cadence step previews the default frequency automatically.
-    expect(previewMutate).toHaveBeenCalledWith(expect.objectContaining({ kind: "delivery", time: "09:00" }));
+    expect(previewMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "delivery", time: "09:00" }),
+      expect.anything(),
+    );
 
     fireEvent.click(screen.getByText("Weekdays"));
-    expect(previewMutate).toHaveBeenCalledWith({ kind: "delivery", frequency: "weekdays", time: "09:00" });
+    expect(previewMutate).toHaveBeenCalledWith(
+      { kind: "delivery", frequency: "weekdays", time: "09:00" },
+      expect.anything(),
+    );
 
     fireEvent.click(screen.getByText("Create schedule"));
     expect(createMutate).toHaveBeenCalledWith(
@@ -105,5 +111,27 @@ describe("ScheduleWizard", () => {
     fireEvent.click(screen.getByText("Next"));
     fireEvent.click(screen.getByText("Back"));
     expect((screen.getByLabelText("Channel") as HTMLInputElement).value).toBe("#drupal-security");
+  });
+
+  it("ignores a stale preview response that resolves after a newer one (latest-wins)", () => {
+    render(<ScheduleWizard open onOpenChange={() => {}} />);
+
+    fireEvent.click(screen.getByText("Security advisories"));
+    fireEvent.click(screen.getByText("Next"));
+    fireEvent.change(screen.getByLabelText("Channel"), { target: { value: "#drupal-security" } });
+    fireEvent.click(screen.getByText("Next"));
+
+    // Request 1 fires on step entry (daily); request 2 fires on the chip change.
+    fireEvent.click(screen.getByText("Weekly"));
+    expect(previewMutate).toHaveBeenCalledTimes(2);
+    const [, firstOpts] = previewMutate.mock.calls[0];
+    const [, secondOpts] = previewMutate.mock.calls[1];
+
+    // Resolve out of order: the NEWER request lands first, then the stale one trickles in.
+    act(() => secondOpts.onSuccess({ next_run: "Monday, Jul 20 at 9:00 AM", cadence: "Every Monday at 9:00 AM" }));
+    act(() => firstOpts.onSuccess({ next_run: "Tomorrow at 9:00 AM", cadence: "Every day at 9:00 AM" }));
+
+    expect(screen.getByText("Monday, Jul 20 at 9:00 AM")).toBeDefined();
+    expect(screen.queryByText("Tomorrow at 9:00 AM")).toBeNull();
   });
 });

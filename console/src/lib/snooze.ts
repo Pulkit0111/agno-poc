@@ -37,3 +37,20 @@ export function pickedDateMorning(dateStr: string): number {
   const [y, m, d] = dateStr.split("-").map(Number);
   return toEpochSeconds(new Date(y, m - 1, d, 9, 0, 0, 0));
 }
+
+function localDayStartMs(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** Short "due …" label for a snoozed item's remind_at (epoch seconds).
+ * Compares LOCAL CALENDAR days, not elapsed hours — 9pm today vs 9am tomorrow is
+ * "due tomorrow", never "due today". Math.round on the day-start diff absorbs DST's
+ * 23/25-hour days. */
+export function dueLabel(remindAt: number, now: Date = new Date()): string {
+  const due = new Date(remindAt * 1000);
+  const days = Math.round((localDayStartMs(due) - localDayStartMs(now)) / 86400000);
+  if (days <= 0) return "due today";
+  if (days === 1) return "due tomorrow";
+  if (days < 7) return `due ${due.toLocaleDateString(undefined, { weekday: "short" })}`;
+  return `due ${due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}

@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useCreateSchedule, useSchedulePreview } from "@/lib/use-schedules";
+import { useCreateSchedule, useSchedulePreview, type SchedulePreview } from "@/lib/use-schedules";
 
 type Kind = "sprint" | "delivery" | "security" | "dsm" | "portfolio" | "sentiment";
 
@@ -54,6 +54,11 @@ export function ScheduleWizard({
 
   const create = useCreateSchedule();
   const preview = useSchedulePreview();
+  // Latest-wins guard for the preview: each request takes a sequence number and only the
+  // newest may publish its result, so overlapping responses resolving out of order can
+  // never leave a stale next-run on screen.
+  const previewSeq = useRef(0);
+  const [previewData, setPreviewData] = useState<SchedulePreview | null>(null);
 
   const needsEngagement = kind === "sprint" || kind === "delivery";
   const needsTeam = kind === "dsm";
@@ -70,7 +75,11 @@ export function ScheduleWizard({
   // day server-side), so there's nothing meaningful to preview for it.
   useEffect(() => {
     if (step !== 3 || !needsFrequency) return;
-    preview.mutate({ kind, frequency, time });
+    const seq = ++previewSeq.current;
+    preview.mutate(
+      { kind, frequency, time },
+      { onSuccess: (data) => { if (seq === previewSeq.current) setPreviewData(data); } },
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, needsFrequency, kind, frequency, time]);
 
@@ -203,15 +212,15 @@ export function ScheduleWizard({
                   <Field label="At what time?">
                     <input type="time" className={cn(inputClass, "max-w-[140px]")} value={time} onChange={(e) => setTime(e.target.value)} />
                   </Field>
-                  {preview.data && (
+                  {previewData && (
                     <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs">
-                      Next run: <b className="font-medium">{preview.data.next_run}</b>
+                      Next run: <b className="font-medium">{previewData.next_run}</b>
                       {channel && (
                         <>
                           {" "}· posts to <b className="font-medium">{channel}</b>
                         </>
                       )}
-                      <div className="mt-0.5 text-muted-foreground">{preview.data.cadence}</div>
+                      <div className="mt-0.5 text-muted-foreground">{previewData.cadence}</div>
                     </div>
                   )}
                 </>
