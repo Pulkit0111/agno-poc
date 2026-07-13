@@ -731,6 +731,16 @@ def build_console_router(db) -> APIRouter:
         from bott.interfaces.slack_home.connectors_panel import connector_statuses
         return {"connectors": connector_statuses()}
 
+    @r.post("/api/console/v1/connectors/{name}/test")
+    def test_connector_route(request: Request, name: str) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.skills.connectors import probes
+        try:
+            return probes.probe(name, user.get("email"))
+        except KeyError:
+            raise _err(404, "unknown_connector", f"No connector named '{name}'.")
+
     @r.get("/api/console/v1/models")
     def get_models(request: Request) -> dict:
         user = current_user(request)
