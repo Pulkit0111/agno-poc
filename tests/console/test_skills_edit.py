@@ -116,12 +116,15 @@ def test_edit_appends_version_row_and_get_returns_it(client, skills_dir):
     assert detail["versions"][0]["note"] == "second pass"
     assert detail["versions"][0]["author"] == "owner@x.com"
 
-    # A second edit appends rather than replaces.
+    # A second edit appends rather than replaces, and the response's version id is the
+    # id captured inside update_content's own INSERT (not a re-query that could race).
     v3 = _frontmatter("my-skill", "v3")
-    client.put("/api/console/v1/skills/my-skill", json={"content": v3, "note": "third"})
+    r3 = client.put("/api/console/v1/skills/my-skill", json={"content": v3, "note": "third"})
     detail2 = client.get("/api/console/v1/skills/my-skill").json()
     assert len(detail2["versions"]) == 2
     assert detail2["content"] == v3
+    assert r3.json()["version"] == detail2["versions"][0]["id"]
+    assert r3.json()["version"] != version_id
 
 
 def test_builtin_detail_returns_file_content_and_no_versions(client, skills_dir):
@@ -225,3 +228,9 @@ def test_create_same_author_can_recreate_own_slug(client, skills_dir):
     body["description"] = "d2"
     r = client.post("/api/console/v1/skills", json=body)
     assert r.status_code == 200
+    detail = client.get("/api/console/v1/skills/mine").json()
+    # The re-POST updated content but did NOT stack another "Created" version row —
+    # only a genuinely new skill logs the initial version.
+    assert "d2" in detail["content"]
+    assert len(detail["versions"]) == 1
+    assert detail["versions"][0]["note"] == "Created"

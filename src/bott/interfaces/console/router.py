@@ -578,13 +578,14 @@ def build_console_router(db) -> APIRouter:
             raise _err(404, "not_found", "That skill doesn't exist.")
         if not user["is_admin"] and (db_row.get("authored_by") or "").lower() != user["email"].lower():
             raise _err(403, "not_owner", "Only this skill's author or an admin can edit it.")
-        skills_store.update_content(slug, body.content, user["email"], body.note)
+        version_id = skills_store.update_content(slug, body.content, user["email"], body.note)
         # NOTE: same known limitation as retire_skill_route below — this `sk` Skills
         # instance is per-request and discarded right after, so there's no live instance
         # here to reload(). The shared chat agent's own long-lived Skills instance won't
         # pick up this edit until its own reload (or process restart).
-        vs = skills_store.versions(slug)
-        return {"ok": True, "version": vs[0]["id"]}
+        if version_id is None:  # row vanished between the get above and the update (rare race)
+            raise _err(404, "not_found", "That skill doesn't exist.")
+        return {"ok": True, "version": version_id}
 
     @r.post("/api/console/v1/skills/draft")
     def draft_skill_route(request: Request, body: SkillDraftBody) -> dict:
@@ -619,8 +620,17 @@ def build_console_router(db) -> APIRouter:
         skills_store.upsert_skill(slug, body.name.strip() or slug, body.description.strip(),
                                   content, user["email"], now=time.time())
         # Append the creation itself as version 1 — upsert_skill doesn't write skill_versions
-        # rows, so edit history would otherwise start empty until the first PUT edit.
-        skills_store.update_content(slug, content, user["email"], "Created")
+        # rows, so edit history would otherwise start empty until the first PUT edit. Only
+        # for a genuinely NEW skill: a same-author re-POST is an idempotent update and must
+        # not stack duplicate "Created" rows onto the history (update_content also handles
+        # the FS materialization; the re-POST path writes the SKILL.md itself instead).
+        if existing is None:
+            skills_store.update_content(slug, content, user["email"], "Created")
+        else:
+            skill_dir = os.path.join(config.bott_skills_dir(), slug)
+            os.makedirs(skill_dir, exist_ok=True)
+            with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as fh:
+                fh.write(content)
         return {"slug": slug}
 
     @r.post("/api/console/v1/skills/{slug}/pin")

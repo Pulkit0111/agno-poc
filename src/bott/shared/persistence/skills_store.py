@@ -93,11 +93,13 @@ def delete_skill(slug: str) -> bool:
     return result.rowcount > 0
 
 
-def update_content(slug: str, content: str, author: str, note: str) -> bool:
+def update_content(slug: str, content: str, author: str, note: str) -> int | None:
     """Edit an EXISTING authored skill's content: updates the ``skills`` row, appends an
     append-only ``skill_versions`` row (mirrors prompts_store's save_version convention),
-    and re-materializes just this slug's SKILL.md. Returns False if *slug* has no row
-    (unknown or built-in — callers should have already refused built-ins earlier)."""
+    and re-materializes just this slug's SKILL.md. Returns the new version row's id —
+    captured inside the transaction via RETURNING (same as prompts_store.save_version),
+    so concurrent edits to one slug can't hand each other's id back — or None if *slug*
+    has no row (unknown or built-in — callers should have refused built-ins earlier)."""
     now = time.time()
     with get_engine().begin() as conn:
         result = conn.execute(
@@ -105,21 +107,22 @@ def update_content(slug: str, content: str, author: str, note: str) -> bool:
             {"content": content, "now": now, "slug": slug},
         )
         if result.rowcount == 0:
-            return False
-        conn.execute(
+            return None
+        res = conn.execute(
             text(
                 "INSERT INTO skill_versions (slug, content, note, author, created) "
-                "VALUES (:slug, :content, :note, :author, :now)"
+                "VALUES (:slug, :content, :note, :author, :now) RETURNING id"
             ),
             {"slug": slug, "content": content, "note": note, "author": author, "now": now},
         )
+        version_id = int(res.fetchone()[0])
     from bott.shared import config
 
     skill_dir = os.path.join(config.bott_skills_dir(), slug)
     os.makedirs(skill_dir, exist_ok=True)
     with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as fh:
         fh.write(content)
-    return True
+    return version_id
 
 
 def versions(slug: str) -> list[dict]:
