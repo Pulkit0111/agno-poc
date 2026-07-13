@@ -644,6 +644,8 @@ def build_console_router(db) -> APIRouter:
     @r.put("/api/console/v1/skills/{slug}")
     def save_skill_route(request: Request, slug: str, body: SkillSaveBody) -> dict:
         user = current_user(request)
+        if not body.content.strip():
+            raise _err(422, "missing_field", "A skill needs an instructions body.")
         from bott.shared.persistence import skills_store
         sk = _skills()
         db_row = skills_store.get_skill(slug)
@@ -691,7 +693,7 @@ def build_console_router(db) -> APIRouter:
         existing = skills_store.get_skill(slug)
         if existing and not user["is_admin"] and (existing.get("authored_by") or "").lower() != user["email"].lower():
             raise _err(409, "slug_taken", f"'{slug}' is already an authored skill by someone else.")
-        content = f"---\nname: {slug}\ndescription: {body.description.strip()}\n---\n\n{body.content.strip()}\n"
+        content = skills_store.wrap_frontmatter(slug, body.description.strip(), body.content.strip())
         skills_store.upsert_skill(slug, body.name.strip() or slug, body.description.strip(),
                                   content, user["email"], now=time.time())
         # Append the creation itself as version 1 — upsert_skill doesn't write skill_versions

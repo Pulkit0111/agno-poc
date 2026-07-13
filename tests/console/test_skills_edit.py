@@ -94,6 +94,17 @@ def test_admin_can_edit_anyones_skill(client, skills_dir):
     assert r.status_code == 200
 
 
+def test_empty_content_is_422(client, skills_dir):
+    _author(author="owner@x.com")
+    _as(client, email="owner@x.com")
+    r = client.put("/api/console/v1/skills/my-skill", json={"content": "   ", "note": "tweak"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"]["code"] == "missing_field"
+    row = skills_store.get_skill("my-skill")
+    assert row["content"] == _frontmatter("my-skill", "content v1")
+    assert skills_store.versions("my-skill") == []
+
+
 def test_built_in_edit_is_409(client, skills_dir):
     _as(client, email="anyone@x.com")
     r = client.put("/api/console/v1/skills/greeter", json={"content": "v2", "note": "n"})

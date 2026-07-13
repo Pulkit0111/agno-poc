@@ -48,7 +48,7 @@ export function useUpdateSkill(slug: string) {
       // Deliberately no version number here: the PUT response's `version` is the
       // skill_versions autoincrement id shared across ALL skills, not a per-slug
       // counter — it would immediately diverge from the detail page's v{count}.
-      toast.success("Saved — Bott is using the new version now");
+      toast.success("Saved — takes effect on Bott's next reload.");
       qc.invalidateQueries({ queryKey: ["skill", slug] });
       qc.invalidateQueries({ queryKey: ["skills"] });
     },
@@ -72,7 +72,7 @@ export function useSaveSkill() {
       api<{ slug: string }>("/api/console/v1/skills", { method: "POST", body: JSON.stringify(body) }),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't save that skill."),
     onSuccess: (_data, variables) => {
-      toast.success(`Saved — ${variables.name} is live and visible in Slack too`);
+      toast.success(`Saved — ${variables.name} will be available after Bott's next reload.`);
       qc.invalidateQueries({ queryKey: ["skills"] });
     },
   });

@@ -352,6 +352,14 @@ forward to `http://127.0.0.1:3000`.
    ```
    The app container brings the DB schema under Alembic on boot, then serves.
    `https://<your-host>` should load the console login page.
+
+   > **Upgrading an existing deploy?** Always run `alembic upgrade head` against the
+   > production database **before** rolling out new app code, not after. As of this
+   > release the action-items queries select the new `source` column — starting the new
+   > app code against a not-yet-migrated DB will fail. `docker compose up --build -d`
+   > applies migrations as part of the app container's boot, so if you deploy any other
+   > way (rolling restart, separate migration step, etc.) make sure the migration runs
+   > first.
 4. **Register the request URLs** with `BASE = https://<your-host>`:
    - Slack **Event Subscriptions** → `BASE/slack/events`
    - Slack **Interactivity & Shortcuts** → `BASE/slack/interactivity`

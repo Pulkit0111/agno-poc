@@ -14,6 +14,14 @@ from sqlalchemy import text
 from bott.shared.db import get_engine
 
 
+def wrap_frontmatter(slug: str, description: str, body: str) -> str:
+    """Wrap an instructions body in the SKILL.md frontmatter convention (name + description
+    header). Single source of truth for the skill content shape — reused by every writer
+    (console create route, console PUT-via-update_content callers, and the chat
+    `author_skill` tool) so the template only lives in one place."""
+    return f"---\nname: {slug}\ndescription: {description}\n---\n\n{body}\n"
+
+
 def upsert_skill(
     slug: str,
     name: str,

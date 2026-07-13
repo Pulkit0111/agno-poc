@@ -279,7 +279,12 @@ def _reject_metadata_host(base_url: str) -> None:
         addr = ip_address(host)
     except ValueError:
         return  # a hostname, not an IP literal — allowed (no DNS resolution by design)
-    if addr.is_link_local:
+    # An IPv4-mapped IPv6 literal (::ffff:a.b.c.d) is link-local iff the MAPPED v4 address
+    # is — .is_link_local on the v6 wrapper itself doesn't see through the mapping, so
+    # `http://[::ffff:169.254.169.254]/` would otherwise sail past this check straight to
+    # the metadata service. Evaluate the mapped v4 address when present.
+    effective = getattr(addr, "ipv4_mapped", None) or addr
+    if effective.is_link_local:
         raise ValueError("Link-local addresses (169.254.0.0/16) aren't allowed.")
 
 

@@ -69,6 +69,34 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             log.warning("users_info failed for %s: %s", user_id, e)
             return "", ""
 
+    def _schedule_owner_or_admin(actor_email: str, schedule_id: str) -> bool:
+        """Same owner-or-admin rule the console enforces on schedule mutations
+        (``require_schedule_owner_or_admin`` in console/router.py): admins pass
+        unconditionally; everyone else must be the schedule's stamped (or
+        legacy-inferred) creator. A schedule with no recoverable owner is admin-only."""
+        if roles.is_admin(actor_email):
+            return True
+        owner = service.schedule_owner_for_id(db, schedule_id)
+        return bool(owner) and owner.lower() == actor_email.lower()
+
+    def _refuse_schedule_action(ch: str | None, user_id: str | None) -> None:
+        """Same ephemeral-or-DM styling as the admin-only approval refusal below: an
+        ephemeral note in the clicked message's channel/thread if there is one, else a
+        DM (the normal case — schedule buttons only render in the Home tab)."""
+        if not user_id:
+            return
+        try:
+            if ch:
+                client.chat_postEphemeral(
+                    channel=ch, user=user_id,
+                    text="Only this schedule's creator or an admin can do that.")
+            else:
+                client.chat_postMessage(
+                    channel=user_id,
+                    text="Only this schedule's creator or an admin can do that.")
+        except Exception:  # noqa: BLE001 — refusal note is best-effort
+            pass
+
     def _my_action_items(email: str) -> list[dict]:
         """The caller's OPEN concierge items as [{id, text}] — scoped by email (=user_id)."""
         if not email:
@@ -372,11 +400,24 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                 except Exception as e:  # noqa: BLE001
                     log.error("open standup modal: %s", e)
             elif cmd == "run_now":
-                background_tasks.add_task(run_now, user_id, action.get("value"))
+                schedule_id = action.get("value")
+                if schedule_id:
+                    ch = (payload.get("channel") or {}).get("id")
+                    actor_email = _resolve_email(user_id) if user_id else ""
+                    if _schedule_owner_or_admin(actor_email, schedule_id):
+                        background_tasks.add_task(run_now, user_id, schedule_id)
+                    else:
+                        _refuse_schedule_action(ch, user_id)
             elif cmd == "remove":
                 ids = [i for i in (action.get("value") or "").split(",") if i]
-                service.remove(db, ids)
-                background_tasks.add_task(publish_home, user_id)
+                if ids:
+                    ch = (payload.get("channel") or {}).get("id")
+                    actor_email = _resolve_email(user_id) if user_id else ""
+                    if all(_schedule_owner_or_admin(actor_email, i) for i in ids):
+                        service.remove(db, ids)
+                        background_tasks.add_task(publish_home, user_id)
+                    else:
+                        _refuse_schedule_action(ch, user_id)
             elif cmd == "rereview_pr":
                 # The "Re-review" button on a posted review — re-run against the prior
                 # trace for this thread (the worker looks it up by channel + thread_ts).

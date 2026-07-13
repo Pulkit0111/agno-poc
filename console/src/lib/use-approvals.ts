@@ -56,6 +56,9 @@ export function useDecide() {
       // job-count tiles — refresh those too instead of waiting on their own poll.
       qc.invalidateQueries({ queryKey: ["jobs"] });
       qc.invalidateQueries({ queryKey: ["job-counts"] });
+      // The sidebar badge and Home tile read this key — refresh it too so a decision
+      // clears the count immediately instead of waiting on its own 10s poll.
+      qc.invalidateQueries({ queryKey: ["approval-count"] });
     },
   });
 }

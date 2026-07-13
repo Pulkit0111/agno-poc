@@ -464,6 +464,7 @@ def _get_must_not_be_called(url, headers=None, timeout=None):
     "http://metadata.google.internal/computeMetadata/v1/",
     "http://metadata.goog/",
     "http://[fe80::1]/",
+    "http://[::ffff:169.254.169.254]/",
 ])
 def test_http_api_candidate_refuses_metadata_hosts_without_probing(monkeypatch, base_url):
     import httpx

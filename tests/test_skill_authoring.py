@@ -95,6 +95,45 @@ def test_pin_admin_case_insensitive(dbenv, monkeypatch):
     assert store.get_skill("s")["pinned"] == 1
 
 
+def test_author_skill_cross_author_refused_for_member(dbenv, monkeypatch):
+    monkeypatch.setattr(sa.config, "bott_admins", lambda: {"admin@x.com"})
+    skills = _Skills([])
+    out = sa._author_skill_impl(skills, _ctx("a@x.com"), "Greet User", "greets a user", "Say hi.")
+    assert "greet-user" in out
+    out2 = sa._author_skill_impl(skills, _ctx("b@x.com"), "Greet User", "changed", "changed body")
+    assert "belongs to a@x.com" in out2
+    row = store.get_skill("greet-user")
+    assert row["authored_by"] == "a@x.com"
+    assert "changed" not in row["content"]
+    assert store.versions("greet-user") == [store.versions("greet-user")[0]]  # unchanged, single version
+
+
+def test_author_skill_cross_author_allowed_for_admin(dbenv, monkeypatch):
+    monkeypatch.setattr(sa.config, "bott_admins", lambda: {"admin@x.com"})
+    skills = _Skills([])
+    monkeypatch.setattr(skills, "reload", lambda: skills._names.add("greet-user"))
+    sa._author_skill_impl(skills, _ctx("a@x.com"), "Greet User", "greets a user", "Say hi.")
+    out = sa._author_skill_impl(skills, _ctx("admin@x.com"), "Greet User", "changed", "changed body")
+    assert "belongs to" not in out
+    row = store.get_skill("greet-user")
+    assert "changed body" in row["content"]
+
+
+def test_author_skill_edit_appends_version_row(dbenv, monkeypatch):
+    skills = _Skills([])
+    monkeypatch.setattr(skills, "reload", lambda: skills._names.add("greet-user"))
+    sa._author_skill_impl(skills, _ctx("a@x.com"), "Greet User", "greets a user", "Say hi.")
+    versions_after_create = store.versions("greet-user")
+    assert len(versions_after_create) == 1
+    assert versions_after_create[0]["note"] == "Created"
+    sa._author_skill_impl(skills, _ctx("a@x.com"), "Greet User", "greets a user", "Say hi again.")
+    versions_after_edit = store.versions("greet-user")
+    assert len(versions_after_edit) == 2
+    assert versions_after_edit[0]["note"] == "Edited via Slack"
+    row = store.get_skill("greet-user")
+    assert "Say hi again." in row["content"]
+
+
 def test_tools_family_gates_on_skills():
     assert sa.skill_authoring_tools(skills=None) == []
     tools = sa.skill_authoring_tools(skills=_Skills([]))

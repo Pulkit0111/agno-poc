@@ -52,12 +52,18 @@ def _author_skill_impl(skills, run_context, name, description, instructions) -> 
         return "A skill needs a one-line description and an instructions body."
     if _is_builtin(skills, slug):
         return f"'{slug}' is a built-in skill — pick another name."
-    content = f"---\nname: {slug}\ndescription: {description.strip()}\n---\n\n{instructions.strip()}\n"
-    store.upsert_skill(slug, slug, description.strip(), content, author, now=time.time())
-    skill_dir = os.path.join(config.bott_skills_dir(), slug)
-    os.makedirs(skill_dir, exist_ok=True)
-    with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
-        f.write(content)
+    existing = store.get_skill(slug)
+    if existing:
+        owner = (existing.get("authored_by") or "").strip()
+        from bott.shared import roles
+        if owner and owner.lower() != author.lower() and not roles.is_admin(author):
+            return f"'{slug}' belongs to {owner} — ask them or an admin to change it."
+    content = store.wrap_frontmatter(slug, description.strip(), instructions.strip())
+    if existing is None:
+        store.upsert_skill(slug, slug, description.strip(), content, author, now=time.time())
+        store.update_content(slug, content, author, "Created")
+    else:
+        store.update_content(slug, content, author, "Edited via Slack")
     try:
         skills.reload()
     except Exception as e:  # noqa: BLE001

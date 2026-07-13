@@ -183,6 +183,68 @@ def test_admin_approve_works(tmp_path, monkeypatch):
     assert ephemerals == []  # no refusal for admins
 
 
+# ── Schedule mutations (run_now / remove) are owner-or-admin ─────────────────────────
+# Parity with the console's `require_schedule_owner_or_admin` gate on the same actions.
+
+
+def _remove_payload(schedule_id) -> dict:
+    return {"type": "block_actions", "user": {"id": "U1"}, "trigger_id": "t",
+            "actions": [{"action_id": f"remove:{schedule_id}", "value": str(schedule_id)}]}
+
+
+def _run_now_payload(schedule_id) -> dict:
+    return {"type": "block_actions", "user": {"id": "U1"}, "trigger_id": "t",
+            "actions": [{"action_id": f"run_now:{schedule_id}", "value": str(schedule_id)}]}
+
+
+def test_member_can_run_now_own_personal_schedule(tmp_path, monkeypatch):
+    from agno.db.sqlite import SqliteDb
+
+    from bott.skills import scheduling
+    dbobj = SqliteDb(db_file=str(tmp_path / "s.db"))
+    sch = scheduling.create_recurring_task(
+        dbobj, user_id="member@axelerant.com", task_name="reminder", instruction="ping me",
+        cron="0 9 * * *", created_by="member@axelerant.com",
+    )
+    triggered = []
+    import bott.interfaces.slack_home.service as service_mod
+    monkeypatch.setattr(service_mod, "trigger_now", lambda sid: triggered.append(sid))
+    _stub_slack_identity(monkeypatch, "member@axelerant.com")
+    r = _post_interactivity(_client(tmp_path), _run_now_payload(sch.id))
+    assert r.status_code == 200
+    assert triggered == [sch.id]
+
+
+def test_member_cannot_remove_team_schedule_owned_by_other(tmp_path, monkeypatch):
+    from agno.db.sqlite import SqliteDb
+
+    import bott.interfaces.slack_home.service as service_mod
+    dbobj = SqliteDb(db_file=str(tmp_path / "s.db"))
+    sch = service_mod.create_security(dbobj, "#sec", "daily", "09:00", created_by="owner@axelerant.com")
+    removed = []
+    monkeypatch.setattr(service_mod, "remove", lambda db, ids: removed.append(ids))
+    ephemerals, dms = _stub_slack_identity(monkeypatch, "member@axelerant.com")
+    r = _post_interactivity(_client(tmp_path), _remove_payload(sch.id))
+    assert r.status_code == 200
+    assert removed == []
+    assert dms and "creator or an admin" in dms[0]["text"]
+
+
+def test_admin_can_remove_any_schedule(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOTT_ADMINS", "admin@axelerant.com")
+    from agno.db.sqlite import SqliteDb
+
+    import bott.interfaces.slack_home.service as service_mod
+    dbobj = SqliteDb(db_file=str(tmp_path / "s.db"))
+    sch = service_mod.create_security(dbobj, "#sec", "daily", "09:00", created_by="owner@axelerant.com")
+    removed = []
+    monkeypatch.setattr(service_mod, "remove", lambda db, ids: removed.append(ids))
+    _stub_slack_identity(monkeypatch, "admin@axelerant.com")
+    r = _post_interactivity(_client(tmp_path), _remove_payload(sch.id))
+    assert r.status_code == 200
+    assert removed == [[str(sch.id)]]
+
+
 def test_admin_dismiss_works(tmp_path, monkeypatch):
     monkeypatch.setenv("BOTT_ADMINS", "admin@axelerant.com")
     _stub_slack_identity(monkeypatch, "admin@axelerant.com")
