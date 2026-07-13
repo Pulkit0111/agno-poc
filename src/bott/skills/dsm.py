@@ -102,27 +102,38 @@ def _render_call_summary(team: str) -> str:
 
 
 def _resolve_email(client: WebClient, user_id: str) -> str:
-    """Look up a Slack user's verified email via users.info. Empty string on failure — same
-    fallback used by the App Home router's own `_resolve_email` closure (slack_home/router.py),
-    duplicated here rather than imported since that one closes over a request-scoped client."""
+    """Look up a Slack user's verified email via users.info, lowercased — console emails
+    (the action_items user_id keyspace) are always lowercase, and the store's WHERE clauses
+    are exact-match. Empty string on failure — same fallback as the App Home router's own
+    `_resolve_email` closure (slack_home/router.py), duplicated here rather than imported
+    since that one closes over a request-scoped client."""
     try:
         info = client.users_info(user=user_id)
         user = info.get("user") or {}
         prof = user.get("profile", {}) or {}
-        return prof.get("email") or ""
+        return (prof.get("email") or "").lower()
     except Exception as e:  # noqa: BLE001
         log.warning("dsm: users_info failed for %s: %s", user_id, e)
         return ""
 
 
+# Settings-KV marker for the per-(team, date, user) blocker auto-capture dedup. The DATE
+# is part of the key on purpose: a blocker recurring on a new day ("still blocked on X")
+# MUST create a fresh item, while re-closing the SAME round must not duplicate. Keying on
+# the item's text alone can't distinguish those two cases.
+_BLOCKER_CAPTURED_KEY = "dsm.blocker_captured.{team}.{date}.{email}"
+
+
 def _capture_blocker_action_items(team: str, date: str, client: WebClient) -> None:
     """For every standup response with a non-empty blocker, auto-capture a personal
-    follow-up action item for that responder — deduped per (team, date, user) by checking
-    for an existing item with identical text+source rather than a new tracking table.
+    follow-up action item for that responder — deduped per (team, date, user) via a
+    settings-KV marker (no new table; see _BLOCKER_CAPTURED_KEY on why date is in the key).
     Responders whose Slack id can't be resolved to an email are SKIPPED (not stored under
     the raw Slack id) — action_items.user_id is the resolved email everywhere else
     (isolation invariant the console relies on), and a Slack id there would be silently
     unmatchable and un-viewable."""
+    from bott.shared.persistence.records import get_setting, set_setting
+
     for r in standup.responses(team, date):
         blockers = (r.get("blockers") or "").strip()
         if not blockers:
@@ -133,10 +144,12 @@ def _capture_blocker_action_items(team: str, date: str, client: WebClient) -> No
             log.warning("dsm: could not resolve email for %s (team %s) — skipping "
                         "blocker action item", user_id, team)
             continue
-        text = f"Follow up on your blocker: {blockers[:200]}"
-        if action_items.has_item_with_text(email, text, "dsm"):
+        marker = _BLOCKER_CAPTURED_KEY.format(team=team, date=date, email=email)
+        if get_setting(marker):
             continue
-        action_items.add_item(email, text, time.time(), source="dsm")
+        text = f"Follow up on your blocker: {blockers[:200]}"
+        item_id = action_items.add_item(email, text, time.time(), source="dsm")
+        set_setting(marker, str(item_id))
 
 
 def _post_in_thread(team: str, text: str, what: str) -> str:

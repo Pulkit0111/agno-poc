@@ -137,3 +137,41 @@ def test_close_standup_no_op_when_no_blockers(engine, monkeypatch):
     dsm.close_standup("core", "C1")
 
     assert action_items.list_items("alice@x.com") == []
+
+
+def test_close_standup_recurring_blocker_new_day_creates_new_item(engine, monkeypatch):
+    """Dedup is scoped to the round's DATE: the same blocker text recurring on a new day
+    ("still blocked on X") must produce a fresh item — one per day, two total."""
+    from bott.shared.persistence import action_items
+
+    fake = _FakeSlackClient({"U1": "alice@x.com"})
+    monkeypatch.setattr(dsm, "_client", lambda: fake)
+
+    standup.add_response("core", "2026-07-12", "U1", "x", "y", "blocked on infra")
+    standup.add_response("core", "2026-07-13", "U1", "x", "y", "blocked on infra")
+
+    monkeypatch.setattr(dsm, "today_key", lambda: "2026-07-12")
+    dsm.close_standup("core", "C1")
+    dsm.close_standup("core", "C1")  # same-day re-close: still no duplicate
+    monkeypatch.setattr(dsm, "today_key", lambda: "2026-07-13")
+    dsm.close_standup("core", "C1")
+
+    items = action_items.list_items("alice@x.com")
+    assert len(items) == 2
+    assert all("blocked on infra" in it["text"] for it in items)
+
+
+def test_close_standup_lowercases_resolved_email(engine, monkeypatch):
+    """Slack may return mixed-case emails; the console keys items on lowercase email with
+    exact-match WHERE clauses, so the stored user_id must be lowercased."""
+    from bott.shared.persistence import action_items
+
+    standup.add_response("core", dsm.today_key(), "U1", "x", "y", "blocked on infra")
+    fake = _FakeSlackClient({"U1": "Alice@X.com"})
+    monkeypatch.setattr(dsm, "_client", lambda: fake)
+
+    dsm.close_standup("core", "C1")
+
+    items = action_items.list_items("alice@x.com")
+    assert len(items) == 1
+    assert items[0]["user_id"] == "alice@x.com"

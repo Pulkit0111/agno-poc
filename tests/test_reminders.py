@@ -89,10 +89,17 @@ def test_sweep_once_continues_after_one_dm_failure(engine):
 
     count = reminders.sweep_once(1100.0, flaky_send)
     assert count == 1  # bob got reminded even though alice's DM raised
-    # alice's item is untouched (still snoozed) since her DM failed — must not be
-    # silently marked reminded when it was never actually delivered.
+    # alice's item was claimed (atomic flip) but the DM failed, so it's RE-snoozed with a
+    # short retry delay — never silently marked reminded when it wasn't delivered, and
+    # never lost either.
     alice_items = store.list_items("alice")
     assert alice_items[0]["status"] == "snoozed"
+    assert alice_items[0]["remind_at"] == 1100.0 + reminders._RETRY_DELAY_S
+    # retried (and delivered) on a later sweep once the retry delay has passed
+    delivered = []
+    assert reminders.sweep_once(1100.0 + reminders._RETRY_DELAY_S,
+                                lambda u, t: delivered.append(u)) == 1
+    assert delivered == ["alice"]
 
 
 # ---------------------------------------------------------------------------

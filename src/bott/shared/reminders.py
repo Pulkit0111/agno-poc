@@ -30,20 +30,25 @@ def _slack_token() -> Optional[str]:
     return os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")
 
 
+# How long a claimed-but-undelivered reminder waits before the sweep retries its DM.
+_RETRY_DELAY_S = 300
+
+
 def sweep_once(now: float, send_dm: Callable[[str, str], None]) -> int:
-    """DM every action item whose snooze has come due, then mark it reminded (back to
-    'open', remind_at cleared) so it's never sent again. Returns the count actually sent —
-    a DM that raises leaves that item snoozed (so it's retried next sweep) but doesn't stop
-    the rest of the batch from going out."""
+    """DM every action item whose snooze has come due. Items are atomically CLAIMED first
+    (claim_due_reminders: select + flip back to 'open'/remind_at NULL in one transaction,
+    FOR UPDATE SKIP LOCKED on Postgres) so two replicas sweeping concurrently can never
+    both send the same reminder. DMs go out after the claim; a DM that raises re-snoozes
+    that one item (now + _RETRY_DELAY_S) so it's retried next sweep rather than lost, and
+    doesn't stop the rest of the batch. Returns the count actually sent."""
     sent = 0
-    for item in action_items.due_reminders(now):
+    for item in action_items.claim_due_reminders(now):
         try:
             send_dm(item["user_id"], f"⏰ Snoozed action item is due: {item['text']}")
+            sent += 1
         except Exception as e:  # noqa: BLE001 — one bad DM must not block the rest of the sweep
             log.warning("reminder DM failed for item %s (%s): %s", item["id"], item["user_id"], e)
-            continue
-        action_items.mark_reminded(item["id"])
-        sent += 1
+            action_items.resnooze_item(item["id"], now + _RETRY_DELAY_S)
     return sent
 
 

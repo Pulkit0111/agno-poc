@@ -141,22 +141,44 @@ def test_mark_reminded_no_longer_due(astore):
 
 
 # ---------------------------------------------------------------------------
-# has_item_with_text: dedup helper for idempotent auto-capture (e.g. DSM blockers)
+# claim_due_reminders: atomic select+flip (multi-replica-safe claim) + resnooze undo
 # ---------------------------------------------------------------------------
 
-def test_has_item_with_text_true_after_add(astore):
-    store.add_item("alice", "Follow up on your blocker: infra", 1000.0, source="dsm")
-    assert store.has_item_with_text("alice", "Follow up on your blocker: infra", "dsm") is True
+def test_claim_due_reminders_returns_and_flips_due_items(astore):
+    iid = store.add_item("alice", "task", 1000.0)
+    store.snooze_item("alice", iid, 500.0, 1001.0)
+    claimed = store.claim_due_reminders(1100.0)
+    assert [it["id"] for it in claimed] == [iid]
+    items = store.list_items("alice")
+    assert items[0]["status"] == "open"
+    assert items[0]["remind_at"] is None
 
 
-def test_has_item_with_text_false_for_other_user(astore):
-    store.add_item("alice", "Follow up on your blocker: infra", 1000.0, source="dsm")
-    assert store.has_item_with_text("bob", "Follow up on your blocker: infra", "dsm") is False
+def test_claim_due_reminders_second_claim_is_empty(astore):
+    iid = store.add_item("alice", "task", 1000.0)
+    store.snooze_item("alice", iid, 500.0, 1001.0)
+    assert len(store.claim_due_reminders(1100.0)) == 1
+    assert store.claim_due_reminders(1100.0) == []
 
 
-def test_has_item_with_text_false_for_other_source(astore):
-    store.add_item("alice", "Follow up on your blocker: infra", 1000.0, source="user")
-    assert store.has_item_with_text("alice", "Follow up on your blocker: infra", "dsm") is False
+def test_claim_due_reminders_excludes_future(astore):
+    iid = store.add_item("alice", "task", 1000.0)
+    store.snooze_item("alice", iid, 9999.0, 1001.0)
+    assert store.claim_due_reminders(1100.0) == []
+    # untouched — still snoozed for its future remind_at
+    assert store.list_items("alice")[0]["status"] == "snoozed"
+
+
+def test_resnooze_item_restores_snooze(astore):
+    iid = store.add_item("alice", "task", 1000.0)
+    store.snooze_item("alice", iid, 500.0, 1001.0)
+    store.claim_due_reminders(1100.0)
+    store.resnooze_item(iid, 1400.0)
+    items = store.list_items("alice")
+    assert items[0]["status"] == "snoozed"
+    assert items[0]["remind_at"] == 1400.0
+    # ...and it becomes claimable again once that new remind_at passes
+    assert [it["id"] for it in store.claim_due_reminders(1500.0)] == [iid]
 
 
 # ---------------------------------------------------------------------------
