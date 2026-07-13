@@ -224,13 +224,133 @@ _PROBES: dict[str, Callable[[Optional[str]], dict]] = {
 def probe(name: str, subject_email: Optional[str] = None) -> dict:
     """Run one connector's live health check. Raises ``KeyError`` for an unknown name
     (the console router 404s on that); every known probe always returns a
-    ``{"ok": bool, "message": str}`` dict, even when the round-trip itself blows up."""
+    ``{"ok": bool, "message": str}`` dict, even when the round-trip itself blows up.
+
+    Names not in the static ``_PROBES`` table are looked up in the console's credential
+    store (``connector_credentials`` — see ``_stored_kind``/``_stored_probe`` below):
+    connectors added from the console (a second Sentry org, a custom HTTP API, the GitHub
+    App) aren't wired into a fixed name here, so this re-derives which validation probe to
+    re-run from the name's own convention (``github-app`` / ``sentry-<org>`` /
+    ``http-<slug>``) and re-probes with the STORED credentials."""
     key = (name or "").strip().lower()
-    if key not in _PROBES:
-        raise KeyError(name)
+    if key in _PROBES:
+        try:
+            result = _PROBES[key](subject_email)
+            return {"ok": bool(result.get("ok")), "message": str(result.get("message") or "")}
+        except Exception as e:  # noqa: BLE001 — a probe must NEVER raise past this point
+            log.warning("connector probe %r failed: %s", key, redact(str(e)))
+            return {"ok": False, "message": f"Couldn't reach {key} ({_plain_message(e)})."}
+
+    stored = _stored_probe(key)
+    if stored is not None:
+        return stored
+    raise KeyError(name)
+
+
+# ── Store-backed connectors (added from the console — no static name here) ───────────
+
+def _github_app_candidate(fields: dict) -> dict:
+    """Probe CANDIDATE (or stored) GitHub App credentials directly — mints an App JWT
+    with the given key and hits GET /app (validates the app identity itself; no
+    installation needed). Reused by both the add-connector validation gate (candidate,
+    unsaved fields) and re-testing an already-stored GitHub App from the console."""
+    from bott.agents.code_review.github import app_auth
+
+    app_id = str(fields.get("app_id") or "")
+    private_key = str(fields.get("private_key") or "")
+    token = app_auth._app_jwt(app_id, private_key)
+    import httpx
+
+    r = httpx.get(f"{app_auth.API}/app", headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "bott-poc-review",
+    }, timeout=_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    return {"ok": True, "message": f"Connected to GitHub App '{data.get('name') or app_id}'."}
+
+
+def _sentry_org_candidate(fields: dict) -> dict:
+    """Probe CANDIDATE (or stored) Sentry org credentials — same client the primary
+    org's probe uses, constructed with explicit (not env-sourced) args."""
+    from bott.shared.integrations.sentry import SentryClient
+
+    org = str(fields.get("org") or "")
+    client = SentryClient(
+        base_url=str(fields.get("base_url") or "https://sentry.io"),
+        org_slug=org,
+        api_token=str(fields.get("auth_token") or ""),
+        timeout=int(_TIMEOUT),
+    )
+    client.list_issues(limit=1)
+    return {"ok": True, "message": f"Reached Sentry org '{org}'."}
+
+
+def _http_api_candidate(fields: dict) -> dict:
+    """Probe a custom read-only HTTP API: GET base_url with the optional header, treat
+    anything under 500 as reachable (many APIs 401/403/404 on an unauthenticated/wrong-
+    path GET but are still clearly UP — 5xx is the "this thing is actually broken" signal)."""
+    import httpx
+
+    base_url = str(fields.get("base_url") or "")
+    headers = {}
+    if fields.get("header_name"):
+        headers[str(fields["header_name"])] = str(fields.get("header_value") or "")
+    r = httpx.get(base_url, headers=headers, timeout=_TIMEOUT)
+    if r.status_code >= 500:
+        raise RuntimeError(f"server error (HTTP {r.status_code})")
+    return {"ok": True, "message": f"Reached {base_url} (HTTP {r.status_code})."}
+
+
+_CANDIDATE_PROBES: dict[str, Callable[[dict], dict]] = {
+    "github_app": _github_app_candidate,
+    "sentry_org": _sentry_org_candidate,
+    "http_api": _http_api_candidate,
+}
+
+
+def probe_candidate(kind: str, fields: dict) -> dict:
+    """Probe a CANDIDATE connector's credentials directly from caller-supplied fields,
+    before anything is stored — the add-connector flow's "test before you trust it" gate.
+    ``kind`` is one of ``"github_app"``/``"sentry_org"``/``"http_api"``. Raises ``KeyError``
+    for an unknown kind; otherwise never raises — same ``{"ok", "message"}`` contract as
+    ``probe()``, and the same redaction on exception-derived messages."""
+    fn = _CANDIDATE_PROBES.get(kind)
+    if fn is None:
+        raise KeyError(kind)
     try:
-        result = _PROBES[key](subject_email)
+        result = fn(fields)
         return {"ok": bool(result.get("ok")), "message": str(result.get("message") or "")}
-    except Exception as e:  # noqa: BLE001 — a probe must NEVER raise past this point
-        log.warning("connector probe %r failed: %s", key, redact(str(e)))
-        return {"ok": False, "message": f"Couldn't reach {key} ({_plain_message(e)})."}
+    except Exception as e:  # noqa: BLE001 — never raise past this point
+        log.warning("candidate probe %r failed: %s", kind, redact(str(e)))
+        return {"ok": False, "message": _plain_message(e)}
+
+
+def _stored_kind(key: str) -> Optional[str]:
+    """Which candidate-probe kind a store-backed connector NAME implies, from the naming
+    convention the console router's add-flow itself assigns (see router.py). ``None`` for
+    a name that doesn't match any known store-backed convention."""
+    if key == "github-app":
+        return "github_app"
+    if key.startswith("sentry-"):
+        return "sentry_org"
+    if key.startswith("http-"):
+        return "http_api"
+    return None
+
+
+def _stored_probe(key: str) -> Optional[dict]:
+    """Re-run the add-time validation probe for an already-STORED, console-added
+    connector. Returns ``None`` (not a probe failure) when ``key`` isn't a recognized
+    store-backed name or nothing's stored under it — the caller (``probe()``) treats that
+    as "truly unknown connector", not "unreachable"."""
+    kind = _stored_kind(key)
+    if kind is None:
+        return None
+    from bott.shared import connector_credentials
+    creds = connector_credentials.load(key)
+    if creds is None:
+        return None
+    return probe_candidate(kind, creds)

@@ -199,20 +199,54 @@ def github_token() -> str | None:
 
 
 # --- Phase 3: GitHub App + webhook ---------------------------------------------
+def _github_app_env_credentials() -> dict | None:
+    """The GITHUB_APP_* env vars, as a bundle (installation_id is env-less: the env-based
+    flow discovers the installation per-repo via the GitHub API instead of pinning one)."""
+    app_id = os.getenv("GITHUB_APP_ID")
+    pem = os.getenv("GITHUB_APP_PRIVATE_KEY")
+    if pem:
+        pem = pem.replace("\\n", "\n")
+    else:
+        path = os.getenv("GITHUB_APP_PRIVATE_KEY_PATH")
+        if path and os.path.exists(path):
+            with open(path) as f:
+                pem = f.read()
+    if app_id and pem:
+        return {"app_id": app_id, "installation_id": None, "private_key": pem}
+    return None
+
+
+def github_app_credentials() -> dict | None:
+    """GitHub App credentials as ``{app_id, installation_id, private_key}``: the console's
+    encrypted credential store FIRST (added via POST /connectors/add, key ``'github-app'``),
+    falling back to the ``GITHUB_APP_ID`` / ``GITHUB_APP_PRIVATE_KEY[_PATH]`` env vars.
+
+    This is the single source of truth ``github_app_id()`` / ``github_app_private_key()``
+    (and therefore ``github_app_configured()``) resolve through below — and it's what
+    ``app_auth.py``'s JWT/installation-token minting reads (via those two functions), on
+    EVERY call, with no caching of the credentials themselves. So adding or removing a
+    GitHub App from the console takes effect on the very next request — no restart.
+    (``app_auth.py`` does cache MINTED installation tokens per owner/repo for ~55 minutes;
+    a credential change doesn't invalidate an already-minted, still-fresh token early — it
+    governs the next mint, which is a bounded, acceptable staleness window, not a "restart
+    required" one.)"""
+    from bott.shared import connector_credentials
+    stored = connector_credentials.load("github-app")
+    if stored:
+        return stored
+    return _github_app_env_credentials()
+
+
 def github_app_id() -> str | None:
-    return os.getenv("GITHUB_APP_ID")
+    creds = github_app_credentials()
+    return creds.get("app_id") if creds else None
 
 
 def github_app_private_key() -> str | None:
-    """PEM contents, or read from GITHUB_APP_PRIVATE_KEY_PATH."""
-    pem = os.getenv("GITHUB_APP_PRIVATE_KEY")
-    if pem:
-        return pem.replace("\\n", "\n")
-    path = os.getenv("GITHUB_APP_PRIVATE_KEY_PATH")
-    if path and os.path.exists(path):
-        with open(path) as f:
-            return f.read()
-    return None
+    """PEM contents — store first, else GITHUB_APP_PRIVATE_KEY / _PATH. See
+    ``github_app_credentials()`` for the live-without-restart contract."""
+    creds = github_app_credentials()
+    return creds.get("private_key") if creds else None
 
 
 def github_webhook_secret() -> str | None:
@@ -367,6 +401,28 @@ def sentry_api_token() -> str | None:
 
 def sentry_configured() -> bool:
     return bool(sentry_org_slug() and sentry_api_token())
+
+
+def sentry_org_credentials(name: str) -> dict | None:
+    """Credentials for an ADDITIONAL Sentry org added from the console (key
+    ``'sentry-<name>'`` in the credential store), as ``{org, auth_token, base_url}``.
+    Store-only — no env fallback: the ONE default org already has its own env-based path
+    above (``sentry_org_slug()`` / ``sentry_api_token()`` / ``sentry_base_url()``),
+    untouched by this. Read fresh on every call, so a console add/remove is live
+    immediately for anything that calls this per-request (the console's probe/test button).
+
+    IMPORTANT caveat this does NOT solve: the Sentry read tools/skill registered onto the
+    agent are wired ONCE, at agent-build time, from the single env-configured org above —
+    adding a second org's credentials here does not register a second set of Sentry tools.
+    That's future work (per-org tool wiring), same restart/rebuild caveat as retiring a
+    skill. Today, storing a second org's credentials here only makes them
+    probeable/testable from the console — nothing in the agent's tool list points at them
+    yet."""
+    from bott.shared import connector_credentials
+    key = (name or "").strip().lower()
+    if not key:
+        return None
+    return connector_credentials.load(f"sentry-{key}")
 
 
 def google_service_account_path() -> str | None:

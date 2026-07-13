@@ -248,6 +248,60 @@ def _role_error_status(slug: str) -> int:
     return {"locked": 403, "last_admin": 409}.get(slug, 422)
 
 
+class ConnectorAddBody(BaseModel):
+    type: str
+    fields: dict = {}
+
+
+_GITHUB_APP_NAME = "github-app"
+
+
+def _slugify(raw: str) -> str:
+    """Lowercase, hyphenated slug from free text (org/name fields double as the
+    connector's stored-name suffix)."""
+    return re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower()).strip("-")
+
+
+def _validate_connector_fields(kind: str, fields: dict) -> tuple[str, dict]:
+    """Per-type validation for POST /connectors/add. Returns ``(stored-name, candidate
+    payload)`` on success, or raises ``ValueError`` with a plain, user-facing message the
+    router turns into a 422 (the SAME message the drawer shows inline)."""
+    fields = fields or {}
+    if kind == "github_app":
+        app_id = str(fields.get("app_id") or "").strip()
+        private_key = str(fields.get("private_key") or "").strip()
+        installation_id = str(fields.get("installation_id") or "").strip() or None
+        if not app_id:
+            raise ValueError("App ID is required.")
+        if not private_key:
+            raise ValueError("Private key is required.")
+        return _GITHUB_APP_NAME, {
+            "app_id": app_id, "installation_id": installation_id, "private_key": private_key,
+        }
+    if kind == "sentry_org":
+        org = _slugify(str(fields.get("org") or ""))
+        auth_token = str(fields.get("auth_token") or "").strip()
+        base_url = str(fields.get("base_url") or "").strip() or "https://sentry.io"
+        if not org:
+            raise ValueError("Org slug is required.")
+        if not auth_token:
+            raise ValueError("Auth token is required.")
+        return f"sentry-{org}", {"org": org, "auth_token": auth_token, "base_url": base_url}
+    if kind == "http_api":
+        slug = _slugify(str(fields.get("name") or ""))
+        base_url = str(fields.get("base_url") or "").strip()
+        header_name = str(fields.get("header_name") or "").strip() or None
+        header_value = str(fields.get("header_value") or "").strip() or None
+        if not slug:
+            raise ValueError("Name/slug is required.")
+        if not (base_url.startswith("http://") or base_url.startswith("https://")):
+            raise ValueError("Base URL must start with http:// or https://.")
+        return f"http-{slug}", {
+            "base_url": base_url, "header_name": header_name, "header_value": header_value,
+        }
+    raise ValueError(f"Unknown connector type: {kind!r}")
+
+
 def build_console_router(db) -> APIRouter:
     # csrf_guard runs on EVERY console route (it no-ops on safe methods) so no future
     # mutating endpoint can be added without CSRF protection.
@@ -729,7 +783,16 @@ def build_console_router(db) -> APIRouter:
     def list_connectors_route(request: Request) -> dict:
         current_user(request)
         from bott.interfaces.slack_home.connectors_panel import connector_statuses
-        return {"connectors": connector_statuses()}
+        from bott.shared import connector_credentials
+        statuses = connector_statuses()
+        # Connectors added from the console (encrypted store) never echo secrets back —
+        # just the bare fact that one's configured, same as every other card here.
+        statuses.extend({
+            "name": name, "ok": True,
+            "on": "Added from the console", "off": "",
+            "fix": [],
+        } for name in connector_credentials.configured_names())
+        return {"connectors": statuses}
 
     @r.post("/api/console/v1/connectors/{name}/test")
     def test_connector_route(request: Request, name: str) -> dict:
@@ -740,6 +803,44 @@ def build_console_router(db) -> APIRouter:
             return probes.probe(name, user.get("email"))
         except KeyError:
             raise _err(404, "unknown_connector", f"No connector named '{name}'.")
+
+    @r.post("/api/console/v1/connectors/add")
+    def add_connector_route(request: Request, body: ConnectorAddBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared import connector_credentials
+        from bott.skills.connectors import probes
+
+        kind = (body.type or "").strip().lower()
+        try:
+            name, candidate = _validate_connector_fields(kind, body.fields)
+        except ValueError as e:
+            raise _err(422, "invalid_fields", str(e))
+
+        # Probe BEFORE storing — a rejected candidate must never land in the store.
+        result = probes.probe_candidate(kind, candidate)
+        if not result.get("ok"):
+            raise _err(422, "probe_failed", result.get("message") or "Couldn't verify these credentials.")
+
+        connector_credentials.store(name, candidate)
+        log.info("console: %s added connector %r (%s)", user["email"], name, kind)
+        return {"ok": True, "name": name}
+
+    @r.delete("/api/console/v1/connectors/{name}")
+    def remove_connector_route(request: Request, name: str) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared import connector_credentials
+        key = (name or "").strip().lower()
+        # Only store-backed names (added via the endpoint above) are removable here.
+        # Codex's org login lives under a DIFFERENT sentinel user_id ('codex-org', not
+        # 'connector-config') — configured_names() can never see it, so 'codex-org'/'codex'
+        # 404 here exactly like any other unknown name, never a deletion.
+        if key not in connector_credentials.configured_names():
+            raise _err(404, "unknown_connector", f"No added connector named '{name}'.")
+        connector_credentials.remove(key)
+        log.info("console: %s removed connector %r", user["email"], key)
+        return {"ok": True}
 
     @r.get("/api/console/v1/models")
     def get_models(request: Request) -> dict:

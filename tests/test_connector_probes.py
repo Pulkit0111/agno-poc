@@ -344,6 +344,171 @@ def test_google_missing_subject_email(monkeypatch):
     assert "No signed-in email" in out["message"]
 
 
+# ── Candidate probes (add-connector flow) — GitHub App / second Sentry org / HTTP API ──
+
+class _FakeResp:
+    def __init__(self, status_code=200, json_body=None):
+        self.status_code = status_code
+        self._json = json_body or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._json
+
+
+def test_probe_candidate_unknown_kind_raises_key_error():
+    with pytest.raises(KeyError):
+        probes.probe_candidate("not-a-kind", {})
+
+
+def test_github_app_candidate_success(monkeypatch):
+    import httpx
+
+    from bott.agents.code_review.github import app_auth
+
+    monkeypatch.setattr(app_auth, "_app_jwt", lambda app_id, pem: "jwt-token")
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=None: _FakeResp(200, {"name": "Bott Reviewer"}))
+    out = probes.probe_candidate("github_app", {"app_id": "1", "private_key": "PEM"})
+    assert out == {"ok": True, "message": "Connected to GitHub App 'Bott Reviewer'."}
+
+
+def test_github_app_candidate_bad_key_fails(monkeypatch):
+    from bott.agents.code_review.github import app_auth
+
+    def boom(app_id, pem):
+        raise ValueError("Could not deserialize key data")
+
+    monkeypatch.setattr(app_auth, "_app_jwt", boom)
+    out = probes.probe_candidate("github_app", {"app_id": "1", "private_key": "not-a-pem"})
+    assert out["ok"] is False
+    assert "Could not deserialize key data" in out["message"]
+
+
+def test_github_app_candidate_http_failure(monkeypatch):
+    import httpx
+
+    from bott.agents.code_review.github import app_auth
+
+    monkeypatch.setattr(app_auth, "_app_jwt", lambda app_id, pem: "jwt-token")
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=None: _FakeResp(401))
+    out = probes.probe_candidate("github_app", {"app_id": "1", "private_key": "PEM"})
+    assert out["ok"] is False
+    assert "401" in out["message"]
+
+
+def test_sentry_org_candidate_success(monkeypatch):
+    from bott.shared.integrations.sentry import SentryClient
+
+    monkeypatch.setattr(SentryClient, "list_issues", lambda self, query="is:unresolved", limit=20: [])
+    out = probes.probe_candidate("sentry_org", {"org": "secondorg", "auth_token": "tok", "base_url": "https://sentry.io"})
+    assert out == {"ok": True, "message": "Reached Sentry org 'secondorg'."}
+
+
+def test_sentry_org_candidate_failure(monkeypatch):
+    from bott.shared.integrations.sentry import SentryClient
+
+    def boom(self, query="is:unresolved", limit=20):
+        raise RuntimeError("401 unauthorized")
+
+    monkeypatch.setattr(SentryClient, "list_issues", boom)
+    out = probes.probe_candidate("sentry_org", {"org": "secondorg", "auth_token": "bad", "base_url": "https://sentry.io"})
+    assert out["ok"] is False
+    assert "401 unauthorized" in out["message"]
+
+
+def test_http_api_candidate_success(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=None: _FakeResp(404))
+    out = probes.probe_candidate("http_api", {"base_url": "https://api.example.com/health"})
+    assert out == {"ok": True, "message": "Reached https://api.example.com/health (HTTP 404)."}
+
+
+def test_http_api_candidate_server_error_fails(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=None: _FakeResp(503))
+    out = probes.probe_candidate("http_api", {"base_url": "https://api.example.com/health"})
+    assert out["ok"] is False
+    assert "503" in out["message"]
+
+
+def test_http_api_candidate_passes_header(monkeypatch):
+    import httpx
+
+    seen = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        seen["headers"] = headers
+        return _FakeResp(200)
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    probes.probe_candidate("http_api", {
+        "base_url": "https://api.example.com", "header_name": "X-Api-Key", "header_value": "secret",
+    })
+    assert seen["headers"] == {"X-Api-Key": "secret"}
+
+
+# ── Stored (console-added) connectors re-probed by name ───────────────────────────────
+
+def test_probe_of_unknown_name_still_raises_key_error(monkeypatch):
+    from bott.shared import connector_credentials
+
+    monkeypatch.setattr(connector_credentials, "load", lambda name: None)
+    with pytest.raises(KeyError):
+        probes.probe("not-a-real-connector")
+
+
+def test_probe_stored_github_app(monkeypatch):
+    import httpx
+
+    from bott.agents.code_review.github import app_auth
+    from bott.shared import connector_credentials
+
+    monkeypatch.setattr(connector_credentials, "load",
+                        lambda name: {"app_id": "1", "installation_id": None, "private_key": "PEM"} if name == "github-app" else None)
+    monkeypatch.setattr(app_auth, "_app_jwt", lambda app_id, pem: "jwt-token")
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=None: _FakeResp(200, {"name": "Bott"}))
+    out = probes.probe("github-app")
+    assert out == {"ok": True, "message": "Connected to GitHub App 'Bott'."}
+
+
+def test_probe_stored_sentry_org(monkeypatch):
+    from bott.shared import connector_credentials
+    from bott.shared.integrations.sentry import SentryClient
+
+    monkeypatch.setattr(connector_credentials, "load",
+                        lambda name: {"org": "secondorg", "auth_token": "t", "base_url": "https://sentry.io"} if name == "sentry-secondorg" else None)
+    monkeypatch.setattr(SentryClient, "list_issues", lambda self, query="is:unresolved", limit=20: [])
+    out = probes.probe("sentry-secondorg")
+    assert out == {"ok": True, "message": "Reached Sentry org 'secondorg'."}
+
+
+def test_probe_stored_http_api(monkeypatch):
+    import httpx
+
+    from bott.shared import connector_credentials
+
+    monkeypatch.setattr(connector_credentials, "load",
+                        lambda name: {"base_url": "https://api.example.com"} if name == "http-myapi" else None)
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=None: _FakeResp(200))
+    out = probes.probe("http-myapi")
+    assert out["ok"] is True
+
+
+def test_probe_stored_name_recognized_but_nothing_stored_raises_key_error(monkeypatch):
+    """'sentry-ghost' matches the naming convention but was removed/never stored — still
+    a genuine 'unknown connector' from the caller's perspective, not a probe failure."""
+    from bott.shared import connector_credentials
+
+    monkeypatch.setattr(connector_credentials, "load", lambda name: None)
+    with pytest.raises(KeyError):
+        probes.probe("sentry-ghost")
+
+
 # ── Secret redaction — probe messages surface in the console drawer ──────────────────
 
 _FAKE_SLACK_TOKEN = "xoxb-1234567890-abcdefABCDEF"
