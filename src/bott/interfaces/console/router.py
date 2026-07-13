@@ -787,11 +787,15 @@ def build_console_router(db) -> APIRouter:
         statuses = connector_statuses()
         # Connectors added from the console (encrypted store) never echo secrets back —
         # just the bare fact that one's configured, same as every other card here.
+        # 'github-app' is EXCLUDED from the appended cards: the static "GitHub" card
+        # already represents it (github_app_configured() resolves through the store
+        # overlay, so a console-added App flips that card to Connected) — appending a
+        # second card would show GitHub twice. DELETE still works via the store name.
         statuses.extend({
             "name": name, "ok": True,
             "on": "Added from the console", "off": "",
             "fix": [],
-        } for name in connector_credentials.configured_names())
+        } for name in connector_credentials.configured_names() if name != _GITHUB_APP_NAME)
         return {"connectors": statuses}
 
     @r.post("/api/console/v1/connectors/{name}/test")

@@ -230,6 +230,44 @@ def test_stored_connector_is_testable_via_test_endpoint(client, monkeypatch):
     assert r.json() == {"ok": True, "message": "reached https://acme.example.com"}
 
 
+def test_metadata_range_base_url_is_422_and_stores_nothing(client, monkeypatch):
+    """SSRF tripwire: the link-local/metadata range is refused BEFORE any network
+    round-trip (guard in probes._reject_metadata_host), and nothing lands in the store."""
+    import httpx
+
+    def get_must_not_be_called(url, headers=None, timeout=None):
+        raise AssertionError("no network GET may happen for a refused host")
+
+    monkeypatch.setattr(httpx, "get", get_must_not_be_called)
+    _as(client)
+    r = client.post("/api/console/v1/connectors/add", json={
+        "type": "http_api", "fields": {"name": "meta", "base_url": "http://169.254.169.254/latest/"},
+    })
+    assert r.status_code == 422
+    assert "aren't allowed" in r.json()["detail"]["error"]["message"]
+    assert connector_credentials.configured_names() == []
+
+
+def test_added_github_app_does_not_duplicate_the_static_github_card(client, monkeypatch):
+    """A console-added GitHub App flips the STATIC 'GitHub' card to Connected (the config
+    overlay) — the store-backed 'github-app' entry must NOT also be appended as a second
+    card. Exactly one GitHub card in the list; DELETE still works via the store name."""
+    _ok_probe(monkeypatch)
+    _as(client)
+    r = client.post("/api/console/v1/connectors/add", json={
+        "type": "github_app", "fields": {"app_id": "1", "private_key": "PEM"},
+    })
+    assert r.status_code == 200
+    cards = client.get("/api/console/v1/connectors").json()["connectors"]
+    github_cards = [c for c in cards if c["name"].lower() in ("github", "github-app")]
+    assert len(github_cards) == 1
+    assert github_cards[0]["name"] == "GitHub"
+    assert github_cards[0]["ok"] is True  # the overlay flipped the static card
+    # Removal still works through the store name even though no store card is shown.
+    assert client.delete("/api/console/v1/connectors/github-app").status_code == 200
+    assert connector_credentials.configured_names() == []
+
+
 # ── DELETE ────────────────────────────────────────────────────────────────────────────
 
 def test_delete_store_backed_connector_ok(client, monkeypatch):

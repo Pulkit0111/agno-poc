@@ -452,6 +452,53 @@ def test_http_api_candidate_passes_header(monkeypatch):
     assert seen["headers"] == {"X-Api-Key": "secret"}
 
 
+# ── SSRF tripwire — the link-local/metadata range is never probed ────────────────────
+
+def _get_must_not_be_called(url, headers=None, timeout=None):
+    raise AssertionError("network GET must not happen for a refused host")
+
+
+@pytest.mark.parametrize("base_url", [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://169.254.1.1/",
+    "http://metadata.google.internal/computeMetadata/v1/",
+    "http://metadata.goog/",
+    "http://[fe80::1]/",
+])
+def test_http_api_candidate_refuses_metadata_hosts_without_probing(monkeypatch, base_url):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", _get_must_not_be_called)
+    out = probes.probe_candidate("http_api", {"base_url": base_url})
+    assert out["ok"] is False
+    assert "not allowed" in out["message"] or "aren't allowed" in out["message"]
+
+
+def test_sentry_org_candidate_refuses_metadata_base_url_without_probing(monkeypatch):
+    from bott.shared.integrations.sentry import SentryClient
+
+    def boom(self, query="is:unresolved", limit=20):
+        raise AssertionError("network call must not happen for a refused host")
+
+    monkeypatch.setattr(SentryClient, "list_issues", boom)
+    out = probes.probe_candidate("sentry_org", {
+        "org": "acme", "auth_token": "t", "base_url": "http://169.254.169.254/",
+    })
+    assert out["ok"] is False
+    assert "aren't allowed" in out["message"]
+
+
+def test_http_api_candidate_allows_private_range_hosts(monkeypatch):
+    """RFC-1918 is deliberately ALLOWED — internal APIs are a legitimate target for the
+    custom-HTTP connector (see the SSRF note in probes.py); only link-local/metadata is
+    refused."""
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=None: _FakeResp(200))
+    out = probes.probe_candidate("http_api", {"base_url": "http://10.0.0.5/health"})
+    assert out["ok"] is True
+
+
 # ── Stored (console-added) connectors re-probed by name ───────────────────────────────
 
 def test_probe_of_unknown_name_still_raises_key_error(monkeypatch):

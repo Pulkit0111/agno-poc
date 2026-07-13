@@ -248,6 +248,40 @@ def probe(name: str, subject_email: Optional[str] = None) -> dict:
 
 
 # ── Store-backed connectors (added from the console — no static name here) ───────────
+#
+# SSRF — a documented, accepted risk. _sentry_org_candidate and _http_api_candidate GET an
+# ADMIN-supplied base_url from the server, which makes the probe a reachability oracle
+# into the server's network. Accepted because (a) the add flow is strictly admin-gated —
+# only the operators already trusted to run Bott's deployment (and its env/secrets) can
+# point it anywhere, and (b) probing internal APIs on private ranges is a LEGITIMATE,
+# intended use of the custom-HTTP-API connector, so a blanket RFC-1918 block would break
+# the feature for its primary audience. The one hard line drawn (_reject_metadata_host):
+# the link-local/metadata range — no connector has any business there, and the cloud
+# metadata service is the single highest-value SSRF target (instance credentials).
+
+_METADATA_HOSTNAMES = {"metadata.google.internal", "metadata.goog"}
+
+
+def _reject_metadata_host(base_url: str) -> None:
+    """Refuse URLs whose host is the link-local/metadata range (169.254.0.0/16, IPv6
+    fe80::/10) or a well-known metadata hostname. A plain pre-check on the URL's own
+    host literal — deliberately NO DNS resolution (a resolving guard can be TOCTOU'd
+    anyway; this is a tripwire for the obvious case, not a full egress policy — see the
+    SSRF note above). Raises ValueError with a user-facing message; runs BEFORE any
+    network round-trip, so a refused URL is never probed."""
+    from ipaddress import ip_address
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(base_url).hostname or "").lower()
+    if host in _METADATA_HOSTNAMES:
+        raise ValueError("That host is the cloud metadata service — not allowed.")
+    try:
+        addr = ip_address(host)
+    except ValueError:
+        return  # a hostname, not an IP literal — allowed (no DNS resolution by design)
+    if addr.is_link_local:
+        raise ValueError("Link-local addresses (169.254.0.0/16) aren't allowed.")
+
 
 def _github_app_candidate(fields: dict) -> dict:
     """Probe CANDIDATE (or stored) GitHub App credentials directly — mints an App JWT
@@ -278,6 +312,7 @@ def _sentry_org_candidate(fields: dict) -> dict:
     from bott.shared.integrations.sentry import SentryClient
 
     org = str(fields.get("org") or "")
+    _reject_metadata_host(str(fields.get("base_url") or "https://sentry.io"))
     client = SentryClient(
         base_url=str(fields.get("base_url") or "https://sentry.io"),
         org_slug=org,
@@ -295,6 +330,7 @@ def _http_api_candidate(fields: dict) -> dict:
     import httpx
 
     base_url = str(fields.get("base_url") or "")
+    _reject_metadata_host(base_url)
     headers = {}
     if fields.get("header_name"):
         headers[str(fields["header_name"])] = str(fields.get("header_value") or "")
