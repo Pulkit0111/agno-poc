@@ -184,6 +184,24 @@ class PinBody(BaseModel):
     pinned: bool
 
 
+class SkillSaveBody(BaseModel):
+    content: str
+    note: str = ""
+
+
+class SkillDraftBody(BaseModel):
+    what: str
+    when: str
+    feedback: str = ""
+
+
+class SkillCreateBody(BaseModel):
+    slug: str
+    name: str
+    description: str
+    content: str
+
+
 class ReportRunBody(BaseModel):
     kind: str
     engagement: str | None = None
@@ -535,7 +553,75 @@ def build_console_router(db) -> APIRouter:
         row["built_in"] = db_row is None
         row["pinned"] = bool(db_row["pinned"]) if db_row else False
         row["authored_by"] = db_row["authored_by"] if db_row else None
+        if db_row:
+            row["content"] = db_row["content"]
+            row["versions"] = skills_store.versions(slug)
+        else:
+            # Built-in: no DB row, so read the actual SKILL.md text straight off disk —
+            # skill.source_path is the folder the loader already read it from, so this
+            # works whether bott_skills_dir() is the real repo library or a test tmp_path.
+            skill_md_path = os.path.join(row["source_path"], "SKILL.md")
+            with open(skill_md_path, encoding="utf-8") as fh:
+                row["content"] = fh.read()
+            row["versions"] = []
         return row
+
+    @r.put("/api/console/v1/skills/{slug}")
+    def save_skill_route(request: Request, slug: str, body: SkillSaveBody) -> dict:
+        user = current_user(request)
+        from bott.shared.persistence import skills_store
+        sk = _skills()
+        db_row = skills_store.get_skill(slug)
+        if db_row is None:
+            if slug in sk.get_skill_names():
+                raise _err(409, "built_in", "Built-in skills can't be edited.")
+            raise _err(404, "not_found", "That skill doesn't exist.")
+        if not user["is_admin"] and (db_row.get("authored_by") or "").lower() != user["email"].lower():
+            raise _err(403, "not_owner", "Only this skill's author or an admin can edit it.")
+        skills_store.update_content(slug, body.content, user["email"], body.note)
+        # NOTE: same known limitation as retire_skill_route below — this `sk` Skills
+        # instance is per-request and discarded right after, so there's no live instance
+        # here to reload(). The shared chat agent's own long-lived Skills instance won't
+        # pick up this edit until its own reload (or process restart).
+        vs = skills_store.versions(slug)
+        return {"ok": True, "version": vs[0]["id"]}
+
+    @r.post("/api/console/v1/skills/draft")
+    def draft_skill_route(request: Request, body: SkillDraftBody) -> dict:
+        current_user(request)
+        from bott.skills.skill_draft import draft_skill
+        try:
+            return draft_skill(body.what, body.when, body.feedback)
+        except ValueError as e:
+            raise _err(502, "draft_failed", str(e))
+        except Exception as e:  # noqa: BLE001 — any model/transport failure surfaces the
+                                 # same way as a bad-JSON draft: a plain 502, not a 500.
+            log.warning("skill draft failed: %s", e)
+            raise _err(502, "draft_failed", "Couldn't draft a skill right now — try again.")
+
+    @r.post("/api/console/v1/skills")
+    def create_skill_route(request: Request, body: SkillCreateBody) -> dict:
+        user = current_user(request)
+        from bott.shared.persistence import skills_store
+        from bott.skills import skill_authoring
+        slug = skill_authoring._slugify(body.slug)
+        if not slug:
+            raise _err(400, "bad_slug", "A skill needs a kebab-case name.")
+        if not body.description.strip() or not body.content.strip():
+            raise _err(400, "missing_field", "A skill needs a description and an instructions body.")
+        sk = _skills()
+        if skill_authoring._is_builtin(sk, slug):
+            raise _err(409, "built_in", f"'{slug}' is a built-in skill — pick another name.")
+        existing = skills_store.get_skill(slug)
+        if existing and not user["is_admin"] and (existing.get("authored_by") or "").lower() != user["email"].lower():
+            raise _err(409, "slug_taken", f"'{slug}' is already an authored skill by someone else.")
+        content = f"---\nname: {slug}\ndescription: {body.description.strip()}\n---\n\n{body.content.strip()}\n"
+        skills_store.upsert_skill(slug, body.name.strip() or slug, body.description.strip(),
+                                  content, user["email"], now=time.time())
+        # Append the creation itself as version 1 — upsert_skill doesn't write skill_versions
+        # rows, so edit history would otherwise start empty until the first PUT edit.
+        skills_store.update_content(slug, content, user["email"], "Created")
+        return {"slug": slug}
 
     @r.post("/api/console/v1/skills/{slug}/pin")
     def pin_skill_route(request: Request, slug: str, body: PinBody) -> dict:

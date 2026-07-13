@@ -176,6 +176,21 @@ PROMPT_VERSIONS = Table(
 Index("idx_prompt_versions_name", PROMPT_VERSIONS.c.prompt_name, PROMPT_VERSIONS.c.id)
 
 
+# Versioned skill store (skills_store.py owns the DML). Append-only history of authored
+# (non-built-in) skill content edits — mirrors PROMPT_VERSIONS' convention exactly.
+SKILL_VERSIONS = Table(
+    "skill_versions",
+    METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("slug", Text, nullable=False),
+    Column("content", Text, nullable=False),
+    Column("note", Text),
+    Column("author", Text, nullable=False),
+    Column("created", Float, nullable=False),
+)
+Index("idx_skill_versions_slug", SKILL_VERSIONS.c.slug, SKILL_VERSIONS.c.id)
+
+
 # Usage ledger for the shared org Codex account (codex_usage.py owns the DML). Not a
 # billing meter — the ChatGPT subscription has no per-token price — this is a health
 # signal: request/token volume over a rolling window, since the whole org shares one

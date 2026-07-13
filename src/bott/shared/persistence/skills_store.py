@@ -7,6 +7,7 @@ is the ``skills`` table; ``materialize_to_fs`` syncs it to the SKILL.md cache.
 from __future__ import annotations
 
 import os
+import time
 
 from sqlalchemy import text
 
@@ -90,6 +91,49 @@ def delete_skill(slug: str) -> bool:
             {"slug": slug},
         )
     return result.rowcount > 0
+
+
+def update_content(slug: str, content: str, author: str, note: str) -> bool:
+    """Edit an EXISTING authored skill's content: updates the ``skills`` row, appends an
+    append-only ``skill_versions`` row (mirrors prompts_store's save_version convention),
+    and re-materializes just this slug's SKILL.md. Returns False if *slug* has no row
+    (unknown or built-in — callers should have already refused built-ins earlier)."""
+    now = time.time()
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            text("UPDATE skills SET content = :content, updated = :now WHERE slug = :slug"),
+            {"content": content, "now": now, "slug": slug},
+        )
+        if result.rowcount == 0:
+            return False
+        conn.execute(
+            text(
+                "INSERT INTO skill_versions (slug, content, note, author, created) "
+                "VALUES (:slug, :content, :note, :author, :now)"
+            ),
+            {"slug": slug, "content": content, "note": note, "author": author, "now": now},
+        )
+    from bott.shared import config
+
+    skill_dir = os.path.join(config.bott_skills_dir(), slug)
+    os.makedirs(skill_dir, exist_ok=True)
+    with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as fh:
+        fh.write(content)
+    return True
+
+
+def versions(slug: str) -> list[dict]:
+    """Edit history for *slug*, newest first. Content is intentionally excluded — this is
+    the lightweight listing for a version picker, not a diff view."""
+    with get_engine().connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, slug, note, author, created FROM skill_versions "
+                "WHERE slug = :slug ORDER BY id DESC"
+            ),
+            {"slug": slug},
+        ).fetchall()
+    return [dict(row._mapping) for row in rows]
 
 
 def materialize_to_fs(skills_dir: str) -> int:
