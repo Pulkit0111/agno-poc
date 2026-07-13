@@ -25,7 +25,7 @@ describe("ApprovalRow", () => {
   it("fires decisions for admins", () => {
     const onDecide = vi.fn();
     render(<ApprovalRow approval={APPROVAL} onDecide={onDecide} />);
-    fireEvent.click(screen.getByText("Approve"));
+    fireEvent.click(screen.getByText("Approve & run"));
     expect(onDecide).toHaveBeenCalledWith(7, true);
     fireEvent.click(screen.getByText("Dismiss"));
     expect(onDecide).toHaveBeenCalledWith(7, false);
@@ -34,7 +34,7 @@ describe("ApprovalRow", () => {
   it("hides decision buttons for members", () => {
     mockIsAdmin = false;
     render(<ApprovalRow approval={APPROVAL} onDecide={() => {}} />);
-    expect(screen.queryByText("Approve")).toBeNull();
+    expect(screen.queryByText("Approve & run")).toBeNull();
     expect(screen.queryByText("Dismiss")).toBeNull();
     expect(screen.getByText(/Awaiting admin/i)).toBeDefined();
   });

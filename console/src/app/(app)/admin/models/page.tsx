@@ -4,7 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { LoadingState, ErrorState, NoAccessState } from "@/components/common/states";
 import { CodexConnect } from "@/components/system/codex-connect";
 import { isForbidden } from "@/lib/api";
-import { useModels, useSetModelOverride } from "@/lib/use-models";
+import { isAdminModels, useModels, useSetModelOverride } from "@/lib/use-models";
+import { useMe } from "@/lib/use-me";
 
 const ROLES = [
   { key: "chat", label: "Chat", hint: "answers, digests, agendas" },
@@ -13,8 +14,12 @@ const ROLES = [
 ] as const;
 
 export default function ModelsPage() {
-  const { data, isLoading, isError, error, refetch } = useModels();
+  const { data: me, isLoading: meLoading } = useMe();
+  const { data: raw, isLoading, isError, error, refetch } = useModels();
   const setOverride = useSetModelOverride();
+
+  if (meLoading) return <LoadingState rows={2} />;
+  if (!me?.is_admin) return <NoAccessState />;
 
   // Distinguish the three states so we never spin a skeleton forever:
   // a genuine load, a 403 for non-admins, and any other failure.
@@ -25,9 +30,12 @@ export default function ModelsPage() {
     if (isForbidden(error)) return <NoAccessState />;
     return <ErrorState onRetry={() => refetch()} message="Couldn't load models — try again." />;
   }
-  if (!data) {
+  // The backend always gives an admin caller the flat (non-`active`) shape;
+  // guard defensively rather than asserting the type past the union.
+  if (!raw || !isAdminModels(raw)) {
     return <ErrorState onRetry={() => refetch()} message="Couldn't load models — try again." />;
   }
+  const data = raw;
 
   const codex = data.providers.find((p) => p.name === "codex");
   const codexConnected = codex?.usable ?? false;

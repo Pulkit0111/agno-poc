@@ -3,20 +3,19 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 
-export type SystemStatus = {
-  model: { provider: string; chat: string; build: string; review: string };
-  database: { kind: string };
-  slack_configured: boolean;
-  github_configured: boolean;
-  connectors: Record<string, boolean>;
-  admins_count: number;
-  advisories: { name: string; message: string }[];
-};
+export type Advisory = { name: string; message: string };
 
-export function useSystemStatus() {
+/**
+ * Admin-only advisories list (unconfigured connectors, disconnected Codex, etc).
+ * Lives only on GET /v1/system — /v1/health doesn't carry it — so this hook
+ * points there and selects out just the advisories, leaving the rest of that
+ * richer payload unused for now.
+ */
+export function useAdvisories() {
   return useQuery({
-    queryKey: ["system"],
-    queryFn: () => api<SystemStatus>("/api/console/v1/system"),
+    queryKey: ["system-advisories"],
+    queryFn: () => api<{ advisories: Advisory[] }>("/api/console/v1/system"),
+    select: (d) => d.advisories,
   });
 }
 

@@ -4,16 +4,40 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError } from "./api";
 
-export type ProviderInfo = { name: string; usable: boolean; hint: string; models: string[] };
+export type ProviderInfo = { name: string; usable: boolean; hint: string | null; models: string[] };
 export type CodexUsage = {
   window_s: number; requests: number; output_tokens: number;
   top_users: { user_id: string; requests: number }[];
 };
-export type ModelsState = {
-  provider: string; chat: string; build: string; review: string;
-  conflict: boolean; swap_preview: string | null; providers: ProviderInfo[];
+
+/** The three model roles, wherever they land in the payload. */
+export type ActiveModels = { provider: string; chat: string; build: string; review: string };
+
+/** Admin payload: flat active-model fields plus conflict/usage detail. */
+export type AdminModelsState = ActiveModels & {
+  conflict: boolean;
+  swap_preview: string | null;
+  providers: ProviderInfo[];
   codex_usage: CodexUsage | null;
 };
+
+/** Member payload (Task 2): trimmed down to just what's active, nested under `active`. */
+export type MemberModelsState = {
+  active: ActiveModels;
+  providers: ProviderInfo[];
+};
+
+export type ModelsState = AdminModelsState | MemberModelsState;
+
+/** True for the admin shape (flat fields, no `active` wrapper). */
+export function isAdminModels(data: ModelsState): data is AdminModelsState {
+  return !("active" in data);
+}
+
+/** Unified read of the active chat/build/review models regardless of caller role. */
+export function getActiveModels(data: ModelsState): ActiveModels {
+  return isAdminModels(data) ? data : data.active;
+}
 
 export function useModels() {
   return useQuery({

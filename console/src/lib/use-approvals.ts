@@ -50,6 +50,12 @@ export function useDecide() {
         toast.success("Dismissed.");
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+      // An approved build/api job shows up immediately in the activity feed and
+      // job-count tiles — refresh those too instead of waiting on their own poll.
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["job-counts"] });
+    },
   });
 }

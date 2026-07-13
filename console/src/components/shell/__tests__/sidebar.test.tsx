@@ -12,12 +12,15 @@ describe("SidebarNav", () => {
   it("hides the admin group for members", () => {
     render(<SidebarNav isAdmin={false} />);
     expect(screen.queryByText("Administration")).toBeNull();
-    expect(screen.getByText("Approvals")).toBeDefined();
+    expect(screen.getByText("Home")).toBeDefined();
+    expect(screen.getByText("Activity")).toBeDefined();
+    expect(screen.queryByText("System")).toBeNull();
   });
 
   it("shows the admin group for admins", () => {
     render(<SidebarNav isAdmin={true} />);
     expect(screen.getByText("Administration")).toBeDefined();
+    expect(screen.getByText("System")).toBeDefined();
     expect(screen.getByText("Models")).toBeDefined();
   });
 });

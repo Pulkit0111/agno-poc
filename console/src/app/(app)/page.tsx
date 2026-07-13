@@ -2,39 +2,42 @@
 
 import Link from "next/link";
 import { ApprovalRow } from "@/components/approvals/approval-row";
-import { CodexStatusBanner } from "@/components/system/codex-status-banner";
+import { ModelCard } from "@/components/home/model-card";
 import { EmptyState, ErrorState, LoadingState } from "@/components/common/states";
+import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Time } from "@/lib/time";
 import { useApprovals, useDecide } from "@/lib/use-approvals";
 import { useApprovalCount } from "@/lib/use-approval-count";
 import { useJobCounts } from "@/lib/use-job-counts";
 import { useJobs } from "@/lib/use-jobs";
+import { useActionItems, useCompleteActionItem } from "@/lib/use-action-items";
+import { useSchedules } from "@/lib/use-schedules";
 import { useMe } from "@/lib/use-me";
 
-function Tile({ label, value, hint, href }: { label: string; value: number | string; hint: string; href: string }) {
-  return (
-    <Link href={href} className="rounded-xl border bg-card p-4 shadow-sm hover:border-foreground/20">
+function StatTile({
+  label, value, hint, onClick, href,
+}: { label: string; value: number | string; hint: string; onClick?: () => void; href?: string }) {
+  const inner = (
+    <>
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
       <div className="font-display mt-1 text-2xl tabular-nums tracking-tight">{value}</div>
       <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>
-    </Link>
+    </>
   );
+  const className = "block rounded-xl border bg-card p-4 text-left shadow-sm hover:border-foreground/20";
+  if (href) return <Link href={href} className={className}>{inner}</Link>;
+  return <button type="button" onClick={onClick} className={className}>{inner}</button>;
 }
 
 function SectionCard({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
+  title, action, hint, children,
+}: { title: string; action?: React.ReactNode; hint?: string; children: React.ReactNode }) {
   return (
     <section className="rounded-xl border bg-card shadow-sm">
-      <div className="flex items-center border-b px-4 py-2.5 text-sm font-semibold">
+      <div className="flex items-center gap-2 border-b px-4 py-2.5 text-sm font-semibold">
         {title}
+        {hint && <span className="ml-2 text-xs font-normal text-muted-foreground">{hint}</span>}
         {action && <div className="ml-auto">{action}</div>}
       </div>
       {children}
@@ -46,26 +49,58 @@ function AdminHome() {
   const queue = useApprovals("all");
   const counts = useApprovalCount();
   const jobs = useJobCounts();
+  const activity = useJobs("all", 6);
   const decide = useDecide();
   const approvals = queue.data;
+  const runs = activity.data;
 
   return (
     <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Tile label="Waiting for a decision" value={counts.data?.pending ?? "…"} hint="across everyone" href="/approvals" />
-        <Tile label="Running now" value={jobs.data?.running ?? "…"} hint="jobs in progress" href="/activity" />
-        <Tile label="Failed (24h)" value={jobs.data?.failed_24h ?? "…"} hint="need a look" href="/activity" />
+        <StatTile
+          label="Need a decision"
+          value={counts.data?.pending ?? "…"}
+          hint="across everyone"
+          onClick={() => document.getElementById("decision-card")?.scrollIntoView({ behavior: "smooth" })}
+        />
+        <StatTile label="Running now" value={jobs.data?.running ?? "…"} hint="jobs in progress" href="/activity" />
+        <StatTile label="Failed (24h)" value={jobs.data?.failed_24h ?? "…"} hint="need a look" href="/activity" />
       </div>
 
-      <SectionCard title="Waiting for a decision">
-        {queue.isLoading && <LoadingState rows={2} />}
-        {queue.isError && <ErrorState onRetry={() => queue.refetch()} message="Couldn't load the approval queue." />}
-        {!queue.isLoading && !queue.isError && !approvals?.length && (
-          <EmptyState title="All clear" message="Nothing is waiting for a decision right now." />
+      <div id="decision-card">
+        <SectionCard title="Needs a decision" hint="also actionable from the Slack thread">
+          {queue.isLoading && <LoadingState rows={2} />}
+          {queue.isError && <ErrorState onRetry={() => queue.refetch()} message="Couldn't load the approval queue." />}
+          {!queue.isLoading && !queue.isError && !approvals?.length && (
+            <EmptyState title="All clear" message="Nothing is waiting for a decision right now." />
+          )}
+          {approvals?.map((a) => (
+            <ApprovalRow key={a.id} approval={a} onDecide={(id, approve) => decide.mutate({ id, approve })} />
+          ))}
+        </SectionCard>
+      </div>
+
+      <SectionCard
+        title="Recent activity — everyone"
+        action={<Link href="/activity" className="text-xs font-normal text-primary hover:underline">View all →</Link>}
+      >
+        {activity.isLoading && <LoadingState rows={3} />}
+        {activity.isError && <ErrorState onRetry={() => activity.refetch()} message="Couldn't load recent activity." />}
+        {!activity.isLoading && !activity.isError && !runs?.length && (
+          <EmptyState title="Nothing yet" message="Bott hasn't run anything yet." />
         )}
-        {approvals?.map((a) => (
-          <ApprovalRow key={a.id} approval={a} onDecide={(id, approve) => decide.mutate({ id, approve })} />
-        ))}
+        <ul>
+          {runs?.map((j) => (
+            <li key={j.id} className="flex items-center gap-2.5 border-b px-4 py-2.5 text-sm last:border-b-0">
+              <StatusPill status={j.status} className="flex-none" />
+              <span className="min-w-0 flex-1 truncate">{j.kind}</span>
+              {j.user_id && <span className="flex-none text-xs text-muted-foreground">{j.user_id}</span>}
+              <span className="flex-none text-xs text-muted-foreground">
+                <Time value={j.created} />
+              </span>
+            </li>
+          ))}
+        </ul>
       </SectionCard>
     </>
   );
@@ -73,45 +108,100 @@ function AdminHome() {
 
 function MemberHome() {
   const mine = useApprovals("mine");
+  const items = useActionItems(false);
+  const complete = useCompleteActionItem();
   const runs = useJobs("mine", 6);
+  const schedules = useSchedules();
   const decide = useDecide();
   const approvals = mine.data;
   const jobs = runs.data;
+  const actionItems = items.data?.slice(0, 3);
+  const mySchedules = schedules.data?.slice(0, 3);
 
   return (
     <>
-      <SectionCard title="Waiting for an admin">
-        {mine.isLoading && <LoadingState rows={2} />}
-        {mine.isError && <ErrorState onRetry={() => mine.refetch()} message="Couldn't load your requests." />}
-        {!mine.isLoading && !mine.isError && !approvals?.length && (
-          <EmptyState title="All clear" message="Bott isn't waiting on an admin for anything of yours." />
-        )}
-        {approvals?.map((a) => (
-          <ApprovalRow key={a.id} approval={a} onDecide={(id, approve) => decide.mutate({ id, approve })} />
-        ))}
-      </SectionCard>
-
-      <SectionCard
-        title="Recent runs"
-        action={<Link href="/activity" className="text-xs font-normal text-primary hover:underline">View all →</Link>}
-      >
-        {runs.isLoading && <LoadingState rows={2} />}
-        {runs.isError && <ErrorState onRetry={() => runs.refetch()} message="Couldn't load your runs." />}
-        {!runs.isLoading && !runs.isError && !jobs?.length && (
-          <EmptyState title="No runs yet" message="No runs yet — ask Bott something in Slack." />
-        )}
-        <ul>
-          {jobs?.map((j) => (
-            <li key={j.id} className="flex items-center gap-2.5 border-b px-4 py-2.5 text-sm last:border-b-0">
-              <StatusPill status={j.status} className="flex-none" />
-              <span className="truncate">{j.kind}</span>
-              <span className="ml-auto flex-none text-xs text-muted-foreground">
-                <Time value={j.created} />
-              </span>
-            </li>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SectionCard title="Waiting on an admin">
+          {mine.isLoading && <LoadingState rows={2} />}
+          {mine.isError && <ErrorState onRetry={() => mine.refetch()} message="Couldn't load your requests." />}
+          {!mine.isLoading && !mine.isError && !approvals?.length && (
+            <EmptyState title="All clear" message="Bott isn't waiting on an admin for anything of yours." />
+          )}
+          {approvals?.map((a) => (
+            <ApprovalRow key={a.id} approval={a} onDecide={(id, approve) => decide.mutate({ id, approve })} />
           ))}
-        </ul>
-      </SectionCard>
+          {!!approvals?.length && (
+            <p className="px-4 pb-3 text-[11.5px] text-muted-foreground">
+              Bott will act the moment an admin approves — you&apos;ll get the result in your Slack thread.
+            </p>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Your action items"
+          action={<Link href="/action-items" className="text-xs font-normal text-primary hover:underline">All →</Link>}
+        >
+          {items.isLoading && <LoadingState rows={2} />}
+          {items.isError && <ErrorState onRetry={() => items.refetch()} message="Couldn't load your action items." />}
+          {!items.isLoading && !items.isError && !actionItems?.length && (
+            <EmptyState title="Nothing open" message="You're all caught up." />
+          )}
+          {actionItems?.map((item) => (
+            <div key={item.id} className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0">
+              <span className="min-w-0 flex-1 truncate text-sm">{item.text}</span>
+              <Button size="sm" variant="outline"
+                className="flex-none border-green-600/30 text-green-700 hover:bg-green-600/10 dark:text-green-400"
+                onClick={() => complete.mutate(item.id)}>
+                Done
+              </Button>
+            </div>
+          ))}
+        </SectionCard>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SectionCard
+          title="Your recent runs"
+          action={<Link href="/activity" className="text-xs font-normal text-primary hover:underline">View all →</Link>}
+        >
+          {runs.isLoading && <LoadingState rows={2} />}
+          {runs.isError && <ErrorState onRetry={() => runs.refetch()} message="Couldn't load your runs." />}
+          {!runs.isLoading && !runs.isError && !jobs?.length && (
+            <EmptyState title="No runs yet" message="No runs yet — ask Bott something in Slack." />
+          )}
+          <ul>
+            {jobs?.map((j) => (
+              <li key={j.id} className="flex items-center gap-2.5 border-b px-4 py-2.5 text-sm last:border-b-0">
+                <StatusPill status={j.status} className="flex-none" />
+                <span className="truncate">{j.kind}</span>
+                <span className="ml-auto flex-none text-xs text-muted-foreground">
+                  <Time value={j.created} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+
+        <SectionCard
+          title="Your schedules"
+          action={<Link href="/schedules" className="text-xs font-normal text-primary hover:underline">Manage →</Link>}
+        >
+          {schedules.isLoading && <LoadingState rows={2} />}
+          {schedules.isError && <ErrorState onRetry={() => schedules.refetch()} message="Couldn't load your schedules." />}
+          {!schedules.isLoading && !schedules.isError && !mySchedules?.length && (
+            <EmptyState title="No schedules yet" message="Nothing recurring is set up for you yet." />
+          )}
+          {mySchedules?.map((s) => (
+            <div key={s.id} className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{s.label}</div>
+                <div className="text-xs text-muted-foreground">{s.channel} · {s.next_run}</div>
+              </div>
+              <StatusPill tone={s.enabled ? "good" : "neutral"} label={s.enabled ? "Active" : "Paused"} className="flex-none" />
+            </div>
+          ))}
+        </SectionCard>
+      </div>
     </>
   );
 }
@@ -147,7 +237,7 @@ export default function HomePage() {
         </p>
       </div>
 
-      <CodexStatusBanner />
+      <ModelCard />
 
       {isAdmin ? <AdminHome /> : <MemberHome />}
     </div>

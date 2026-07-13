@@ -11,17 +11,19 @@ function seedApproval(summary: string): void {
   );
 }
 
+// Approvals no longer has its own page — the queue now lives inline on Home
+// ("Needs a decision"), with the same Approve & run / Dismiss actions.
 test("approve a pending approval removes it from the pending list", async ({ page }) => {
   const summary = `E2E smoke ${Date.now()}`;
   seedApproval(summary);
 
-  await page.goto("/approvals");
+  await page.goto("/");
   await expect(page.getByText(summary)).toBeVisible();
 
   await page
     .locator("div.border-b")
     .filter({ hasText: summary })
-    .getByRole("button", { name: "Approve" })
+    .getByRole("button", { name: "Approve & run" })
     .click();
 
   await expect(page.getByText(summary)).not.toBeVisible();

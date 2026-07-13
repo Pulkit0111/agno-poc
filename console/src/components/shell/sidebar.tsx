@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity, Building2, CalendarClock, ClipboardCheck, Grid2x2, Hand,
+  Activity, Building2, CalendarClock,
   HeartPulse, House, Library, ListChecks, LucideIcon, MessageSquareQuote,
   PanelLeftClose, PanelLeftOpen, Settings2, Shield, SquareTerminal, Users,
 } from "lucide-react";
@@ -18,20 +18,18 @@ const SIDEBAR_STORAGE_KEY = "console.sidebar";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
+// Todos lands in a later task — nav item added then.
 const MEMBER: NavItem[] = [
   { href: "/", label: "Home", icon: House },
-  { href: "/approvals", label: "Approvals", icon: Hand },
+  { href: "/activity", label: "Activity", icon: Activity },
   { href: "/schedules", label: "Schedules", icon: CalendarClock },
   { href: "/action-items", label: "Action items", icon: ListChecks },
   { href: "/skills", label: "Skills", icon: Library },
-  { href: "/reports", label: "Reports", icon: Grid2x2 },
   { href: "/connectors", label: "Connectors", icon: SquareTerminal },
 ];
 
 const ADMIN: NavItem[] = [
-  { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/admin/health", label: "Health", icon: HeartPulse },
-  { href: "/admin/reviews", label: "Reviews", icon: ClipboardCheck },
+  { href: "/admin/system", label: "System", icon: HeartPulse },
   { href: "/admin/models", label: "Models", icon: Settings2 },
   { href: "/admin/engagements", label: "Engagements", icon: Building2 },
   { href: "/admin/policy", label: "Policy", icon: Shield },
@@ -85,7 +83,7 @@ export function SidebarNav({
           {...i}
           onNavigate={onNavigate}
           collapsed={collapsed}
-          trailing={isAdmin && i.href === "/approvals" ? <ApprovalBadge /> : undefined}
+          trailing={isAdmin && i.href === "/" ? <ApprovalBadge /> : undefined}
         />
       ))}
       {isAdmin && (

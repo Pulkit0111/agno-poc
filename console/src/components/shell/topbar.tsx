@@ -6,10 +6,10 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 const NAMES: Record<string, string> = {
-  "/": "Home", "/approvals": "Approvals", "/activity": "Activity",
+  "/": "Home", "/activity": "Activity",
   "/schedules": "Schedules", "/action-items": "Action items",
-  "/skills": "Skills", "/reports": "Reports", "/connectors": "Connectors",
-  "/admin/health": "Health", "/admin/reviews": "Reviews",
+  "/skills": "Skills", "/connectors": "Connectors",
+  "/admin/system": "System",
   "/admin/models": "Models", "/admin/engagements": "Engagements",
   "/admin/users": "Users", "/admin/policy": "Policy",
   "/admin/prompts": "Prompts",

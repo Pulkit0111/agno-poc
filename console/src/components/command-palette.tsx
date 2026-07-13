@@ -11,15 +11,12 @@ type Page = { label: string; href: string; admin?: boolean };
 
 const PAGES: Page[] = [
   { label: "Home", href: "/" },
-  { label: "Approvals", href: "/approvals" },
+  { label: "Activity", href: "/activity" },
   { label: "Schedules", href: "/schedules" },
   { label: "Action items", href: "/action-items" },
   { label: "Skills", href: "/skills" },
-  { label: "Reports", href: "/reports" },
   { label: "Connectors", href: "/connectors" },
-  { label: "Admin · Activity", href: "/activity", admin: true },
-  { label: "Admin · Health", href: "/admin/health", admin: true },
-  { label: "Admin · Reviews", href: "/admin/reviews", admin: true },
+  { label: "Admin · System", href: "/admin/system", admin: true },
   { label: "Admin · Models", href: "/admin/models", admin: true },
   { label: "Admin · Engagements", href: "/admin/engagements", admin: true },
   { label: "Admin · Policy", href: "/admin/policy", admin: true },

@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { JobDrawer } from "@/components/jobs/job-drawer";
-import { EmptyState, ErrorState, LoadingState, NoAccessState } from "@/components/common/states";
+import { EmptyState, ErrorState, LoadingState } from "@/components/common/states";
 import { StatusPill } from "@/components/ui/status-pill";
-import { isForbidden } from "@/lib/api";
 import { Time } from "@/lib/time";
-import { useActivity, type ActivityJob } from "@/lib/use-activity";
+import type { Job } from "@/lib/types";
+import { useJobs } from "@/lib/use-jobs";
 import { useJobCounts } from "@/lib/use-job-counts";
 import { useMe } from "@/lib/use-me";
 
@@ -50,6 +50,20 @@ function Tile({ label, value, tone }: { label: string; value: number | string; t
   );
 }
 
+/** Admin-only stat tiles. Kept as its own component so the underlying `useJobCounts` query
+ *  (admin-only, would 403-loop for members) never mounts unless the caller is an admin —
+ *  same pattern as the sidebar's ApprovalBadge. */
+function StatTiles() {
+  const counts = useJobCounts();
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <Tile label="Running now" value={counts.data?.running ?? 0} />
+      <Tile label="Done" value={counts.data?.done ?? 0} />
+      <Tile label="Failed (24h)" value={counts.data?.failed_24h ?? 0} tone="bad" />
+    </div>
+  );
+}
+
 function LiveDot() {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -64,47 +78,62 @@ function LiveDot() {
 
 export default function ActivityPage() {
   const { data: me, isLoading: meLoading } = useMe();
+  const isAdmin = me?.is_admin ?? false;
+  const [scope, setScope] = useState<"mine" | "all">("all");
   const [selected, setSelected] = useState<number | null>(null);
-  const counts = useJobCounts();
-  const activity = useActivity();
+  // Members only ever see their own runs — the "all" scope is admin-only server-side.
+  const effectiveScope = isAdmin ? scope : "mine";
+  const activity = useJobs(effectiveScope, 50);
 
   if (meLoading) return <LoadingState rows={5} />;
-  if (!me?.is_admin) return <NoAccessState />;
 
-  const jobs = activity.data?.jobs;
+  const jobs = activity.data;
 
   return (
     <div className="space-y-6">
       <div className="flex items-start gap-4">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
-          <p className="text-sm text-muted-foreground">Everything Bott is working on, right now and just past</p>
+          <h1 className="font-display text-lg tracking-tight">Activity</h1>
+          <p className="text-sm text-muted-foreground">
+            Every run — builds, reviews, reports, scheduled digests. Click a run for the full story.
+          </p>
         </div>
         <div className="ml-auto pt-1">
           <LiveDot />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Tile label="Running now" value={counts.data?.running ?? 0} />
-        <Tile label="Done" value={counts.data?.done ?? 0} />
-        <Tile label="Failed (24h)" value={counts.data?.failed_24h ?? 0} tone="bad" />
-      </div>
+      {isAdmin && <StatTiles />}
+
+      {isAdmin && (
+        <div className="flex gap-1 border-b text-sm">
+          <button
+            type="button"
+            onClick={() => setScope("all")}
+            className={`border-b-2 px-3 py-1.5 ${scope === "all" ? "border-primary font-medium text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            Everyone
+          </button>
+          <button
+            type="button"
+            onClick={() => setScope("mine")}
+            className={`border-b-2 px-3 py-1.5 ${scope === "mine" ? "border-primary font-medium text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            Mine
+          </button>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         {activity.isLoading ? (
           <LoadingState rows={6} />
         ) : activity.isError ? (
-          isForbidden(activity.error) ? (
-            <NoAccessState />
-          ) : (
-            <ErrorState message="Couldn't load the activity feed." onRetry={() => activity.refetch()} />
-          )
+          <ErrorState message="Couldn't load the activity feed." onRetry={() => activity.refetch()} />
         ) : !jobs?.length ? (
           <EmptyState title="Nothing running" message="Bott isn't working on anything right now." />
         ) : (
           <ul>
-            {jobs.map((j: ActivityJob) => (
+            {jobs.map((j: Job) => (
               <li key={j.id}>
                 <button
                   onClick={() => setSelected(j.id)}
@@ -112,7 +141,7 @@ export default function ActivityPage() {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{humanizeKind(j.kind)}</div>
-                    {j.user_id && (
+                    {isAdmin && j.user_id && (
                       <div className="truncate text-xs text-muted-foreground">asked by {j.user_id}</div>
                     )}
                   </div>
