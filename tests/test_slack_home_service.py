@@ -59,7 +59,10 @@ def test_concierge_schedules_excluded_from_home(tmp_path):
     assert service.list_rows(db) == []
 
 
-def test_list_raw_excludes_concierge_and_shows_enabled_state(tmp_path):
+def test_list_raw_flags_concierge_rows_as_personal_and_shows_enabled_state(tmp_path):
+    """list_raw() now includes personal (concierge:) rows too — schedules parity means the
+    console can manage them like any other, distinguished by the `personal` flag rather
+    than being silently dropped."""
     from agno.db.sqlite import SqliteDb
 
     from bott.interfaces.slack_home import service
@@ -72,9 +75,12 @@ def test_list_raw_excludes_concierge_and_shows_enabled_state(tmp_path):
         instruction="hi", cron="0 8 * * *",
     )
     rows = service.list_raw(db)
-    assert len(rows) == 1
-    assert rows[0]["channel"] == "#sec"
-    assert rows[0]["enabled"] is True
+    assert len(rows) == 2
+    security_row = next(r for r in rows if r["channel"] == "#sec")
+    assert security_row["enabled"] is True
+    assert security_row["personal"] is False
+    concierge_row = next(r for r in rows if r["personal"] is True)
+    assert concierge_row["created_by"] == "alice@axelerant.com"
 
 
 def test_pause_then_resume_round_trip(tmp_path):

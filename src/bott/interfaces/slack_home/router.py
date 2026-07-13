@@ -110,7 +110,7 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             email, name = _resolve_identity(user_id)
             is_admin = email.lower() in bott_admins()
             view = blocks.build_home_view(
-                service.list_rows(db),
+                service.list_rows(db, viewer_email=email or None),
                 viewer_name=name or None,
                 connectors_blocks=connectors_panel.connectors_section(is_admin=is_admin),
                 action_items=_my_action_items(email),
@@ -552,19 +552,23 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                 return Response(status_code=200)
 
             def _do_submit(cb=cb, values=values, user_id=user_id):
+                # created_by is stamped into the schedule's description so console
+                # owner-or-admin gating (and the Slack Home 'Personal' cards) can
+                # attribute it back to whoever created it from a Home modal.
+                created_by = _resolve_email(user_id) if user_id else None
                 try:
                     if cb == "create_delivery":
-                        _submit_delivery(db, values)
+                        _submit_delivery(db, values, created_by=created_by)
                     elif cb == "create_sprint":
-                        _submit_sprint(db, values)
+                        _submit_sprint(db, values, created_by=created_by)
                     elif cb == "create_dsm":
-                        _submit_dsm(db, values)
+                        _submit_dsm(db, values, created_by=created_by)
                     elif cb == "create_security":
-                        _submit_security(db, values)
+                        _submit_security(db, values, created_by=created_by)
                     elif cb == "create_sentiment":
-                        _submit_sentiment(db, values)
+                        _submit_sentiment(db, values, created_by=created_by)
                     elif cb == "create_portfolio":
-                        _submit_portfolio(db, values)
+                        _submit_portfolio(db, values, created_by=created_by)
                 except Exception as e:  # noqa: BLE001
                     log.error("submission %s failed: %s", cb, e)
                 publish_home(user_id)
@@ -604,7 +608,7 @@ def _val(values: dict, block_id: str) -> dict:
     return (values.get(block_id) or {}).get("v") or {}
 
 
-def _submit_delivery(db, values: dict) -> None:
+def _submit_delivery(db, values: dict, created_by: str | None = None) -> None:
     selected = _val(values, "engagement").get("selected_option") or {}
     parts = (selected.get("value") or "").split("|")
     eng_id = parts[0]
@@ -614,10 +618,11 @@ def _submit_delivery(db, values: dict) -> None:
     frequency = (_val(values, "frequency").get("selected_option") or {}).get("value", "weekdays")
     time_str = _val(values, "time").get("selected_time", "09:00")
     if eng_id and eng_id != "none" and channel:
-        service.create_delivery(db, eng_id, account, channel, frequency, time_str, band=band)
+        service.create_delivery(db, eng_id, account, channel, frequency, time_str, band=band,
+                                created_by=created_by)
 
 
-def _submit_sprint(db, values: dict) -> None:
+def _submit_sprint(db, values: dict, created_by: str | None = None) -> None:
     # The engagement select is a section accessory, so its value lives under its own
     # action_id (not the generic "v").
     selected = (values.get("engagement") or {}).get("sprint_eng_selected", {}).get("selected_option") or {}
@@ -625,34 +630,34 @@ def _submit_sprint(db, values: dict) -> None:
     channel = _val(values, "channel").get("selected_channel")
     time_str = _val(values, "time").get("selected_time", "17:00")
     if key and key != "none" and channel:
-        service.create_sprint_report_schedule(db, key, channel, time_str)
+        service.create_sprint_report_schedule(db, key, channel, time_str, created_by=created_by)
 
 
-def _submit_security(db, values: dict) -> None:
+def _submit_security(db, values: dict, created_by: str | None = None) -> None:
     channel = _val(values, "channel").get("selected_channel")
     frequency = (_val(values, "frequency").get("selected_option") or {}).get("value", "daily")
     time_str = _val(values, "time").get("selected_time", "09:00")
     if channel:
-        service.create_security(db, channel, frequency, time_str)
+        service.create_security(db, channel, frequency, time_str, created_by=created_by)
 
 
-def _submit_sentiment(db, values: dict) -> None:
+def _submit_sentiment(db, values: dict, created_by: str | None = None) -> None:
     channel = _val(values, "channel").get("selected_channel")
     frequency = (_val(values, "frequency").get("selected_option") or {}).get("value", "weekly")
     time_str = _val(values, "time").get("selected_time", "09:00")
     if channel:
-        service.create_sentiment(db, channel, frequency, time_str)
+        service.create_sentiment(db, channel, frequency, time_str, created_by=created_by)
 
 
-def _submit_portfolio(db, values: dict) -> None:
+def _submit_portfolio(db, values: dict, created_by: str | None = None) -> None:
     channel = _val(values, "channel").get("selected_channel")
     frequency = (_val(values, "frequency").get("selected_option") or {}).get("value", "weekly")
     time_str = _val(values, "time").get("selected_time", "09:00")
     if channel:
-        service.create_portfolio(db, channel, frequency, time_str)
+        service.create_portfolio(db, channel, frequency, time_str, created_by=created_by)
 
 
-def _submit_dsm(db, values: dict) -> None:
+def _submit_dsm(db, values: dict, created_by: str | None = None) -> None:
     channel = _val(values, "channel").get("selected_channel")
     team = (_val(values, "team").get("value") or "").strip() or (f"team-{channel}" if channel else "team")
     call_time = _val(values, "call_time").get("selected_time", "10:00")
@@ -661,7 +666,8 @@ def _submit_dsm(db, values: dict) -> None:
     postcall = _val(values, "postcall_time").get("selected_time", "10:30")
     days = (_val(values, "days").get("selected_option") or {}).get("value", "weekdays")
     if channel:
-        service.create_dsm(db, team, channel, call_time, open_off, close_off, postcall, days)
+        service.create_dsm(db, team, channel, call_time, open_off, close_off, postcall, days,
+                           created_by=created_by)
 
 
 def _submit_standup(view: dict, user: dict) -> None:

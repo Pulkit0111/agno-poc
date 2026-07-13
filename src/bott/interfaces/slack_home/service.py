@@ -35,10 +35,12 @@ def _desc(sch: Any) -> dict:
         return {}
 
 
-def list_rows(db: Any) -> list[dict]:
+def list_rows(db: Any, viewer_email: str | None = None) -> list[dict]:
     """Display rows for the Home tab. Delivery schedules are one row each; DSM pre/post
-    for a team are merged into a single row. Concierge/other schedules are excluded
-    (concierge lives in chat, not here)."""
+    for a team are merged into a single row. Concierge (personal) schedules are excluded
+    UNLESS ``viewer_email`` is given, in which case the viewer's OWN concierge schedules
+    (and only their own — never another user's) are appended as simple personal cards,
+    flagged ``personal`` so blocks can label them accordingly."""
     schedules = ScheduleManager(db).list()
     deliveries: list[tuple[Any, dict]] = []
     security: list[tuple[Any, dict]] = []
@@ -46,6 +48,7 @@ def list_rows(db: Any) -> list[dict]:
     sentiment: list[tuple[Any, dict]] = []
     portfolio: list[tuple[Any, dict]] = []
     dsm: dict[str, dict[str, tuple[Any, dict]]] = {}
+    concierge: list[tuple[Any, dict]] = []
 
     for s in schedules:
         d = _desc(s)
@@ -55,7 +58,8 @@ def list_rows(db: Any) -> list[dict]:
                                  "sprint" if name.startswith("sprint-report:") else
                                  "sentiment" if name.startswith("sentiment-report:") else
                                  "portfolio" if name.startswith("portfolio-dashboard:") else
-                                 "dsm" if name.startswith("dsm-") else "")
+                                 "dsm" if name.startswith("dsm-") else
+                                 "concierge" if name.startswith("concierge:") else "")
         if kind == "delivery":
             deliveries.append((s, d))
         elif kind == "security":
@@ -70,6 +74,8 @@ def list_rows(db: Any) -> list[dict]:
             team = d.get("label") or name.split(":", 1)[-1]
             phase = d.get("phase") or name.split(":", 1)[0].replace("dsm-", "")
             dsm.setdefault(team, {})[phase] = (s, d)
+        elif kind == "concierge":
+            concierge.append((s, d))
 
     rows: list[dict] = []
     for s, d in deliveries:
@@ -148,6 +154,25 @@ def list_rows(db: Any) -> list[dict]:
             "when": " · ".join(when_parts) or "—",
             "run_buttons": run_buttons, "remove_ids": remove_ids,
         })
+
+    if viewer_email:
+        prefix = f"concierge:{viewer_email}:"
+        for s, d in concierge:
+            name = getattr(s, "name", "") or ""
+            if not name.startswith(prefix):
+                continue  # never another user's personal schedules
+            nxt = format_next_run(getattr(s, "next_run_at", None), getattr(s, "timezone", "UTC"))
+            when = cron_to_friendly(getattr(s, "cron_expr", ""))
+            label = d.get("label") or name.split(":", 2)[-1] or "Personal task"
+            rows.append({
+                "icon": "🙋",
+                "label": label,
+                "channel": "",
+                "when": f"{when} · next {nxt}" if nxt else when,
+                "run_buttons": [{"text": "▶ Run now", "action_id": f"run_now:{s.id}", "value": s.id}],
+                "remove_ids": [s.id],
+                "personal": True,
+            })
     return rows
 
 
@@ -192,7 +217,8 @@ def sprint_end_info(engagement_key: str) -> dict | None:
     return {"label": label, "cron_dow": weekday_to_cron_dow(end.weekday())}
 
 
-def create_sprint_report_schedule(db: Any, engagement_key: str, channel: str, time_str: str) -> Any:
+def create_sprint_report_schedule(db: Any, engagement_key: str, channel: str, time_str: str,
+                                  created_by: str | None = None) -> Any:
     """Create the per-engagement sprint-report schedule, pinned to the sprint's end weekday
     (falls back to Friday if Jira can't tell us) at the chosen time."""
     from .cron import to_cron_weekday
@@ -201,63 +227,153 @@ def create_sprint_report_schedule(db: Any, engagement_key: str, channel: str, ti
     cron_dow = info["cron_dow"] if info else 5  # Friday default
     return scheduling.create_sprint_report(
         db, engagement=engagement_key, cron=to_cron_weekday(cron_dow, time_str),
-        timezone=default_timezone(), channel=channel,
+        timezone=default_timezone(), channel=channel, created_by=created_by,
     )
 
 
 def create_delivery(db: Any, engagement_id: str, account: str, channel: str,
-                    frequency: str, time_str: str, band: str | None = None) -> Any:
+                    frequency: str, time_str: str, band: str | None = None,
+                    created_by: str | None = None) -> Any:
     return scheduling.create_delivery_synthesis(
         db, engagement_id=engagement_id, channel=channel,
         cron=to_cron(frequency, time_str), timezone=default_timezone(),
-        account_name=account, band=band,
+        account_name=account, band=band, created_by=created_by,
     )
 
 
-def create_security(db: Any, channel: str, frequency: str, time_str: str) -> Any:
+def create_security(db: Any, channel: str, frequency: str, time_str: str,
+                    created_by: str | None = None) -> Any:
     return scheduling.create_security_digest(
         db, channel=channel, cron=to_cron(frequency, time_str), timezone=default_timezone(),
+        created_by=created_by,
     )
 
 
-def create_sentiment(db: Any, channel: str, frequency: str, time_str: str) -> Any:
+def create_sentiment(db: Any, channel: str, frequency: str, time_str: str,
+                     created_by: str | None = None) -> Any:
     return scheduling.create_sentiment_report(
         db, channel=channel, cron=to_cron(frequency, time_str), timezone=default_timezone(),
+        created_by=created_by,
     )
 
 
-def create_portfolio(db: Any, channel: str, frequency: str, time_str: str) -> Any:
+def create_portfolio(db: Any, channel: str, frequency: str, time_str: str,
+                     created_by: str | None = None) -> Any:
     return scheduling.create_portfolio_dashboard(
         db, channel=channel, cron=to_cron(frequency, time_str), timezone=default_timezone(),
+        created_by=created_by,
     )
 
 
 def create_dsm(db: Any, team: str, channel: str, call_time: str, open_offset_min: int,
-               close_offset_min: int, postcall_time: str, days: str) -> None:
+               close_offset_min: int, postcall_time: str, days: str,
+               created_by: str | None = None) -> Any:
     """Three derived schedules: open (call − open_offset), pre-read (call − close_offset),
-    and the post-call summary (at postcall_time)."""
+    and the post-call summary (at postcall_time). Returns the 'open' schedule (the merged
+    Home/console row is keyed by team name, so any one of the three ids works as a handle)."""
     tz = default_timezone()
-    scheduling.create_dsm_open(db, team_id=team, channel=channel,
-                               cron=to_cron(days, shift_time(call_time, open_offset_min)), timezone=tz)
+    open_sch = scheduling.create_dsm_open(
+        db, team_id=team, channel=channel,
+        cron=to_cron(days, shift_time(call_time, open_offset_min)), timezone=tz,
+        created_by=created_by,
+    )
     scheduling.create_dsm_preread(db, team_id=team, channel=channel,
-                                  cron=to_cron(days, shift_time(call_time, close_offset_min)), timezone=tz)
+                                  cron=to_cron(days, shift_time(call_time, close_offset_min)), timezone=tz,
+                                  created_by=created_by)
     scheduling.create_dsm_callsummary(db, team_id=team, channel=channel,
-                                      cron=to_cron(days, postcall_time), timezone=tz)
+                                      cron=to_cron(days, postcall_time), timezone=tz,
+                                      created_by=created_by)
+    return open_sch
+
+
+def create_dsm_default(db: Any, team: str, channel: str, call_time: str, *, days: str = "weekdays",
+                       created_by: str | None = None) -> Any:
+    """Console-facing DSM creation: the same three-schedule shape the Slack modal builds,
+    with the modal's own default offsets (open 2h before, pre-read 1h before) and a
+    post-call summary 30 min after — the console form only asks for team + channel + call
+    time, so it delegates to `create_dsm` with those defaults filled in."""
+    return create_dsm(db, team, channel, call_time, 120, 60, shift_time(call_time, -30), days,
+                      created_by=created_by)
+
+
+def schedule_owner(row_or_description: Any) -> str | None:
+    """Best-effort creator email for a schedule: the description JSON's ``created_by``
+    field, else the legacy ``concierge:{email}:...`` name convention (schedules created
+    before ``created_by`` was stamped, or by the chat `create_schedule` tool), else None —
+    a bare None means a legacy org-wide row with no recoverable owner, which callers treat
+    as admin-only.
+
+    Accepts either a raw ``ScheduleManager`` ``Schedule`` row (object with ``.description``
+    + ``.name``) or an equivalent dict (``{"description": ..., "name": ...}``), or the
+    already-parsed description dict itself.
+    """
+    if row_or_description is None:
+        return None
+    if isinstance(row_or_description, dict):
+        name = row_or_description.get("name", "") or ""
+        if "description" in row_or_description:
+            try:
+                desc = json.loads(row_or_description.get("description") or "{}")
+            except (TypeError, ValueError):
+                desc = {}
+        else:
+            # already the parsed description dict
+            desc = row_or_description
+    else:
+        desc = _desc(row_or_description)
+        name = getattr(row_or_description, "name", "") or ""
+    created_by = desc.get("created_by")
+    if created_by:
+        return created_by
+    if name.startswith("concierge:"):
+        parts = name.split(":", 2)
+        if len(parts) >= 2 and parts[1]:
+            return parts[1]
+    return None
+
+
+def schedule_owner_for_id(db: Any, schedule_id: str) -> str | None:
+    """`schedule_owner`, looked up by id — the shape the console's owner-or-admin gate
+    needs (it only has the id from the URL, not the row)."""
+    sch = ScheduleManager(db).get(schedule_id)
+    if sch is None:
+        return None
+    return schedule_owner(sch)
+
+
+def cadence_text(cron: str, timezone: str = "UTC") -> str:
+    """Plain-language cadence for a cron expression — wraps `cron_to_friendly`.
+    ``timezone`` is accepted (not yet used in the phrasing) so callers don't need a
+    separate helper if this grows timezone-aware wording later."""
+    return cron_to_friendly(cron)
+
+
+def preview(frequency: str, time_str: str) -> dict:
+    """Preview a not-yet-created schedule's cadence + next fire time, computed the same
+    way an actual schedule would be (``to_cron`` + the AgentOS scheduler's own
+    `compute_next_run`, which is exactly what backs `list_raw`'s ``next_run``) — no DB
+    write involved."""
+    from agno.scheduler.cron import compute_next_run
+
+    cron = to_cron(frequency, time_str)
+    tz = default_timezone()
+    next_epoch = compute_next_run(cron, tz)
+    return {"next_run": format_next_run(next_epoch, tz), "cadence": cadence_text(cron, tz)}
 
 
 def list_raw(db: Any) -> list[dict]:
-    """One row per raw (non-concierge) Schedule — unlike list_rows(), which merges related
-    schedules (e.g. DSM's 3 phases) into one display card, this is the 1:1 view the console
-    needs for pause/resume/remove-by-id."""
+    """One row per raw Schedule (including personal `concierge:` ones, flagged
+    ``personal``) — unlike list_rows(), which merges related schedules (e.g. DSM's 3
+    phases) into one display card, this is the 1:1 view the console needs for
+    pause/resume/remove-by-id."""
     mgr = ScheduleManager(db)
     rows = []
     for sch in mgr.list():
-        if sch.name.startswith("concierge:"):
-            continue
         try:
             meta = json.loads(sch.description or "{}")
         except (TypeError, ValueError):
             meta = {}
+        personal = sch.name.startswith("concierge:")
         rows.append({
             "id": sch.id,
             "label": meta.get("label", sch.name),
@@ -267,6 +383,9 @@ def list_raw(db: Any) -> list[dict]:
             "timezone": sch.timezone,
             "enabled": sch.enabled,
             "next_run": format_next_run(sch.next_run_at, sch.timezone),
+            "cadence": cadence_text(sch.cron_expr, sch.timezone),
+            "created_by": schedule_owner(sch),
+            "personal": personal,
         })
     return rows
 

@@ -25,7 +25,7 @@ def test_add_sentiment_button_in_schedule_picker():
 def test_submit_sentiment_creates_schedule(monkeypatch):
     captured = {}
     monkeypatch.setattr(service, "create_sentiment",
-                        lambda db, channel, frequency, time_str: captured.update(
+                        lambda db, channel, frequency, time_str, **kw: captured.update(
                             {"channel": channel, "frequency": frequency, "time": time_str}))
     values = {
         "channel": {"v": {"selected_channel": "C42"}},

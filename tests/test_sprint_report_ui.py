@@ -126,7 +126,7 @@ def test_create_sprint_schedule_pins_end_weekday(monkeypatch, tmp_path):
 def test_submit_sprint_reads_accessory_value(monkeypatch):
     captured = {}
     monkeypatch.setattr(service, "create_sprint_report_schedule",
-                        lambda db, key, channel, time_str: captured.update(
+                        lambda db, key, channel, time_str, **kw: captured.update(
                             {"key": key, "channel": channel, "time": time_str}))
     values = {
         "engagement": {"sprint_eng_selected": {"selected_option": {"value": "PADI"}}},

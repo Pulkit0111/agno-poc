@@ -50,6 +50,7 @@ def create_delivery_synthesis(
     timezone: str = "UTC",
     account_name: str | None = None,
     band: str | None = None,
+    created_by: str | None = None,
 ):
     """Per-engagement delivery digest: Memra → synthesize → post to a Slack channel.
     Scoped to the engagement (so its running context is isolated by session_id)."""
@@ -86,7 +87,7 @@ def create_delivery_synthesis(
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
         description=_display(kind="delivery", label=account_name or engagement_id,
-                             channel=channel, band=band),
+                             channel=channel, band=band, created_by=created_by),
         payload={
             "message": message,
             "user_id": f"engagement:{engagement_id}",
@@ -99,16 +100,20 @@ def create_delivery_synthesis(
 
 
 def create_recurring_task(
-    db: Any, *, user_id: str, task_name: str, instruction: str, cron: str, timezone: str = "UTC"
+    db: Any, *, user_id: str, task_name: str, instruction: str, cron: str, timezone: str = "UTC",
+    created_by: str | None = None,
 ):
     """Per-user recurring concierge task. The payload carries the user's user_id so the
-    scheduled run loads only that user's memory/context — isolation preserved."""
+    scheduled run loads only that user's memory/context — isolation preserved. ``label`` is
+    the friendly task name (not the user_id) so a personal card can show something more
+    useful than the owner's own email; ``created_by`` defaults to the owner (``user_id``) —
+    the concierge tool always creates a schedule for its own caller."""
     return _mgr(db).create(
         name=f"concierge:{user_id}:{task_name}",
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
-        description=_display(kind="concierge", label=user_id),
+        description=_display(kind="concierge", label=task_name, created_by=created_by or user_id),
         payload={
             "message": instruction,
             "user_id": user_id,
@@ -128,6 +133,7 @@ def create_security_digest(
     timezone: str = "UTC",
     source: str = "drupal",
     window_days: int = 2,
+    created_by: str | None = None,
 ):
     """Scheduled security-advisory digest: fetch the latest advisories and post them to a
     channel. Non-personal 'system' scope (no user data), isolated like every other run."""
@@ -142,7 +148,8 @@ def create_security_digest(
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
-        description=_display(kind="security", label=f"{source.title()} advisories", channel=channel),
+        description=_display(kind="security", label=f"{source.title()} advisories", channel=channel,
+                             created_by=created_by),
         payload={
             "message": message,
             "user_id": f"feed:{source}-sa",
@@ -154,7 +161,8 @@ def create_security_digest(
     )
 
 
-def create_sentiment_report(db: Any, *, channel: str, cron: str, timezone: str = "UTC"):
+def create_sentiment_report(db: Any, *, channel: str, cron: str, timezone: str = "UTC",
+                            created_by: str | None = None):
     """Scheduled portfolio sentiment / delivery-health digest: roll up every active
     engagement's sentiment + risk from Memra and post a scannable Slack digest. Non-personal
     'portfolio' scope (no single user's data), isolated like every other run."""
@@ -182,7 +190,8 @@ def create_sentiment_report(db: Any, *, channel: str, cron: str, timezone: str =
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
-        description=_display(kind="sentiment", label="Delivery health (portfolio)", channel=channel),
+        description=_display(kind="sentiment", label="Delivery health (portfolio)", channel=channel,
+                             created_by=created_by),
         payload={
             "message": message,
             "user_id": "portfolio:delivery-health",
@@ -194,7 +203,8 @@ def create_sentiment_report(db: Any, *, channel: str, cron: str, timezone: str =
     )
 
 
-def create_portfolio_dashboard(db: Any, *, channel: str, cron: str, timezone: str = "UTC"):
+def create_portfolio_dashboard(db: Any, *, channel: str, cron: str, timezone: str = "UTC",
+                               created_by: str | None = None):
     """Scheduled leadership portfolio risk roll-up: per-engagement risk/sentiment (Memra) +
     last-sprint velocity (Jira) → a Spin dashboard, link posted to a channel. Non-personal
     'portfolio' scope, isolated like every other run."""
@@ -209,7 +219,8 @@ def create_portfolio_dashboard(db: Any, *, channel: str, cron: str, timezone: st
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
-        description=_display(kind="portfolio", label="Portfolio risk roll-up", channel=channel),
+        description=_display(kind="portfolio", label="Portfolio risk roll-up", channel=channel,
+                             created_by=created_by),
         payload={
             "message": message,
             "user_id": "portfolio:risk-rollup",
@@ -228,6 +239,7 @@ def create_sprint_report(
     cron: str,
     timezone: str = "UTC",
     channel: str = "",
+    created_by: str | None = None,
 ):
     """Scheduled per-engagement sprint report: gather live Jira facts, synthesize the
     narrative, render the designed HTML page, publish it (Spin, or a Slack draft fallback),
@@ -257,7 +269,7 @@ def create_sprint_report(
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
-        description=_display(kind="sprint", label=key, channel=channel or None),
+        description=_display(kind="sprint", label=key, channel=channel or None, created_by=created_by),
         payload={
             "message": message,
             "user_id": f"engagement:{key}",
@@ -269,7 +281,8 @@ def create_sprint_report(
     )
 
 
-def schedule_sprint_reports_for_all(db: Any, *, cron: str, timezone: str = "UTC") -> list[str]:
+def schedule_sprint_reports_for_all(db: Any, *, cron: str, timezone: str = "UTC",
+                                    created_by: str | None = None) -> list[str]:
     """Roll the sprint report out to EVERY engagement in one go: discover all Jira boards and
     create a per-engagement schedule for each (channel left to Memra resolution at run time).
     Returns the project keys scheduled. New engagements get picked up on the next run of this."""
@@ -280,19 +293,20 @@ def schedule_sprint_reports_for_all(db: Any, *, cron: str, timezone: str = "UTC"
         key = (board.get("project_key") or "").strip()
         if not key:
             continue
-        create_sprint_report(db, engagement=key, cron=cron, timezone=timezone)
+        create_sprint_report(db, engagement=key, cron=cron, timezone=timezone, created_by=created_by)
         keys.append(key.upper())
     return keys
 
 
 def _dsm_schedule(db: Any, *, team_id: str, channel: str, cron: str, timezone: str,
-                  phase: str, message: str):
+                  phase: str, message: str, created_by: str | None = None):
     return _mgr(db).create(
         name=f"dsm-{phase}:{team_id}",
         cron=cron,
         endpoint=AGENT_RUN_ENDPOINT,
         timezone=timezone,
-        description=_display(kind="dsm", phase=phase, label=team_id, channel=channel),
+        description=_display(kind="dsm", phase=phase, label=team_id, channel=channel,
+                             created_by=created_by),
         payload={
             "message": message,
             "user_id": f"team:{team_id}",
@@ -304,7 +318,8 @@ def _dsm_schedule(db: Any, *, team_id: str, channel: str, cron: str, timezone: s
     )
 
 
-def create_dsm_open(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"):
+def create_dsm_open(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC",
+                    created_by: str | None = None):
     """Open collection: post the channel message + 'Add my update' button (form-driven)."""
     return _dsm_schedule(
         db, team_id=team_id, channel=channel, cron=cron, timezone=timezone, phase="open",
@@ -312,10 +327,12 @@ def create_dsm_open(db: Any, *, team_id: str, channel: str, cron: str, timezone:
             f"It's standup-open time for team '{team_id}'. Call your open_standup tool with "
             f"team='{team_id}' and channel='{channel}'. Do nothing else."
         ),
+        created_by=created_by,
     )
 
 
-def create_dsm_preread(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"):
+def create_dsm_preread(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC",
+                       created_by: str | None = None):
     """Pre-read: close collection and post a summary of submissions in the thread."""
     return _dsm_schedule(
         db, team_id=team_id, channel=channel, cron=cron, timezone=timezone, phase="preread",
@@ -323,10 +340,12 @@ def create_dsm_preread(db: Any, *, team_id: str, channel: str, cron: str, timezo
             f"Standup collection is closing for team '{team_id}'. Call your close_standup tool "
             f"with team='{team_id}' and channel='{channel}'. Do nothing else."
         ),
+        created_by=created_by,
     )
 
 
-def create_dsm_callsummary(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC"):
+def create_dsm_callsummary(db: Any, *, team_id: str, channel: str, cron: str, timezone: str = "UTC",
+                           created_by: str | None = None):
     """Post-call: fetch what was discussed (Memra) and post it in the same thread."""
     return _dsm_schedule(
         db, team_id=team_id, channel=channel, cron=cron, timezone=timezone, phase="callsummary",
@@ -334,6 +353,7 @@ def create_dsm_callsummary(db: Any, *, team_id: str, channel: str, cron: str, ti
             f"The '{team_id}' standup call is done. Call your post_call_summary tool with "
             f"team='{team_id}' and channel='{channel}'. Do nothing else."
         ),
+        created_by=created_by,
     )
 
 

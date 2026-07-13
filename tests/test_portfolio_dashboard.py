@@ -257,7 +257,7 @@ def test_app_home_portfolio_wiring(monkeypatch, tmp_path):
 
     captured = {}
     monkeypatch.setattr(service, "create_portfolio",
-                        lambda db, channel, frequency, time_str: captured.update(
+                        lambda db, channel, frequency, time_str, **kw: captured.update(
                             channel=channel, frequency=frequency, time=time_str))
     router._submit_portfolio(None, {
         "channel": {"v": {"selected_channel": "C9"}},

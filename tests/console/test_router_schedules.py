@@ -114,27 +114,36 @@ def test_create_bad_time_is_400(client_and_db):
     assert r.json()["detail"]["error"]["code"] == "bad_time"
 
 
-# ---- Admin gating (regression: these used to be reachable by any authenticated user) -----
+# ---- Ownership gating (schedules parity: create is open to any signed-in user; -----
+# ---- mutations are owner-or-admin, not admin-only) ----------------------------------
 
-def test_non_admin_cannot_create_schedule(client_and_db):
+def test_non_admin_can_create_schedule(client_and_db):
+    """Create dropped its admin gate — any signed-in user can create a schedule now
+    (see tests/console/test_schedules_parity.py for the created_by/ownership behavior)."""
     tc, _db = client_and_db
     _as(tc)
     r = tc.post("/api/console/v1/schedules", json={
         "kind": "security", "channel": "#sec", "frequency": "daily", "time": "09:00",
     })
-    assert r.status_code == 403
-    assert r.json()["detail"]["error"]["code"] == "admin_only"
+    assert r.status_code == 200
+    assert "id" in r.json()
 
 
-def test_non_admin_cannot_pause_or_resume_or_delete_or_run_now(client_and_db):
+def test_non_admin_cannot_mutate_a_schedule_they_do_not_own(client_and_db):
+    """This schedule was created directly via the scheduling module (bypassing the
+    console), so it has no `created_by` — a legacy/unattributed row is admin-only."""
     from bott.skills import scheduling
     tc, db = client_and_db
     sch = scheduling.create_security_digest(db, channel="#sec", cron="0 9 * * *")
     _as(tc)
-    assert tc.post(f"/api/console/v1/schedules/{sch.id}/pause").status_code == 403
-    assert tc.post(f"/api/console/v1/schedules/{sch.id}/resume").status_code == 403
-    assert tc.post(f"/api/console/v1/schedules/{sch.id}/run-now").status_code == 403
-    assert tc.delete(f"/api/console/v1/schedules/{sch.id}").status_code == 403
+    for resp in (
+        tc.post(f"/api/console/v1/schedules/{sch.id}/pause"),
+        tc.post(f"/api/console/v1/schedules/{sch.id}/resume"),
+        tc.post(f"/api/console/v1/schedules/{sch.id}/run-now"),
+        tc.delete(f"/api/console/v1/schedules/{sch.id}"),
+    ):
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["error"]["code"] == "not_owner"
 
 
 def test_non_admin_can_still_list_schedules(client_and_db):

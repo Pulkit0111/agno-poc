@@ -152,6 +152,13 @@ class ScheduleCreateBody(BaseModel):
     engagement: str | None = None
     account_name: str | None = None
     band: str | None = None
+    team: str | None = None
+
+
+class SchedulePreviewBody(BaseModel):
+    kind: str
+    frequency: str
+    time: str
 
 
 def _skills():
@@ -202,6 +209,17 @@ def build_console_router(db) -> APIRouter:
     # csrf_guard runs on EVERY console route (it no-ops on safe methods) so no future
     # mutating endpoint can be added without CSRF protection.
     r = APIRouter(dependencies=[Depends(csrf_guard)])
+
+    def require_schedule_owner_or_admin(schedule_id: str, user: dict) -> None:
+        """Owner-or-admin gate for schedule mutations: admins pass unconditionally;
+        everyone else must be the schedule's stamped (or legacy-inferred) creator. A
+        schedule with no recoverable owner (created before `created_by` existed, or
+        already deleted) is admin-only — never assume a member owns an unattributed row."""
+        if user["is_admin"]:
+            return
+        owner = schedule_service.schedule_owner_for_id(db, schedule_id)
+        if not owner or owner.lower() != user["email"].lower():
+            raise _err(403, "not_owner", "Only this schedule's creator or an admin can do this.")
 
     @r.get("/api/console/auth/login")
     def login() -> RedirectResponse:
@@ -336,33 +354,33 @@ def build_console_router(db) -> APIRouter:
 
     @r.post("/api/console/v1/schedules/{schedule_id}/pause")
     def pause_schedule(request: Request, schedule_id: str) -> dict:
-        require_admin(current_user(request))
+        require_schedule_owner_or_admin(schedule_id, current_user(request))
         if not schedule_service.pause(db, schedule_id):
             raise _err(404, "not_found", "That schedule doesn't exist.")
         return {"enabled": False}
 
     @r.post("/api/console/v1/schedules/{schedule_id}/resume")
     def resume_schedule(request: Request, schedule_id: str) -> dict:
-        require_admin(current_user(request))
+        require_schedule_owner_or_admin(schedule_id, current_user(request))
         if not schedule_service.resume(db, schedule_id):
             raise _err(404, "not_found", "That schedule doesn't exist.")
         return {"enabled": True}
 
     @r.post("/api/console/v1/schedules/{schedule_id}/run-now")
     def run_schedule_now(request: Request, schedule_id: str, background_tasks: BackgroundTasks) -> dict:
-        require_admin(current_user(request))
+        require_schedule_owner_or_admin(schedule_id, current_user(request))
         background_tasks.add_task(schedule_service.trigger_now, schedule_id)
         return {"triggered": True}
 
     @r.delete("/api/console/v1/schedules/{schedule_id}")
     def delete_schedule(request: Request, schedule_id: str) -> dict:
-        require_admin(current_user(request))
+        require_schedule_owner_or_admin(schedule_id, current_user(request))
         schedule_service.remove(db, [schedule_id])
         return {"deleted": True}
 
     @r.post("/api/console/v1/schedules")
     def create_schedule(request: Request, body: ScheduleCreateBody) -> dict:
-        require_admin(current_user(request))
+        user = current_user(request)
         if body.frequency is not None and body.frequency not in _VALID_FREQUENCIES:
             raise _err(400, "bad_frequency", f"Unknown cadence: {body.frequency}")
         if not _TIME_RE.fullmatch(body.time):
@@ -370,27 +388,48 @@ def build_console_router(db) -> APIRouter:
         if body.kind == "sprint":
             if not body.engagement:
                 raise _err(400, "missing_field", "Pick an engagement for a sprint report schedule.")
-            sch = schedule_service.create_sprint_report_schedule(db, body.engagement, body.channel, body.time)
+            sch = schedule_service.create_sprint_report_schedule(
+                db, body.engagement, body.channel, body.time, created_by=user["email"])
         elif body.kind == "delivery":
             if not body.engagement or not body.frequency:
                 raise _err(400, "missing_field", "Pick an engagement and a cadence for a delivery digest.")
             sch = schedule_service.create_delivery(
-                db, body.engagement, body.account_name or "", body.channel, body.frequency, body.time, band=body.band)
+                db, body.engagement, body.account_name or "", body.channel, body.frequency, body.time,
+                band=body.band, created_by=user["email"])
         elif body.kind == "security":
             if not body.frequency:
                 raise _err(400, "missing_field", "Pick a cadence for the security digest.")
-            sch = schedule_service.create_security(db, body.channel, body.frequency, body.time)
+            sch = schedule_service.create_security(db, body.channel, body.frequency, body.time,
+                                                   created_by=user["email"])
         elif body.kind == "sentiment":
             if not body.frequency:
                 raise _err(400, "missing_field", "Pick a cadence for the sentiment report.")
-            sch = schedule_service.create_sentiment(db, body.channel, body.frequency, body.time)
+            sch = schedule_service.create_sentiment(db, body.channel, body.frequency, body.time,
+                                                    created_by=user["email"])
         elif body.kind == "portfolio":
             if not body.frequency:
                 raise _err(400, "missing_field", "Pick a cadence for the portfolio dashboard.")
-            sch = schedule_service.create_portfolio(db, body.channel, body.frequency, body.time)
+            sch = schedule_service.create_portfolio(db, body.channel, body.frequency, body.time,
+                                                     created_by=user["email"])
+        elif body.kind == "dsm":
+            team = (body.team or "").strip()
+            if not team or not body.channel:
+                raise _err(400, "missing_field", "Pick a team and a channel for a DSM schedule.")
+            sch = schedule_service.create_dsm_default(
+                db, team, body.channel, body.time, days=body.frequency or "weekdays",
+                created_by=user["email"])
         else:
             raise _err(400, "bad_kind", f"Unknown schedule kind: {body.kind}")
         return {"id": sch.id}
+
+    @r.post("/api/console/v1/schedules/preview")
+    def preview_schedule(request: Request, body: SchedulePreviewBody) -> dict:
+        current_user(request)
+        if body.frequency not in _VALID_FREQUENCIES:
+            raise _err(400, "bad_frequency", f"Unknown cadence: {body.frequency}")
+        if not _TIME_RE.fullmatch(body.time):
+            raise _err(400, "bad_time", "Time must be HH:MM in 24-hour format.")
+        return schedule_service.preview(body.frequency, body.time)
 
     @r.get("/api/console/v1/action-items")
     def list_action_items(request: Request, include_done: bool = False) -> dict:

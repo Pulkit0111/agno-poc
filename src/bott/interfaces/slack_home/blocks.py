@@ -168,8 +168,9 @@ def _schedules_blocks(rows: list[dict]) -> list[dict]:
         out.append({"type": "section", "text": {"type": "mrkdwn",
                     "text": "_No schedules yet — add one below._"}})
     for r in rows:
+        suffix = "  _(Personal)_" if r.get("personal") else ""
         out.append({"type": "section", "text": {"type": "mrkdwn",
-                    "text": f"{r['icon']} *{r['label']}* → {_channel_display(r.get('channel'))}\n_{r['when']}_"}})
+                    "text": f"{r['icon']} *{r['label']}*{suffix} → {_channel_display(r.get('channel'))}\n_{r['when']}_"}})
         elements = [_btn(b["text"], b["action_id"], b["value"]) for b in r["run_buttons"]]
         elements.append(
             _btn("✖ Remove", f"remove:{r['remove_ids'][0]}", ",".join(r["remove_ids"]), style="danger")
@@ -195,7 +196,9 @@ def build_home_view(rows: list[dict], *, viewer_name: str | None = None,
     Models and System panels.
 
     Each schedule row dict carries: icon, label, channel, when, run_buttons (list of
-    {text, action_id, value}) and remove_ids (list of schedule ids). ``action_items`` is the
+    {text, action_id, value}) and remove_ids (list of schedule ids); an optional
+    ``personal`` bool flags the viewer's own concierge schedules, rendered with a
+    "(Personal)" suffix. ``action_items`` is the
     caller's own concierge items ([{id, text}]); ``approvals_pending`` their pending
     approvals ([{id, action, summary}]); ``recent_activity`` their recent jobs
     ([{kind, status}]). ``connectors_blocks``/``models_blocks``/``system_blocks`` are
