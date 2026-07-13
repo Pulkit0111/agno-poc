@@ -59,6 +59,42 @@ def test_a_member_create_stamps_created_by(client_and_db):
     assert row["created_by"] == "member@x.com"
 
 
+# ---- custom (free-text "do anything") schedule --------------------------------------
+
+def test_custom_schedule_creates_personal_task_owned_by_creator(client_and_db):
+    tc, db = client_and_db
+    _as(tc, "member@x.com")
+    r = tc.post("/api/console/v1/schedules", json={
+        "kind": "custom", "prompt": "Check overdue invoices and DM me a summary",
+        "label": "invoice check", "frequency": "weekly", "time": "09:00",
+    })
+    assert r.status_code == 200
+    sch_id = r.json()["id"]
+    row = next(x for x in schedule_service.list_raw(db, viewer_email="member@x.com") if x["id"] == sch_id)
+    assert row["created_by"] == "member@x.com"
+    assert row["personal"] is True
+
+
+def test_custom_schedule_requires_prompt(client_and_db):
+    tc, _db = client_and_db
+    _as(tc, "member@x.com")
+    r = tc.post("/api/console/v1/schedules", json={
+        "kind": "custom", "prompt": "   ", "frequency": "weekly", "time": "09:00",
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "missing_field"
+
+
+def test_custom_schedule_requires_cadence(client_and_db):
+    tc, _db = client_and_db
+    _as(tc, "member@x.com")
+    r = tc.post("/api/console/v1/schedules", json={
+        "kind": "custom", "prompt": "Do a thing", "time": "09:00",
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"]["code"] == "missing_field"
+
+
 # ---- (b) member pauses own schedule -> 200 -------------------------------------------
 
 def test_b_member_pauses_own_schedule(client_and_db):

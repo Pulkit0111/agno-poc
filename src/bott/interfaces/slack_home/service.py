@@ -249,6 +249,18 @@ def create_security(db: Any, channel: str, frequency: str, time_str: str,
     )
 
 
+def create_custom_task(db: Any, *, user_id: str, task_name: str, instruction: str,
+                       frequency: str, time_str: str, created_by: str | None = None) -> Any:
+    """A free-text 'do literally anything' recurring task. Creates a personal concierge
+    schedule that runs the instruction through the full agent on the given cadence and DMs
+    the creator the result — the same mechanism as the Slack `create_schedule` chat tool."""
+    return scheduling.create_recurring_task(
+        db, user_id=user_id, task_name=task_name, instruction=instruction,
+        cron=to_cron(frequency, time_str), timezone=default_timezone(),
+        created_by=created_by,
+    )
+
+
 def create_sentiment(db: Any, channel: str, frequency: str, time_str: str,
                      created_by: str | None = None) -> Any:
     return scheduling.create_sentiment_report(

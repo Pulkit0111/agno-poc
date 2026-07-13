@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useCreateSchedule, useSchedulePreview, type SchedulePreview } from "@/lib/use-schedules";
 
-type Kind = "sprint" | "delivery" | "security" | "dsm" | "portfolio" | "sentiment";
+type Kind = "sprint" | "delivery" | "security" | "dsm" | "portfolio" | "sentiment" | "custom";
 
 const KINDS: { value: Kind; label: string; description: string }[] = [
   { value: "sprint", label: "Sprint report", description: "Designed HTML report from live Jira" },
@@ -16,6 +16,7 @@ const KINDS: { value: Kind; label: string; description: string }[] = [
   { value: "dsm", label: "Daily standup", description: "Open, pre-read & summarize" },
   { value: "portfolio", label: "Portfolio snapshot", description: "Risk rollup across engagements" },
   { value: "sentiment", label: "Sentiment report", description: "Team sentiment trend, tracked over time" },
+  { value: "custom", label: "Anything else…", description: "Describe it in your own words — Bott DMs you the result" },
 ];
 
 const FREQUENCIES: { value: string; label: string }[] = [
@@ -49,6 +50,7 @@ export function ScheduleWizard({
   const [accountName, setAccountName] = useState("");
   const [band, setBand] = useState("");
   const [team, setTeam] = useState("");
+  const [prompt, setPrompt] = useState("");
   const [frequency, setFrequency] = useState("daily");
   const [time, setTime] = useState("09:00");
 
@@ -60,15 +62,17 @@ export function ScheduleWizard({
   const previewSeq = useRef(0);
   const [previewData, setPreviewData] = useState<SchedulePreview | null>(null);
 
+  const isCustom = kind === "custom";
   const needsEngagement = kind === "sprint" || kind === "delivery";
   const needsTeam = kind === "dsm";
   const needsFrequency = kind !== "sprint";
   const isDelivery = kind === "delivery";
 
-  const detailsValid =
-    channel.trim() !== "" &&
-    (!needsEngagement || engagement.trim() !== "") &&
-    (!needsTeam || team.trim() !== "");
+  const detailsValid = isCustom
+    ? prompt.trim() !== ""
+    : channel.trim() !== "" &&
+      (!needsEngagement || engagement.trim() !== "") &&
+      (!needsTeam || team.trim() !== "");
 
   // Live next-run preview — recomputed whenever the cadence inputs change while step 3 is
   // showing. Sprint has no frequency choice (fixed weekly, pinned to the sprint's own end
@@ -92,13 +96,14 @@ export function ScheduleWizard({
     create.mutate(
       {
         kind,
-        channel,
+        channel: isCustom ? undefined : channel,
         time,
         frequency: needsFrequency ? frequency : undefined,
         engagement: needsEngagement ? engagement : undefined,
         account_name: isDelivery ? (accountName || undefined) : undefined,
         band: isDelivery ? (band || undefined) : undefined,
         team: needsTeam ? team : undefined,
+        prompt: isCustom ? prompt : undefined,
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -145,7 +150,24 @@ export function ScheduleWizard({
             </div>
           )}
 
-          {step === 2 && (
+          {step === 2 && isCustom && (
+            <div className="space-y-3">
+              <Field label="What should Bott do?">
+                <textarea
+                  className={cn(inputClass, "min-h-[92px] resize-y")}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="e.g. Every Monday, check which client invoices are overdue in our sheet and DM me a summary with who to chase"
+                />
+              </Field>
+              <p className="text-xs text-muted-foreground">
+                Bott runs this with its full toolset on the cadence you pick and DMs you the
+                result. Say what you want in plain language.
+              </p>
+            </div>
+          )}
+
+          {step === 2 && !isCustom && (
             <div className="space-y-3">
               {needsEngagement && (
                 <Field label="Engagement">
@@ -215,11 +237,15 @@ export function ScheduleWizard({
                   {previewData && (
                     <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs">
                       Next run: <b className="font-medium">{previewData.next_run}</b>
-                      {channel && (
+                      {isCustom ? (
+                        <>
+                          {" "}· Bott <b className="font-medium">DMs you</b>
+                        </>
+                      ) : channel ? (
                         <>
                           {" "}· posts to <b className="font-medium">{channel}</b>
                         </>
-                      )}
+                      ) : null}
                       <div className="mt-0.5 text-muted-foreground">{previewData.cadence}</div>
                     </div>
                   )}

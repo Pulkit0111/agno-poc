@@ -40,8 +40,9 @@ export function useRunScheduleNow() {
 export function useDeleteSchedule() { return useScheduleAction((id) => `/api/console/v1/schedules/${id}`, "DELETE"); }
 
 export type CreateScheduleInput = {
-  kind: string; channel: string; time: string; frequency?: string;
+  kind: string; channel?: string; time: string; frequency?: string;
   engagement?: string; account_name?: string; band?: string; team?: string;
+  prompt?: string; label?: string;
 };
 
 export function useCreateSchedule() {

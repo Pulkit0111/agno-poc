@@ -134,4 +134,31 @@ describe("ScheduleWizard", () => {
     expect(screen.getByText("Monday, Jul 20 at 9:00 AM")).toBeDefined();
     expect(screen.queryByText("Tomorrow at 9:00 AM")).toBeNull();
   });
+
+  it("creates a free-text 'Anything else' custom schedule from a prompt (no channel)", () => {
+    render(<ScheduleWizard open onOpenChange={() => {}} />);
+
+    fireEvent.click(screen.getByText("Anything else…"));
+    fireEvent.click(screen.getByText("Next"));
+
+    // Custom step 2 asks for a free-text instruction, not a channel.
+    expect(screen.queryByLabelText("Channel")).toBeNull();
+    fireEvent.change(screen.getByLabelText("What should Bott do?"), {
+      target: { value: "Check overdue invoices and DM me a summary" },
+    });
+    fireEvent.click(screen.getByText("Next"));
+
+    fireEvent.click(screen.getByText("Weekly"));
+    fireEvent.click(screen.getByText("Create schedule"));
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "custom",
+        prompt: "Check overdue invoices and DM me a summary",
+        frequency: "weekly",
+        time: "09:00",
+        channel: undefined,
+      }),
+      expect.anything(),
+    );
+  });
 });

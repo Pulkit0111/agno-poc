@@ -158,13 +158,15 @@ class TodoToggleBody(BaseModel):
 
 class ScheduleCreateBody(BaseModel):
     kind: str
-    channel: str
+    channel: str = ""
     time: str
     frequency: str | None = None
     engagement: str | None = None
     account_name: str | None = None
     band: str | None = None
     team: str | None = None
+    prompt: str | None = None  # free-text instruction for a "custom" schedule
+    label: str | None = None  # optional short name for a "custom" schedule
 
 
 class SchedulePreviewBody(BaseModel):
@@ -525,6 +527,17 @@ def build_console_router(db) -> APIRouter:
             sch = schedule_service.create_dsm_default(
                 db, team, body.channel, body.time, days=body.frequency or "weekdays",
                 created_by=user["email"])
+        elif body.kind == "custom":
+            from bott.skills.scheduling import _slug
+            instruction = (body.prompt or "").strip()
+            if not instruction:
+                raise _err(400, "missing_field", "Describe what Bott should do for a custom schedule.")
+            if not body.frequency:
+                raise _err(400, "missing_field", "Pick a cadence for a custom schedule.")
+            task_name = _slug(body.label or instruction)
+            sch = schedule_service.create_custom_task(
+                db, user_id=user["email"], task_name=task_name, instruction=instruction,
+                frequency=body.frequency, time_str=body.time, created_by=user["email"])
         else:
             raise _err(400, "bad_kind", f"Unknown schedule kind: {body.kind}")
         return {"id": sch.id}
