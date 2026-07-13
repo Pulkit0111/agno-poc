@@ -7,6 +7,7 @@ import { api, ApiError } from "./api";
 export type Schedule = {
   id: string; label: string; kind: string; channel: string;
   cron: string; timezone: string; enabled: boolean; next_run: string;
+  cadence: string; created_by: string | null; personal: boolean;
 };
 
 export function useSchedules() {
@@ -40,7 +41,7 @@ export function useDeleteSchedule() { return useScheduleAction((id) => `/api/con
 
 export type CreateScheduleInput = {
   kind: string; channel: string; time: string; frequency?: string;
-  engagement?: string; account_name?: string; band?: string;
+  engagement?: string; account_name?: string; band?: string; team?: string;
 };
 
 export function useCreateSchedule() {
@@ -49,6 +50,21 @@ export function useCreateSchedule() {
     mutationFn: (body: CreateScheduleInput) =>
       api<{ id: string }>("/api/console/v1/schedules", { method: "POST", body: JSON.stringify(body) }),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't create the schedule."),
-    onSuccess: () => { toast.success("Schedule created."); qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: () => {
+      toast.success("Schedule created — it'll also show up in Bott's App Home in Slack.");
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+    },
+  });
+}
+
+export type SchedulePreviewInput = { kind: string; frequency: string; time: string };
+export type SchedulePreview = { next_run: string; cadence: string };
+
+/** Live "what would this schedule look like" preview — no DB write. Used by the create
+ * wizard's cadence step; safe to call repeatedly as the user adjusts frequency/time. */
+export function useSchedulePreview() {
+  return useMutation({
+    mutationFn: (body: SchedulePreviewInput) =>
+      api<SchedulePreview>("/api/console/v1/schedules/preview", { method: "POST", body: JSON.stringify(body) }),
   });
 }
