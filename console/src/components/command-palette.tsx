@@ -14,6 +14,7 @@ const PAGES: Page[] = [
   { label: "Activity", href: "/activity" },
   { label: "Schedules", href: "/schedules" },
   { label: "Action items", href: "/action-items" },
+  { label: "Todos", href: "/todos" },
   { label: "Skills", href: "/skills" },
   { label: "Connectors", href: "/connectors" },
   { label: "Admin · System", href: "/admin/system", admin: true },

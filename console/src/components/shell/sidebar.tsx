@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity, Building2, CalendarClock,
-  HeartPulse, House, Library, ListChecks, LucideIcon, MessageSquareQuote,
+  HeartPulse, House, Library, ListChecks, ListTodo, LucideIcon, MessageSquareQuote,
   PanelLeftClose, PanelLeftOpen, Settings2, Shield, SquareTerminal, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,12 +18,12 @@ const SIDEBAR_STORAGE_KEY = "console.sidebar";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
-// Todos lands in a later task — nav item added then.
 const MEMBER: NavItem[] = [
   { href: "/", label: "Home", icon: House },
   { href: "/activity", label: "Activity", icon: Activity },
   { href: "/schedules", label: "Schedules", icon: CalendarClock },
   { href: "/action-items", label: "Action items", icon: ListChecks },
+  { href: "/todos", label: "Todos", icon: ListTodo },
   { href: "/skills", label: "Skills", icon: Library },
   { href: "/connectors", label: "Connectors", icon: SquareTerminal },
 ];

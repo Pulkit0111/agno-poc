@@ -145,6 +145,22 @@ ACTION_ITEMS = Table(
 Index("idx_action_items_user_status", ACTION_ITEMS.c.user_id, ACTION_ITEMS.c.status)
 
 
+# Personal console-only quick checklist (shared/persistence/todos.py owns the DML).
+# Deliberately dumb — no Slack surface, no reminders, no admin variants. Distinct from
+# ACTION_ITEMS above (which sync to Slack App Home and get DM reminders).
+TODOS = Table(
+    "todos",
+    METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", Text, nullable=False),
+    Column("text", Text, nullable=False),
+    Column("done", Integer, nullable=False, server_default=_sql_text("0")),
+    Column("created", Float, nullable=False),
+    Column("updated", Float, nullable=False),
+)
+Index("idx_todos_user", TODOS.c.user_id, TODOS.c.done, TODOS.c.id)
+
+
 # Versioned prompt store (prompts_store.py owns the DML). Append-only history of
 # IDENTITY/VOICE prompt edits; each save is a new row, never mutated in place.
 PROMPT_VERSIONS = Table(

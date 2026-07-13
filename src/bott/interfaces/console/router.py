@@ -17,7 +17,7 @@ from bott.interfaces.console import oidc, sessions
 from bott.interfaces.slack_home import service as schedule_service
 from bott.shared import action_policy, approvals, config
 from bott.shared.observability.logging_setup import get_logger
-from bott.shared.persistence import action_items, queue
+from bott.shared.persistence import action_items, queue, todos
 from bott.skills import channel_map
 
 log = get_logger("bott.console")
@@ -146,6 +146,14 @@ class SnoozeBody(BaseModel):
 
 class ActionItemCreateBody(BaseModel):
     text: str
+
+
+class TodoCreateBody(BaseModel):
+    text: str
+
+
+class TodoToggleBody(BaseModel):
+    done: bool
 
 
 class ScheduleCreateBody(BaseModel):
@@ -463,6 +471,40 @@ def build_console_router(db) -> APIRouter:
         if not action_items.snooze_item(user["email"], item_id, remind_at, now):
             raise _err(404, "not_found", "That action item doesn't exist or isn't yours.")
         return {"status": "snoozed", "remind_at": remind_at}
+
+    @r.get("/api/console/v1/todos")
+    def list_todos(request: Request) -> dict:
+        user = current_user(request)
+        rows = todos.list_for(user["email"])
+        items = [{"id": t["id"], "text": t["text"], "done": bool(t["done"]),
+                  "created": t["created"]} for t in rows]
+        return {"items": items}
+
+    @r.post("/api/console/v1/todos")
+    def create_todo(request: Request, body: TodoCreateBody) -> dict:
+        user = current_user(request)
+        todo_id = todos.add(user["email"], body.text)
+        return {"id": todo_id}
+
+    @r.post("/api/console/v1/todos/{todo_id}/toggle")
+    def toggle_todo(request: Request, todo_id: int, body: TodoToggleBody) -> dict:
+        user = current_user(request)
+        if not todos.set_done(user["email"], todo_id, body.done):
+            raise _err(404, "not_found", "That todo doesn't exist or isn't yours.")
+        return {"status": "done" if body.done else "open"}
+
+    @r.delete("/api/console/v1/todos/{todo_id}")
+    def delete_todo(request: Request, todo_id: int) -> dict:
+        user = current_user(request)
+        if not todos.delete(user["email"], todo_id):
+            raise _err(404, "not_found", "That todo doesn't exist or isn't yours.")
+        return {"status": "deleted"}
+
+    @r.post("/api/console/v1/todos/clear-done")
+    def clear_done_todos(request: Request) -> dict:
+        user = current_user(request)
+        removed = todos.clear_done(user["email"])
+        return {"removed": removed}
 
     @r.get("/api/console/v1/skills")
     def list_skills_route(request: Request) -> dict:
