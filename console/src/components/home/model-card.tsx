@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { StatusPill } from "@/components/ui/status-pill";
 import { useMe } from "@/lib/use-me";
 import { getActiveModels, useModels } from "@/lib/use-models";
 
@@ -28,16 +29,10 @@ export function ModelCard() {
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-            connected
-              ? "bg-green-500/15 text-green-700 dark:text-green-400"
-              : "bg-red-500/15 text-red-700 dark:text-red-400"
-          }`}
-        >
-          <span className={`size-1.5 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
-          {connected ? "ChatGPT (Codex) connected" : "ChatGPT (Codex) not connected"}
-        </span>
+        <StatusPill
+          tone={connected ? "good" : "bad"}
+          label={connected ? "ChatGPT (Codex) connected" : "ChatGPT (Codex) not connected"}
+        />
         {me?.is_admin && (
           <Link href="/admin/models" className="ml-auto text-xs text-primary hover:underline">
             Manage models →
