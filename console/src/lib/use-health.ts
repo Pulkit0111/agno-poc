@@ -5,7 +5,8 @@ import { api } from "./api";
 
 export type HealthConnector = {
   name: string;
-  connected?: boolean;
+  ok: boolean;
+  on?: string;
   off?: string;
   [key: string]: unknown;
 };

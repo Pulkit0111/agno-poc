@@ -128,7 +128,7 @@ export default function SystemPage() {
             ) : (
               <ul>
                 {health.connectors.map((c: HealthConnector) => {
-                  const ok = c.connected !== false && !c.off;
+                  const ok = c.ok;
                   return (
                     <li
                       key={c.name}
