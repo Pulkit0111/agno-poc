@@ -15,8 +15,10 @@ there is no single default mailbox to impersonate.
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from types import SimpleNamespace
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from bott.shared import codex_tokens, config
 from bott.shared.observability.logging_setup import get_logger, redact
@@ -24,6 +26,32 @@ from bott.shared.observability.logging_setup import get_logger, redact
 log = get_logger("bott.connectors.probes")
 
 _TIMEOUT = 10.0
+_DEADLINE = 15.0
+
+
+def _with_deadline(fn: Callable[[], Any], seconds: Optional[float] = None) -> Any:
+    """Run ``fn`` in a worker thread with a hard deadline. Some client stacks expose no
+    timeout knob anywhere in their call chain (googleapiclient's discovery/build), so a
+    hung socket would otherwise pin the console's Test endpoint indefinitely. On timeout
+    this raises ``TimeoutError`` (the probe wrapper turns it into ``ok: False``) and
+    abandons the worker — a bounded best-effort thread leak, one per timed-out probe.
+    ``seconds`` resolves against the module's ``_DEADLINE`` at call time (patchable)."""
+    seconds = _DEADLINE if seconds is None else seconds
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(fn).result(timeout=seconds)
+    except FutureTimeoutError:
+        raise TimeoutError(f"timed out after {seconds:.0f}s") from None
+    finally:
+        # wait=False: never block on a hung worker — that's the whole point of the deadline.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _plain_message(e: Exception) -> str:
+    """An exception's text, redacted. Probe messages are shown verbatim in the console's
+    fix-setup drawer, so any token an SDK echoes back in its error text must be scrubbed
+    here too — not only in the log line."""
+    return redact(str(e).strip() or e.__class__.__name__)
 
 
 def _jira() -> dict:
@@ -46,14 +74,18 @@ def _jira() -> dict:
 def _confluence() -> dict:
     if not config.confluence_configured():
         return {"ok": False, "message": "Confluence isn't configured (set CONFLUENCE_URL + credentials)."}
-    from agno.tools.confluence import ConfluenceTools
+    # Same credentials/env config the ConfluenceTools connector uses, but constructing the
+    # underlying atlassian client directly: the toolkit exposes no timeout parameter and
+    # the atlassian client's default is 75s — too long for a health probe.
+    from atlassian import Confluence
 
-    tools = ConfluenceTools(
+    client = Confluence(
         url=config.confluence_url(),
         username=config.confluence_username(),
-        api_key=config.confluence_api_key(),
+        password=config.confluence_api_key(),
+        timeout=int(_TIMEOUT),
     )
-    spaces = tools.confluence.get_all_spaces(start=0, limit=1)
+    spaces = client.get_all_spaces(start=0, limit=1)
     count = len((spaces or {}).get("results") or [])
     return {"ok": True, "message": f"Reached Confluence ({count} space listed)."}
 
@@ -108,8 +140,12 @@ def _gmail_probe(subject_email: Optional[str]) -> dict:
         return {"ok": False, "message": "No signed-in email to test delegated Gmail access with."}
     from bott.skills.connectors import gmail as gmail_mod
 
-    gt = gmail_mod._impersonated(SimpleNamespace(user_id=subject_email))
-    gt.search_emails("", 1)
+    def _run():
+        gt = gmail_mod._impersonated(SimpleNamespace(user_id=subject_email))
+        gt.search_emails("", 1)
+
+    # googleapiclient's build/discovery chain has no timeout parameter — enforce one here.
+    _with_deadline(_run)
     return {"ok": True, "message": f"Delegated Gmail read succeeded for {subject_email}."}
 
 
@@ -120,8 +156,12 @@ def _drive_probe(subject_email: Optional[str]) -> dict:
         return {"ok": False, "message": "No signed-in email to test delegated Drive access with."}
     from bott.skills.connectors import drive as drive_mod
 
-    gt = drive_mod._impersonated(SimpleNamespace(user_id=subject_email))
-    gt.search_files("", 1)
+    def _run():
+        gt = drive_mod._impersonated(SimpleNamespace(user_id=subject_email))
+        gt.search_files("", 1)
+
+    # googleapiclient's build/discovery chain has no timeout parameter — enforce one here.
+    _with_deadline(_run)
     return {"ok": True, "message": f"Delegated Drive read succeeded for {subject_email}."}
 
 
@@ -132,8 +172,12 @@ def _calendar_probe(subject_email: Optional[str]) -> dict:
         return {"ok": False, "message": "No signed-in email to test delegated Calendar access with."}
     from bott.skills.connectors import calendar as calendar_mod
 
-    gt = calendar_mod._impersonated(SimpleNamespace(user_id=subject_email))
-    gt.list_calendars()
+    def _run():
+        gt = calendar_mod._impersonated(SimpleNamespace(user_id=subject_email))
+        gt.list_calendars()
+
+    # googleapiclient's build/discovery chain has no timeout parameter — enforce one here.
+    _with_deadline(_run)
     return {"ok": True, "message": f"Delegated Calendar read succeeded for {subject_email}."}
 
 
@@ -157,7 +201,7 @@ def _google(subject_email: Optional[str]) -> dict:
         try:
             result = fn(subject_email)
         except Exception as e:  # noqa: BLE001 — one scope failing shouldn't crash the others
-            result = {"ok": False, "message": str(e).strip() or e.__class__.__name__}
+            result = {"ok": False, "message": _plain_message(e)}
         ok = ok and bool(result.get("ok"))
         parts.append(f"{kind}: {'ok' if result.get('ok') else result.get('message')}")
     return {"ok": ok, "message": "; ".join(parts)}
@@ -189,5 +233,4 @@ def probe(name: str, subject_email: Optional[str] = None) -> dict:
         return {"ok": bool(result.get("ok")), "message": str(result.get("message") or "")}
     except Exception as e:  # noqa: BLE001 — a probe must NEVER raise past this point
         log.warning("connector probe %r failed: %s", key, redact(str(e)))
-        msg = str(e).strip() or e.__class__.__name__
-        return {"ok": False, "message": f"Couldn't reach {key} ({msg})."}
+        return {"ok": False, "message": f"Couldn't reach {key} ({_plain_message(e)})."}
