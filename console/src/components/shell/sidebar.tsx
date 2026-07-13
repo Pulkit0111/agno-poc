@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity, Building2, CalendarClock,
   HeartPulse, House, Library, ListChecks, ListTodo, LucideIcon, MessageSquareQuote,
-  PanelLeftClose, PanelLeftOpen, Settings2, Shield, SquareTerminal, Users,
+  PanelLeftClose, PanelLeftOpen, Settings2, SquareTerminal, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/lib/use-me";
@@ -32,7 +32,6 @@ const ADMIN: NavItem[] = [
   { href: "/admin/system", label: "System", icon: HeartPulse },
   { href: "/admin/models", label: "Models", icon: Settings2 },
   { href: "/admin/engagements", label: "Engagements", icon: Building2 },
-  { href: "/admin/policy", label: "Policy", icon: Shield },
   { href: "/admin/prompts", label: "Prompts", icon: MessageSquareQuote },
   { href: "/admin/users", label: "Users", icon: Users },
 ];

@@ -12,7 +12,7 @@ const NAMES: Record<string, string> = {
   "/skills": "Skills", "/connectors": "Connectors",
   "/admin/system": "System",
   "/admin/models": "Models", "/admin/engagements": "Engagements",
-  "/admin/users": "Users", "/admin/policy": "Policy",
+  "/admin/users": "Users",
   "/admin/prompts": "Prompts",
 };
 

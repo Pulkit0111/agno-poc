@@ -20,7 +20,6 @@ const PAGES: Page[] = [
   { label: "Admin · System", href: "/admin/system", admin: true },
   { label: "Admin · Models", href: "/admin/models", admin: true },
   { label: "Admin · Engagements", href: "/admin/engagements", admin: true },
-  { label: "Admin · Policy", href: "/admin/policy", admin: true },
   { label: "Admin · Prompts", href: "/admin/prompts", admin: true },
   { label: "Admin · Users", href: "/admin/users", admin: true },
 ];
