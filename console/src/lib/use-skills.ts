@@ -9,11 +9,69 @@ export type SkillRow = {
   built_in: boolean; pinned: boolean; authored_by: string | null;
 };
 
+export type SkillVersion = { id: number; slug: string; note: string; author: string; created: number };
+
+export type SkillDetail = SkillRow & {
+  content: string;
+  versions: SkillVersion[];
+};
+
+/** The shape `POST /skills/draft` hands back — and exactly what `POST /skills` expects to save it. */
+export type SkillDraft = { slug: string; name: string; description: string; content: string };
+
 export function useSkills() {
   return useQuery({
     queryKey: ["skills"],
     queryFn: () => api<{ skills: SkillRow[] }>("/api/console/v1/skills"),
     select: (d) => d.skills,
+  });
+}
+
+export function useSkill(slug: string) {
+  return useQuery({
+    queryKey: ["skill", slug],
+    queryFn: () => api<SkillDetail>(`/api/console/v1/skills/${slug}`),
+    enabled: !!slug,
+  });
+}
+
+export function useUpdateSkill(slug: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { content: string; note: string }) =>
+      api<{ ok: boolean; version: number }>(`/api/console/v1/skills/${slug}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't save that version."),
+    onSuccess: (data) => {
+      toast.success(`Saved as v${data.version} — Bott is using the new version now`);
+      qc.invalidateQueries({ queryKey: ["skill", slug] });
+      qc.invalidateQueries({ queryKey: ["skills"] });
+    },
+  });
+}
+
+/** One-shot draft: nothing is saved server-side. Used for both the initial draft and a
+ * "Refine" re-draft (which just passes `feedback` alongside the same what/when). */
+export function useDraftSkill() {
+  return useMutation({
+    mutationFn: (body: { what: string; when: string; feedback?: string }) =>
+      api<SkillDraft>("/api/console/v1/skills/draft", { method: "POST", body: JSON.stringify(body) }),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't draft that skill — try again."),
+  });
+}
+
+export function useSaveSkill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SkillDraft) =>
+      api<{ slug: string }>("/api/console/v1/skills", { method: "POST", body: JSON.stringify(body) }),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't save that skill."),
+    onSuccess: (_data, variables) => {
+      toast.success(`Saved — ${variables.name} is live and visible in Slack too`);
+      qc.invalidateQueries({ queryKey: ["skills"] });
+    },
   });
 }
 
