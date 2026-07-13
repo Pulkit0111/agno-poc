@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/common/states";
 import { Markdown } from "@/components/markdown";
 import { useDraftSkill, useSaveSkill, type SkillDraft } from "@/lib/use-skills";
+import { ApiError } from "@/lib/api";
 
 const inputClass = "w-full rounded-md border bg-background px-2.5 py-1.5 text-sm";
 
@@ -84,7 +85,14 @@ export function SkillWizard() {
       {step === 2 && (
         <div className="max-w-xl rounded-xl border bg-card p-7 text-center shadow-sm">
           {draftSkill.isError ? (
-            <ErrorState message="Couldn't draft that skill — try again." onRetry={() => requestDraft("")} />
+            <ErrorState
+              message={
+                draftSkill.error instanceof ApiError
+                  ? draftSkill.error.message
+                  : "Couldn't draft that skill — try again."
+              }
+              onRetry={() => requestDraft("")}
+            />
           ) : (
             <div>
               <div className="font-display mb-1 text-base">Bott is drafting your skill…</div>

@@ -199,6 +199,44 @@ def test_draft_endpoint_502s_after_two_bad_parses(client, monkeypatch):
     assert r.json()["detail"]["error"]["code"] == "draft_failed"
 
 
+def test_model_error_message_flags_bad_codex_token():
+    from bott.skills import skill_draft
+    msg = skill_draft._model_error_message(
+        "Error code: 401 - {'message': 'Your authentication token has been invalidated. "
+        "Please try signing in again.'}"
+    )
+    assert "reconnect" in msg.lower() and "Models page" in msg
+
+
+def test_complete_surfaces_model_error_status_instead_of_treating_it_as_content(monkeypatch):
+    """Agno returns provider errors as a RunOutput(status=error, content=<msg>) rather than
+    raising; _complete must raise the real reason, not hand back the error text as a draft."""
+    from bott.skills import skill_draft
+
+    class _Status:
+        value = "error"
+
+    class _Resp:
+        status = _Status()
+        content = (
+            "Error code: 401 - {'error': {'message': 'Your authentication token has been "
+            "invalidated. Please try signing in again.', 'code': 'token_invalidated'}}"
+        )
+
+    class _FakeAgent:
+        def __init__(self, *a, **k):
+            pass
+
+        def run(self, prompt):
+            return _Resp()
+
+    monkeypatch.setattr("bott.shared.model.build_model", lambda role: object())
+    monkeypatch.setattr("agno.agent.Agent", _FakeAgent)
+    with pytest.raises(ValueError) as ei:
+        skill_draft._complete("draft me a skill")
+    assert "reconnect" in str(ei.value).lower()
+
+
 # ── create (save from draft) + round-trip ──────────────────────────────────────────────
 
 def test_save_then_get_round_trips(client, skills_dir):

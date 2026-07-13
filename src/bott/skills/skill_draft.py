@@ -17,14 +17,34 @@ _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 _REQUIRED_KEYS = ("slug", "name", "description", "content")
 
 
+def _model_error_message(detail: str | None) -> str:
+    """Turn a provider error string into an actionable message for the console."""
+    detail = (detail or "").strip()
+    low = detail.lower()
+    if "token" in low and any(w in low for w in ("invalid", "expired", "sign in", "signing")):
+        return (
+            "Bott's ChatGPT (Codex) connection was rejected by the provider — an admin "
+            "needs to reconnect it on the Models page before drafting will work."
+        )
+    return "Bott's model couldn't be reached right now" + (f": {detail[:200]}" if detail else ".")
+
+
 def _complete(prompt: str) -> str:
-    """Run one prompt through the chat-role model and return its raw text response."""
+    """Run one prompt through the chat-role model and return its raw text response.
+
+    Agno does NOT raise on a non-retryable provider error — it returns a RunOutput with
+    ``status=error`` and the error text as ``content``. Treating that as a valid completion
+    would bury the real cause (e.g. an invalidated Codex token) under a generic
+    unparseable-JSON failure, so detect the error status and raise the real reason."""
     from agno.agent import Agent
 
     from bott.shared.model import build_model
 
-    agent = Agent(model=build_model("chat"))
-    return (agent.run(prompt).content or "").strip()
+    response = Agent(model=build_model("chat")).run(prompt)
+    status = getattr(response, "status", None)
+    if status is not None and str(getattr(status, "value", status)).lower() == "error":
+        raise ValueError(_model_error_message(response.content))
+    return (response.content or "").strip()
 
 
 def _extract_json(raw: str) -> dict:
