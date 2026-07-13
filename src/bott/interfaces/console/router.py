@@ -528,15 +528,13 @@ def build_console_router(db) -> APIRouter:
         from bott.shared.model import _review_anti_affinity
         active = models_mod._active()
         if not user["is_admin"]:
-            # Members get just enough for the Home-page status banner: is Codex
-            # connected. No key hints, no usage, no model catalog.
+            # Members get the task->model matrix (ids only, for the Home-page model card)
+            # plus just enough for the "is Codex connected" banner. No key hints, no
+            # usage, no model catalog.
             usable, _hint = models_mod.provider_key_status("codex")
             return {
-                "provider": active["provider"], "chat": active["chat"],
-                "build": active["build"], "review": active["review"],
-                "conflict": False, "swap_preview": None,
+                "active": active,
                 "providers": [{"name": "codex", "usable": usable, "hint": None, "models": []}],
-                "codex_usage": None,
             }
         provider = active["provider"]
         conflict = active["review"] == active["build"]

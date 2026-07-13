@@ -31,9 +31,12 @@ def test_get_models_member_gets_trimmed_codex_status(client, monkeypatch):
     monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
     _as(client, admin=False)
     body = client.get("/api/console/v1/models").json()
+    assert body["active"] == {
+        "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5-codex", "review": "gpt-5.5",
+    }
     assert body["providers"] == [{"name": "codex", "usable": True, "hint": None, "models": []}]
-    assert body["codex_usage"] is None
-    assert body["conflict"] is False
+    assert "codex_usage" not in body
+    assert "conflict" not in body
 
 
 def test_get_models_member_sees_disconnected_codex(client, monkeypatch):
