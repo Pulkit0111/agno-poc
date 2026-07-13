@@ -144,6 +144,10 @@ class SnoozeBody(BaseModel):
     remind_at: float | None = None
 
 
+class ActionItemCreateBody(BaseModel):
+    text: str
+
+
 class ScheduleCreateBody(BaseModel):
     kind: str
     channel: str
@@ -437,6 +441,12 @@ def build_console_router(db) -> APIRouter:
     def list_action_items(request: Request, include_done: bool = False) -> dict:
         user = current_user(request)
         return {"items": action_items.list_items(user["email"], include_done=include_done)}
+
+    @r.post("/api/console/v1/action-items")
+    def create_action_item(request: Request, body: ActionItemCreateBody) -> dict:
+        user = current_user(request)
+        item_id = action_items.add_item(user["email"], body.text, time.time(), source="console")
+        return {"id": item_id}
 
     @r.post("/api/console/v1/action-items/{item_id}/done")
     def complete_action_item(request: Request, item_id: int) -> dict:

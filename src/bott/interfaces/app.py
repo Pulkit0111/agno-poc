@@ -231,6 +231,13 @@ def main() -> None:
     _worker_thread_ref = _worker_thread
     log.info("PR-review worker started.")
 
+    # Reminder sweep: DMs the owner of any snoozed action item once it's due, then flips
+    # it back to open (shared/reminders.py). No-ops quietly if Slack isn't configured.
+    from bott.shared import reminders
+
+    reminders.start_reminder_thread()
+    log.info("Reminder sweep thread started.")
+
     try:
         agent_os.serve(
             app=app,
@@ -239,6 +246,7 @@ def main() -> None:
         )
     finally:
         _worker_stop.set()
+        reminders.stop_reminder_thread()
         if proxy is not None:
             proxy.stop()
 

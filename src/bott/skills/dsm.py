@@ -13,6 +13,7 @@ previews and reply in the round's thread.
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime
 from typing import Callable, Optional
 from zoneinfo import ZoneInfo
@@ -20,7 +21,7 @@ from zoneinfo import ZoneInfo
 from slack_sdk import WebClient
 
 from bott.shared.observability.logging_setup import get_logger
-from bott.shared.persistence import standup
+from bott.shared.persistence import action_items, standup
 
 log = get_logger("bott.skills.dsm")
 
@@ -100,6 +101,44 @@ def _render_call_summary(team: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _resolve_email(client: WebClient, user_id: str) -> str:
+    """Look up a Slack user's verified email via users.info. Empty string on failure — same
+    fallback used by the App Home router's own `_resolve_email` closure (slack_home/router.py),
+    duplicated here rather than imported since that one closes over a request-scoped client."""
+    try:
+        info = client.users_info(user=user_id)
+        user = info.get("user") or {}
+        prof = user.get("profile", {}) or {}
+        return prof.get("email") or ""
+    except Exception as e:  # noqa: BLE001
+        log.warning("dsm: users_info failed for %s: %s", user_id, e)
+        return ""
+
+
+def _capture_blocker_action_items(team: str, date: str, client: WebClient) -> None:
+    """For every standup response with a non-empty blocker, auto-capture a personal
+    follow-up action item for that responder — deduped per (team, date, user) by checking
+    for an existing item with identical text+source rather than a new tracking table.
+    Responders whose Slack id can't be resolved to an email are SKIPPED (not stored under
+    the raw Slack id) — action_items.user_id is the resolved email everywhere else
+    (isolation invariant the console relies on), and a Slack id there would be silently
+    unmatchable and un-viewable."""
+    for r in standup.responses(team, date):
+        blockers = (r.get("blockers") or "").strip()
+        if not blockers:
+            continue
+        user_id = r["user"]
+        email = _resolve_email(client, user_id)
+        if not email:
+            log.warning("dsm: could not resolve email for %s (team %s) — skipping "
+                        "blocker action item", user_id, team)
+            continue
+        text = f"Follow up on your blocker: {blockers[:200]}"
+        if action_items.has_item_with_text(email, text, "dsm"):
+            continue
+        action_items.add_item(email, text, time.time(), source="dsm")
+
+
 def _post_in_thread(team: str, text: str, what: str) -> str:
     cli = _client()
     if not cli:
@@ -141,12 +180,18 @@ def open_standup(team: str, channel: str) -> str:
 
 def close_standup(team: str, channel: str) -> str:
     """Close collection and post the pre-read (a summary of all submissions) in the thread.
+    Also auto-captures a personal follow-up action item for each blocker-holder — see
+    `_capture_blocker_action_items` (idempotent: re-closing the same round never duplicates).
 
     Args:
         team: The team id/name.
         channel: Slack channel id (unused if a round is on record).
     """
-    resps = standup.responses(team, today_key())
+    date = today_key()
+    resps = standup.responses(team, date)
+    cli = _client()
+    if cli is not None:
+        _capture_blocker_action_items(team, date, cli)
     return _post_in_thread(team, _render_submissions(team, resps), "pre-read")
 
 

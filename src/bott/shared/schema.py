@@ -138,6 +138,9 @@ ACTION_ITEMS = Table(
     Column("remind_at", Float, nullable=True),
     Column("created", Float, nullable=False),
     Column("updated", Float, nullable=False),
+    # Who/what created this item: "user" (agent tool), "console" (web console create),
+    # "dsm" (auto-captured from a standup blocker). Drives console filtering/labeling.
+    Column("source", Text, nullable=False, server_default=_sql_text("'user'")),
 )
 Index("idx_action_items_user_status", ACTION_ITEMS.c.user_id, ACTION_ITEMS.c.status)
 

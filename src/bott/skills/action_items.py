@@ -24,7 +24,7 @@ def _add_action_item_impl(run_context: RunContext, text: str) -> str:
     except IsolationError:
         return "I couldn't tell who you are, so I won't save this action item."
     now = time.time()
-    item_id = _store.add_item(uid, text, now)
+    item_id = _store.add_item(uid, text, now, source="user")
     return f"Added action item #{item_id}: {text}"
 
 

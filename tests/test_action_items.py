@@ -97,6 +97,69 @@ def test_due_reminders_excludes_future(astore):
 
 
 # ---------------------------------------------------------------------------
+# source column: default "user", explicit override, surfaced in list/due_reminders
+# ---------------------------------------------------------------------------
+
+def test_add_item_default_source_is_user(astore):
+    iid = store.add_item("alice", "task", 1000.0)
+    items = store.list_items("alice")
+    assert items[0]["id"] == iid
+    assert items[0]["source"] == "user"
+
+
+def test_add_item_explicit_source(astore):
+    store.add_item("alice", "console-created", 1000.0, source="console")
+    items = store.list_items("alice")
+    assert items[0]["source"] == "console"
+
+
+def test_due_reminders_includes_source(astore):
+    iid = store.add_item("alice", "task", 1000.0, source="dsm")
+    store.snooze_item("alice", iid, 500.0, 1001.0)
+    due = store.due_reminders(1100.0)
+    assert due[0]["source"] == "dsm"
+
+
+# ---------------------------------------------------------------------------
+# mark_reminded: flips a snoozed item back to open, clears remind_at
+# ---------------------------------------------------------------------------
+
+def test_mark_reminded_resets_status_and_clears_remind_at(astore):
+    iid = store.add_item("alice", "task", 1000.0)
+    store.snooze_item("alice", iid, 500.0, 1001.0)
+    store.mark_reminded(iid)
+    items = store.list_items("alice")
+    assert items[0]["status"] == "open"
+    assert items[0]["remind_at"] is None
+
+
+def test_mark_reminded_no_longer_due(astore):
+    iid = store.add_item("alice", "task", 1000.0)
+    store.snooze_item("alice", iid, 500.0, 1001.0)
+    store.mark_reminded(iid)
+    assert store.due_reminders(2000.0) == []
+
+
+# ---------------------------------------------------------------------------
+# has_item_with_text: dedup helper for idempotent auto-capture (e.g. DSM blockers)
+# ---------------------------------------------------------------------------
+
+def test_has_item_with_text_true_after_add(astore):
+    store.add_item("alice", "Follow up on your blocker: infra", 1000.0, source="dsm")
+    assert store.has_item_with_text("alice", "Follow up on your blocker: infra", "dsm") is True
+
+
+def test_has_item_with_text_false_for_other_user(astore):
+    store.add_item("alice", "Follow up on your blocker: infra", 1000.0, source="dsm")
+    assert store.has_item_with_text("bob", "Follow up on your blocker: infra", "dsm") is False
+
+
+def test_has_item_with_text_false_for_other_source(astore):
+    store.add_item("alice", "Follow up on your blocker: infra", 1000.0, source="user")
+    assert store.has_item_with_text("alice", "Follow up on your blocker: infra", "dsm") is False
+
+
+# ---------------------------------------------------------------------------
 # Isolation: user B cannot see or modify user A's items
 # ---------------------------------------------------------------------------
 
@@ -144,6 +207,13 @@ def test_add_action_item_tool(astore):
     out = ai_skills._add_action_item_impl(ctx, "Follow up with client")
     assert "Added action item" in out
     assert "Follow up with client" in out
+
+
+def test_add_action_item_tool_sets_source_user(astore):
+    ctx = SimpleNamespace(user_id="alice")
+    ai_skills._add_action_item_impl(ctx, "Follow up with client")
+    items = store.list_items("alice")
+    assert items[0]["source"] == "user"
 
 
 def test_add_action_item_blank_user_fails_closed(astore):
