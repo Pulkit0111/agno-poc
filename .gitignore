@@ -40,3 +40,16 @@ agentos.db
 agentos.db-*
 
 temp.md
+eval-report.md
+
+
+# Markdown policy: only README.md files are tracked. SKILL.md files are exempt —
+# they're runtime product files the skills library loads, not docs.
+*.md
+!README.md
+!**/SKILL.md
+
+# Evals are local-only tooling — never tracked/pushed.
+scripts/eval_*.py
+scripts/eval_cases.json
+scripts/isolation_test.py
