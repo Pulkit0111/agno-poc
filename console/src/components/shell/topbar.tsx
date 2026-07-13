@@ -29,7 +29,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       >
         <Menu className="size-4" />
       </Button>
-      <span className="text-sm font-medium">{NAMES[pathname] ?? "Bott Console"}</span>
+      <span className="font-display text-[15px]">{NAMES[pathname] ?? "Bott Console"}</span>
       <div className="ml-auto flex items-center gap-2">
         <Button
           variant="ghost"

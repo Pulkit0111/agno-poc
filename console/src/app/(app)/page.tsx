@@ -16,7 +16,7 @@ function Tile({ label, value, hint, href }: { label: string; value: number | str
   return (
     <Link href={href} className="rounded-xl border bg-card p-4 shadow-sm hover:border-foreground/20">
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight">{value}</div>
+      <div className="font-display mt-1 text-2xl tabular-nums tracking-tight">{value}</div>
       <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>
     </Link>
   );
@@ -140,7 +140,7 @@ export default function HomePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight">Hi, {greeting}</h1>
+        <h1 className="font-display text-lg tracking-tight">Hi, {greeting}</h1>
         <p className="text-sm text-muted-foreground">
           {subtitle}
           {!isAdmin && count ? " — Bott will act as soon as an admin approves." : ""}
