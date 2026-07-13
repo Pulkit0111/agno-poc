@@ -9,10 +9,17 @@ def _secret(monkeypatch):
     monkeypatch.setenv("CONSOLE_SESSION_SECRET", "test-secret-please-rotate")
 
 
-def test_round_trip():
+def test_round_trip_admin(monkeypatch):
+    monkeypatch.setenv("BOTT_ADMINS", "pulkit.tyagi@axelerant.com")
     tok = sessions.issue_session("pulkit.tyagi@axelerant.com", is_admin=True)
     claims = sessions.verify_session(tok)
     assert claims == {"email": "pulkit.tyagi@axelerant.com", "is_admin": True}
+
+
+def test_round_trip_member():
+    tok = sessions.issue_session("a@axelerant.com", is_admin=False)
+    claims = sessions.verify_session(tok)
+    assert claims == {"email": "a@axelerant.com", "is_admin": False}
 
 
 def test_tampered_token_rejected():
@@ -55,18 +62,31 @@ def test_admin_claim_still_honored_when_still_in_bott_admins(monkeypatch):
     assert claims == {"email": "admin@axelerant.com", "is_admin": True}
 
 
-def test_admin_claim_trusted_when_bott_admins_unset():
-    """No live authority to check against (BOTT_ADMINS unset/empty) — fall back to
-    trusting the token's own claim rather than blanket-revoking every admin session."""
-    tok = sessions.issue_session("admin@axelerant.com", is_admin=True)
+def test_claim_ignored_when_no_admin_source_matches():
+    """The cookie's `is_admin` claim is advisory only, never trusted on its own: a claim
+    of True with no real admin source (env or KV) behind it is not honored."""
+    tok = sessions.issue_session("nobody@axelerant.com", is_admin=True)
     claims = sessions.verify_session(tok)
-    assert claims == {"email": "admin@axelerant.com", "is_admin": True}
+    assert claims == {"email": "nobody@axelerant.com", "is_admin": False}
 
 
-def test_non_admin_claim_never_upgraded(monkeypatch):
-    """The live check only ever downgrades — a non-admin token can't become admin just
-    because its email happens to appear in BOTT_ADMINS later."""
-    tok = sessions.issue_session("member@axelerant.com", is_admin=False)
-    monkeypatch.setenv("BOTT_ADMINS", "member@axelerant.com")
+def test_member_claim_upgraded_live_when_promoted_via_kv(monkeypatch):
+    """The reverse of downgrade, and the whole point of recomputing in both directions:
+    a member promoted to admin via the console (KV) becomes admin on their very next
+    request, without needing to sign out and back in for a fresh cookie claim."""
+    from bott.shared import roles
+    monkeypatch.setattr(roles, "kv_admins", lambda: {"promoted@axelerant.com"})
+    tok = sessions.issue_session("promoted@axelerant.com", is_admin=False)
     claims = sessions.verify_session(tok)
-    assert claims == {"email": "member@axelerant.com", "is_admin": False}
+    assert claims == {"email": "promoted@axelerant.com", "is_admin": True}
+
+
+def test_admin_claim_still_ignored_after_kv_demotion(monkeypatch):
+    """A stale cookie claiming is_admin=True for someone who was demoted via KV (and
+    isn't env-seeded) is downgraded immediately, same as the BOTT_ADMINS case above."""
+    from bott.shared import roles
+    monkeypatch.setattr(roles, "env_admins", lambda: set())
+    monkeypatch.setattr(roles, "kv_admins", lambda: set())  # demoted: no longer in KV admins
+    tok = sessions.issue_session("demoted@axelerant.com", is_admin=True)
+    claims = sessions.verify_session(tok)
+    assert claims == {"email": "demoted@axelerant.com", "is_admin": False}

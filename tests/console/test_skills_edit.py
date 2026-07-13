@@ -49,6 +49,11 @@ def client(tmp_path, monkeypatch):
 
 def _as(client, email="m@x.com", admin=False):
     client.cookies.set(sessions.COOKIE_NAME, sessions.issue_session(email, admin))
+    if admin:
+        # is_admin is recomputed live from roles.is_admin (env ∪ KV) on every
+        # verify_session call — a real admin source must back the claim.
+        import os
+        os.environ["BOTT_ADMINS"] = email
 
 
 def _frontmatter(slug, body):

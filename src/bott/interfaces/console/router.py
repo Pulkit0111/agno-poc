@@ -235,6 +235,19 @@ class ClassifyBody(BaseModel):
     method: str
 
 
+class RoleBody(BaseModel):
+    role: str
+
+
+class InviteBody(BaseModel):
+    email: str
+    role: str
+
+
+def _role_error_status(slug: str) -> int:
+    return {"locked": 403, "last_admin": 409}.get(slug, 422)
+
+
 def build_console_router(db) -> APIRouter:
     # csrf_guard runs on EVERY console route (it no-ops on safe methods) so no future
     # mutating endpoint can be added without CSRF protection.
@@ -279,7 +292,15 @@ def build_console_router(db) -> APIRouter:
         if domain != config.allowed_email_domain().lower():
             log.warning("console login rejected — wrong domain: %s", info["email"])
             return _login_error("wrong_domain")
-        is_admin = info["email"] in config.bott_admins()
+        from bott.shared import roles
+        try:
+            # First sign-in for a pre-invited email: convert the invite into a real KV
+            # role entry before computing is_admin, so an admin invite takes effect on
+            # this very first login rather than requiring a second one.
+            roles.consume_invite(info["email"])
+        except roles.RoleError as e:  # noqa: BLE001 — an invite quirk must never block login
+            log.warning("console login: consume_invite failed for %s: %s", info["email"], e)
+        is_admin = roles.is_admin(info["email"])
         token = sessions.issue_session(info["email"], is_admin)
         resp = RedirectResponse(f"{base}/", status_code=307)
         resp.delete_cookie(_STATE_COOKIE)
@@ -832,12 +853,61 @@ def build_console_router(db) -> APIRouter:
     def list_users(request: Request) -> dict:
         user = current_user(request)
         require_admin(user)
+        from bott.shared import roles
         from bott.shared.persistence import records
-        admins = config.bott_admins()
-        return {"users": [
-            {**row, "is_admin": row["user_id"].lower() in admins}
-            for row in records.list_known_users()
-        ]}
+        env_admins = roles.env_admins()
+        pending = roles.invites()
+        known = records.list_known_users()
+        known_emails = {row["user_id"].lower() for row in known}
+        rows = [
+            {
+                "email": row["user_id"],
+                "role": "admin" if roles.is_admin(row["user_id"]) else "member",
+                "locked": row["user_id"].lower() in env_admins,
+                "invited": False,
+                "last_active": row["last_active"],
+            }
+            for row in known
+        ]
+        # Invited-but-never-signed-in emails get a row too, so an admin can see (and
+        # revoke) an invite before the person ever logs in.
+        rows.extend(
+            {"email": email, "role": role, "locked": False, "invited": True, "last_active": None}
+            for email, role in pending.items()
+            if email not in known_emails
+        )
+        return {"users": rows}
+
+    @r.post("/api/console/v1/users/{email}/role")
+    def set_user_role(request: Request, email: str, body: RoleBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared import roles
+        try:
+            roles.set_role(email, body.role, actor=user["email"])
+        except roles.RoleError as e:
+            raise _err(_role_error_status(e.slug), e.slug, str(e))
+        return {"email": email.strip().lower(), "role": body.role.strip().lower()}
+
+    @r.post("/api/console/v1/users/invite")
+    def invite_user(request: Request, body: InviteBody) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared import roles
+        try:
+            roles.add_invite(body.email, body.role, actor=user["email"])
+        except roles.RoleError as e:
+            raise _err(_role_error_status(e.slug), e.slug, str(e))
+        return {"email": body.email.strip().lower(), "role": body.role.strip().lower(), "invited": True}
+
+    @r.delete("/api/console/v1/users/invite/{email}")
+    def revoke_user_invite(request: Request, email: str) -> dict:
+        user = current_user(request)
+        require_admin(user)
+        from bott.shared import roles
+        if not roles.revoke_invite(email):
+            raise _err(404, "not_found", "No pending invite for that email.")
+        return {"revoked": True}
 
     @r.get("/api/console/v1/system")
     def system_status_route(request: Request) -> dict:
@@ -862,13 +932,14 @@ def build_console_router(db) -> APIRouter:
         slack_configured = bool(
             (os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")) and os.getenv("SLACK_SIGNING_SECRET")
         )
+        from bott.shared import roles
         return {
             "model": models_mod._active(),
             "database": {"kind": "postgres" if config.database_url() else "sqlite"},
             "slack_configured": slack_configured,
             "github_configured": config.github_app_configured(),
             "connectors": connectors,
-            "admins_count": len(config.bott_admins()),
+            "admins_count": len(roles.env_admins() | roles.kv_admins()),
             "advisories": advisories,
         }
 

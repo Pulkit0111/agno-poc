@@ -1,10 +1,14 @@
 """HMAC-signed console session tokens. Stateless: payload is base64url JSON
 (email, is_admin, exp) + SHA-256 HMAC. No DB row per session; full revocation of one
 already-issued token is still secret rotation (which invalidates every session at once) —
-but the `is_admin` CLAIM baked in at login is re-checked live against the current
-BOTT_ADMINS list on every verify, not trusted for the token's whole lifetime. Without that,
-removing someone from BOTT_ADMINS didn't take effect until their week-old cookie expired on
-its own. Secret comes from CONSOLE_SESSION_SECRET."""
+but the `is_admin` CLAIM baked into the payload at login is never trusted directly: every
+verify recomputes it live from `bott.shared.roles.is_admin` (env BOTT_ADMINS union KV-stored
+roles), in both directions. That cuts both ways on purpose — removing someone from
+BOTT_ADMINS (or demoting them via the console) revokes access on their very next request
+instead of waiting out the cookie's up-to-7-day TTL, AND promoting a member via the console
+takes effect on their next request too, without forcing a re-login. The email itself stays
+HMAC-verified; only the privilege attached to it is re-derived every time. Secret comes from
+CONSOLE_SESSION_SECRET."""
 
 from __future__ import annotations
 
@@ -47,14 +51,10 @@ def verify_session(token: str) -> dict | None:
     if payload.get("exp", 0) < time.time():
         return None
     email = payload["email"]
-    is_admin = bool(payload["is_admin"])
-    if is_admin:
-        # Downgrade-only live re-check: if BOTT_ADMINS is configured and this email is no
-        # longer in it, the admin claim baked in at login is stale — revoke it now instead
-        # of waiting out the token's TTL. Never upgrades a non-admin claim, and does
-        # nothing when BOTT_ADMINS is unset (nothing to check against).
-        from bott.shared.config import bott_admins
-        admins = bott_admins()
-        if admins and email.lower() not in admins:
-            is_admin = False
+    # The payload's own `is_admin` claim is ignored here — it's advisory only. The real
+    # answer is recomputed live from roles.is_admin (env ∪ KV) on every single verify, so
+    # neither a stale downgrade nor a stale "not yet promoted" claim can outlive the
+    # cookie's TTL.
+    from bott.shared import roles
+    is_admin = roles.is_admin(email)
     return {"email": email, "is_admin": is_admin}

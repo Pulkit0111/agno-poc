@@ -29,7 +29,7 @@ def test_requires_admin(client):
     assert client.get("/api/console/v1/users").status_code == 403
 
 
-def test_tags_admin_flag(client, monkeypatch):
+def test_shapes_env_admin_and_member_rows(client, monkeypatch):
     from bott.shared.persistence import records
     monkeypatch.setattr(records, "list_known_users", lambda: [
         {"user_id": "admin@x.com", "last_active": 100.0},
@@ -38,6 +38,6 @@ def test_tags_admin_flag(client, monkeypatch):
     _as(client, email="admin@x.com")  # must authenticate as a REAL admin (BOTT_ADMINS above)
     rows = client.get("/api/console/v1/users").json()["users"]
     assert rows == [
-        {"user_id": "admin@x.com", "last_active": 100.0, "is_admin": True},
-        {"user_id": "m@x.com", "last_active": 90.0, "is_admin": False},
+        {"email": "admin@x.com", "role": "admin", "locked": True, "invited": False, "last_active": 100.0},
+        {"email": "m@x.com", "role": "member", "locked": False, "invited": False, "last_active": 90.0},
     ]

@@ -21,8 +21,7 @@ from agno.os.interfaces.slack.security import verify_slack_signature
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from slack_sdk import WebClient
 
-from bott.shared import approvals
-from bott.shared.config import bott_admins
+from bott.shared import approvals, roles
 from bott.shared.observability.logging_setup import get_logger
 from bott.shared.persistence import action_items as ai_store
 from bott.shared.persistence import queue, standup
@@ -108,7 +107,7 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             return
         try:
             email, name = _resolve_identity(user_id)
-            is_admin = email.lower() in bott_admins()
+            is_admin = roles.is_admin(email)
             view = blocks.build_home_view(
                 service.list_rows(db, viewer_email=email or None),
                 viewer_name=name or None,

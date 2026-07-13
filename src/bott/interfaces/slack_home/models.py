@@ -13,7 +13,7 @@ import json
 import os
 
 from bott.shared import codex_tokens, config
-from bott.shared.config import bott_admins, model_provider
+from bott.shared.config import model_provider
 from bott.shared.persistence.records import get_setting, set_setting
 
 # Sensible fallbacks so the model picker is never empty even if a live catalog fetch fails
@@ -134,7 +134,8 @@ def models_section(is_admin: bool) -> list[dict]:
 
 
 def _is_admin(email: str) -> bool:
-    return (email or "").lower() in bott_admins()
+    from bott.shared import roles
+    return roles.is_admin(email)
 
 
 def apply_model_override(actor_email: str, key: str, value: str) -> str:

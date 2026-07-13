@@ -23,6 +23,12 @@ def client(tmp_path):
 
 def _as(client, email, is_admin=False):
     client.cookies.set(sessions.COOKIE_NAME, sessions.issue_session(email, is_admin))
+    if is_admin:
+        # is_admin is now recomputed live from roles.is_admin (env ∪ KV) on every
+        # verify_session call, not trusted from the cookie claim — so tests need a real
+        # admin source behind the claim too.
+        import os
+        os.environ["BOTT_ADMINS"] = email
 
 
 ROW = {"id": 7, "user_id": "m@x.com", "action": "api:jira", "summary": "Comment on AXL-142",

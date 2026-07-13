@@ -29,7 +29,8 @@ def _require_admin(run_context) -> str | None:
         actor = require_user_id(getattr(run_context, "user_id", None))
     except IsolationError:
         return "I couldn't tell who you are."
-    if actor.lower() not in config.bott_admins():
+    from bott.shared import roles
+    if not roles.is_admin(actor):
         return "Only an admin can manage the skill library."
     return None
 
