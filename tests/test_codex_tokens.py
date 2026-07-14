@@ -88,6 +88,31 @@ def test_refresh_ahead_result_carries_new_refresh_token(store, monkeypatch):
     assert tok.refresh_token == "rt-new"
 
 
+def test_store_and_get_id_token(store):
+    ct.store_bundle({"access_token": _jwt(int(time.time()) + 3600),
+                     "refresh_token": "rt-1", "account_id": "acc-1", "id_token": "id-1"})
+    assert ct.get_valid_token().id_token == "id-1"
+
+
+def test_store_without_id_token_still_works(store):
+    # chat-only / legacy connections may lack id_token — must not be required.
+    ct.store_bundle({"access_token": _jwt(int(time.time()) + 3600),
+                     "refresh_token": "rt-1", "account_id": "acc-1"})
+    assert ct.get_valid_token().id_token == ""
+
+
+def test_refresh_ahead_carries_new_id_token(store, monkeypatch):
+    ct.store_bundle({"access_token": _jwt(int(time.time()) - 10),
+                     "refresh_token": "rt-old", "account_id": "acc-1", "id_token": "id-old"})
+    def fake_refresh(rt):
+        return {"access_token": _jwt(int(time.time()) + 3600),
+                "refresh_token": "rt-new", "account_id": "acc-1", "id_token": "id-new"}
+    monkeypatch.setattr(ct, "_http_refresh", fake_refresh)
+    tok = ct.get_valid_token()
+    assert tok.id_token == "id-new"
+    assert ct._load_bundle()["id_token"] == "id-new"
+
+
 def test_bootstrap_from_local_seeds_org_token(store, tmp_path, monkeypatch):
     import base64
     import json

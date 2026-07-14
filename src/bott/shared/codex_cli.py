@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from bott.shared import codex_tokens, config
@@ -49,13 +50,21 @@ class CodexExecResult:
     tokens_used: int
 
 
-def _write_auth_json(codex_home: str, access_token: str, refresh_token: str, account_id: str) -> str:
+def _write_auth_json(codex_home: str, access_token: str, refresh_token: str,
+                     account_id: str, id_token: str) -> str:
     os.makedirs(codex_home, exist_ok=True)
     path = os.path.join(codex_home, "auth.json")
+    # Full CLI-shaped auth.json: the official `codex` binary requires `tokens.id_token`
+    # (and the `auth_mode`/`OPENAI_API_KEY`/`last_refresh` envelope) or `codex exec` aborts
+    # with `missing field 'id_token'`.
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"tokens": {"access_token": access_token,
-                              "refresh_token": refresh_token,
-                              "account_id": account_id}}, f)
+        json.dump({
+            "auth_mode": "chatgpt",
+            "OPENAI_API_KEY": None,
+            "tokens": {"id_token": id_token, "access_token": access_token,
+                       "refresh_token": refresh_token, "account_id": account_id},
+            "last_refresh": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        }, f)
     os.chmod(path, 0o600)
     return path
 
@@ -114,6 +123,7 @@ def _read_back_rotation(codex_home: str, started_refresh_token: str) -> None:
             "access_token": access_token,
             "refresh_token": new_refresh,
             "account_id": account_id,
+            "id_token": toks.get("id_token", ""),
         })
     except Exception as e:  # noqa: BLE001 — reconcile is best-effort; must never propagate
         # Must not raise out of the finally block: a raise here would skip scratch-dir
@@ -154,7 +164,8 @@ def run_codex_exec(
         codex_home = tempfile.mkdtemp(prefix="bott-codex-home-")
         out_fd, out_path = tempfile.mkstemp(prefix="bott-codex-out-", suffix=".txt")
         os.close(out_fd)
-        _write_auth_json(codex_home, tok.access_token, tok.refresh_token, tok.account_id)
+        _write_auth_json(codex_home, tok.access_token, tok.refresh_token, tok.account_id,
+                         tok.id_token)
 
         args = [binary, "exec", "--skip-git-repo-check"]
         # In a container, codex's bubblewrap sandbox needs unprivileged user namespaces,

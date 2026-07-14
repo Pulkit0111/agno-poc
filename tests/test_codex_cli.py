@@ -63,7 +63,7 @@ def test_run_codex_exec_writes_auth_json_from_current_token(monkeypatch, tmp_pat
     # auth.json must be read back INSIDE the runner call, not after `run_codex_exec`
     # returns: the scratch CODEX_HOME is deleted in the `finally` block (it holds live
     # credentials, so it must not survive the call, on success or on error).
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A"))
+    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A", "id-A"))
     seen = {}
     def runner(args, *, env, **kw):
         out_path = args[args.index("--output-last-message") + 1]
@@ -74,9 +74,34 @@ def test_run_codex_exec_writes_auth_json_from_current_token(monkeypatch, tmp_pat
         return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
     cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
     written = seen["written"]
+    assert written["auth_mode"] == "chatgpt"
+    assert written["OPENAI_API_KEY"] is None
+    assert written["last_refresh"]  # a timestamp string is present
     assert written["tokens"]["access_token"] == "tok-A"
     assert written["tokens"]["refresh_token"] == "rt-A"
     assert written["tokens"]["account_id"] == "acc-1"
+    assert written["tokens"]["id_token"] == "id-A"
+
+
+def test_run_codex_exec_reconciles_rotated_id_token(monkeypatch, tmp_path):
+    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A", "id-A"))
+    stored = []
+    monkeypatch.setattr(ct, "store_bundle", lambda b: stored.append(b))
+
+    def runner(args, *, env, **kw):
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        # CLI rotates refresh AND id token mid-run.
+        auth_path = os.path.join(env["CODEX_HOME"], "auth.json")
+        with open(auth_path, "w", encoding="utf-8") as f:
+            json.dump({"tokens": {"access_token": "tok-B", "refresh_token": "rt-B",
+                                  "account_id": "acc-1", "id_token": "id-B"}}, f)
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+
+    cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
+    assert stored == [{"access_token": "tok-B", "refresh_token": "rt-B",
+                       "account_id": "acc-1", "id_token": "id-B"}]
 
 
 def test_run_codex_exec_reconciles_rotated_refresh_token(monkeypatch, tmp_path):
@@ -96,7 +121,8 @@ def test_run_codex_exec_reconciles_rotated_refresh_token(monkeypatch, tmp_path):
         return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
 
     cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
-    assert stored == [{"access_token": "tok-B", "refresh_token": "rt-B", "account_id": "acc-1"}]
+    assert stored == [{"access_token": "tok-B", "refresh_token": "rt-B",
+                       "account_id": "acc-1", "id_token": ""}]
 
 
 def test_run_codex_exec_no_reconcile_when_refresh_token_unchanged(monkeypatch, tmp_path):
