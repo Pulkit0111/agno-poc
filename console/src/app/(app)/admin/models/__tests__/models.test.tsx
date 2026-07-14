@@ -145,6 +145,22 @@ describe("ModelsPage", () => {
     expect(screen.getByText("Add AWS credentials to list and use Bedrock models")).toBeDefined();
   });
 
+  it("keeps the provider select on the active provider even when it's now unusable (no coercion to Codex)", () => {
+    // Bedrock is the active provider for Chat but is NOT usable (no AWS creds) — the
+    // dropdown must still show "bedrock", not silently coerce to the first option.
+    setData({
+      active: {
+        ...BASE_DATA.active,
+        providers_by_role: { ...BASE_DATA.active.providers_by_role, chat: "bedrock" },
+      },
+    });
+    render(<ModelsPage />);
+    const select = screen.getByLabelText("Chat provider") as HTMLSelectElement;
+    expect(select.value).toBe("bedrock");
+    const options = within(select).getAllByRole("option").map((o) => o.textContent);
+    expect(options).toEqual(["Codex", "OpenRouter", "Bedrock (unavailable)"]);
+  });
+
   it("shows OpenRouter connected when usable", () => {
     render(<ModelsPage />);
     expect(screen.getByText("OpenRouter connected ✓")).toBeDefined();

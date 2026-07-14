@@ -25,8 +25,11 @@ export default function ModelsPage() {
   const { data: raw, isLoading, isError, error, refetch } = useModels();
   const setOverride = useSetModelOverride();
   // Optimistic per-role overrides so a provider/model switch shows up instantly instead
-  // of waiting on the round trip + query invalidation — cleared whenever the server data
-  // moves on (a fresh fetch is the new source of truth).
+  // of waiting on the round trip + query invalidation. These are NOT reconciled against
+  // fresh server data and NOT rolled back on mutation failure — a successful override
+  // invalidates ["models"] and the next fetch re-renders from the server value, but until
+  // then (or on error) the optimistic value stays. Acceptable for an admin-only,
+  // single-tenant settings page; a failed override surfaces its own error toast.
   const [providerOverride, setProviderOverride] = useState<Partial<Record<string, ProviderName>>>({});
   const [modelOverride, setModelOverride] = useState<Partial<Record<string, string>>>({});
 
@@ -57,7 +60,17 @@ export default function ModelsPage() {
   // Bedrock only shows up as a pickable provider once it's actually usable (AWS creds
   // present) — Codex and OpenRouter are always offered, each with their own connect/hint
   // state surfaced inline.
-  const providerOptions: ProviderName[] = ["codex", "openrouter", ...(bedrock?.usable ? (["bedrock"] as const) : [])];
+  const baseProviderOptions: ProviderName[] = ["codex", "openrouter", ...(bedrock?.usable ? (["bedrock"] as const) : [])];
+
+  // A role's dropdown must always contain — and be able to display — that role's
+  // currently-active provider, even if that provider has since lost its credentials
+  // (e.g. Bedrock creds removed). Otherwise `value={provider}` has no matching <option>
+  // and the browser silently coerces the select to its first entry ("Codex"), so the
+  // dropdown would read "Codex" while the model area below shows Bedrock's "add creds"
+  // hint — self-contradictory. Append the active provider (marked unavailable) when it's
+  // not already offered so the select reflects the true state.
+  const providerOptionsFor = (active: ProviderName): ProviderName[] =>
+    baseProviderOptions.includes(active) ? baseProviderOptions : [...baseProviderOptions, active];
 
   const handleProviderChange = (roleKey: string, provider: ProviderName) => {
     setProviderOverride((prev) => ({ ...prev, [roleKey]: provider }));
@@ -101,6 +114,7 @@ export default function ModelsPage() {
           const model = modelOverride[role.key] ?? data[role.key];
           const catalog = data.catalogs[provider] ?? [];
           const providerInfo = data.providers.find((p) => p.name === provider);
+          const providerOptions = providerOptionsFor(provider);
           const isConflict = role.key === "review" && data.conflict;
           return (
             <div key={role.key} className={`rounded-xl border bg-card p-4 shadow-sm ${isConflict ? "border-amber-500/40" : ""}`}>
@@ -119,9 +133,14 @@ export default function ModelsPage() {
                 value={provider}
                 onChange={(e) => handleProviderChange(role.key, e.target.value as ProviderName)}
               >
-                {providerOptions.map((p) => (
-                  <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-                ))}
+                {providerOptions.map((p) => {
+                  const unavailable = !baseProviderOptions.includes(p);
+                  return (
+                    <option key={p} value={p}>
+                      {PROVIDER_LABELS[p]}{unavailable ? " (unavailable)" : ""}
+                    </option>
+                  );
+                })}
               </select>
 
               <label className="mt-3 block text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
