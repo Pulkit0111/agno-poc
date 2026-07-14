@@ -667,6 +667,17 @@ def codex_cli_binary() -> str:
     return os.getenv("CODEX_CLI_BIN", "codex")
 
 
+def codex_cli_home() -> str:
+    """The persistent directory the `codex` CLI keeps its login in (`auth.json`) — the SAME
+    home for every `codex exec` call, exactly like the reference deployment (a mounted volume
+    in the container; `~/.codex` in local dev). An org admin runs `codex login` once to
+    populate it; the CLI then owns the token entirely (reading + refreshing + rotating it in
+    place, with its own file locking), so many users' build/review calls share one login
+    safely — bott never copies, writes, or reconciles the token itself. `CODEX_HOME` overrides
+    the path (set it to the mounted volume in production)."""
+    return os.getenv("CODEX_HOME") or os.path.expanduser("~/.codex")
+
+
 def codex_cli_timeout_s() -> int:
     return int(os.getenv("CODEX_CLI_TIMEOUT_S", "900"))
 

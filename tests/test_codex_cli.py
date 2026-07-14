@@ -1,5 +1,9 @@
 """Subprocess bridge to the official `codex` CLI — no real binary is spawned; `runner` is
-injected so these tests exercise the argv/env/file-plumbing logic deterministically."""
+injected so these tests exercise the argv/env/file-plumbing logic deterministically.
+
+The bridge does NOT manage the Codex token: every call runs against the persistent
+CODEX_HOME (config.codex_cli_home()) that an admin populated with `codex login`, and the CLI
+owns the login there. So there is nothing here about writing/reading/reconciling auth.json."""
 from __future__ import annotations
 
 import json
@@ -9,9 +13,7 @@ import subprocess
 import pytest
 
 from bott.shared import codex_cli as cc
-from bott.shared import codex_tokens as ct
 from bott.shared import config
-from bott.shared.codex_tokens import CodexToken
 
 
 def _fake_ok_runner(output_text="hello", write_output=True):
@@ -25,8 +27,7 @@ def _fake_ok_runner(output_text="hello", write_output=True):
     return runner
 
 
-def test_run_codex_exec_returns_text(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
+def test_run_codex_exec_returns_text(tmp_path):
     result = cc.run_codex_exec("do the thing", cwd=str(tmp_path), sandbox="read-only",
                                runner=_fake_ok_runner("plan: do X"))
     assert result.text == "plan: do X"
@@ -34,8 +35,7 @@ def test_run_codex_exec_returns_text(monkeypatch, tmp_path):
     assert result.tokens_used == 42
 
 
-def test_run_codex_exec_parses_output_schema(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
+def test_run_codex_exec_parses_output_schema(tmp_path):
     payload = json.dumps({"verdict": "approve"})
     result = cc.run_codex_exec("review this", cwd=str(tmp_path), sandbox="read-only",
                                output_schema={"type": "object"},
@@ -43,94 +43,18 @@ def test_run_codex_exec_parses_output_schema(monkeypatch, tmp_path):
     assert result.data == {"verdict": "approve"}
 
 
-def test_run_codex_exec_bad_json_raises(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
+def test_run_codex_exec_bad_json_raises(tmp_path):
     with pytest.raises(cc.CodexCliError, match="valid JSON"):
         cc.run_codex_exec("review this", cwd=str(tmp_path), sandbox="read-only",
                           output_schema={"type": "object"},
                           runner=_fake_ok_runner("not json"))
 
 
-def test_run_codex_exec_nonzero_exit_raises(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
+def test_run_codex_exec_nonzero_exit_raises(tmp_path):
     def runner(args, **kw):
         return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="boom")
     with pytest.raises(cc.CodexCliError, match="boom"):
         cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
-
-
-def test_run_codex_exec_writes_auth_json_from_current_token(monkeypatch, tmp_path):
-    # auth.json must be read back INSIDE the runner call, not after `run_codex_exec`
-    # returns: the scratch CODEX_HOME is deleted in the `finally` block (it holds live
-    # credentials, so it must not survive the call, on success or on error).
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A", "id-A"))
-    seen = {}
-    def runner(args, *, env, **kw):
-        out_path = args[args.index("--output-last-message") + 1]
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write("ok")
-        with open(os.path.join(env["CODEX_HOME"], "auth.json"), encoding="utf-8") as f:
-            seen["written"] = json.load(f)
-        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
-    cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
-    written = seen["written"]
-    assert written["auth_mode"] == "chatgpt"
-    assert written["OPENAI_API_KEY"] is None
-    assert written["last_refresh"]  # a timestamp string is present
-    assert written["tokens"]["access_token"] == "tok-A"
-    assert written["tokens"]["refresh_token"] == "rt-A"
-    assert written["tokens"]["account_id"] == "acc-1"
-    assert written["tokens"]["id_token"] == "id-A"
-
-
-def test_run_codex_exec_reconciles_rotated_id_token(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A", "id-A"))
-    stored = []
-    monkeypatch.setattr(ct, "store_bundle", lambda b: stored.append(b))
-
-    def runner(args, *, env, **kw):
-        out_path = args[args.index("--output-last-message") + 1]
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write("ok")
-        # CLI rotates refresh AND id token mid-run.
-        auth_path = os.path.join(env["CODEX_HOME"], "auth.json")
-        with open(auth_path, "w", encoding="utf-8") as f:
-            json.dump({"tokens": {"access_token": "tok-B", "refresh_token": "rt-B",
-                                  "account_id": "acc-1", "id_token": "id-B"}}, f)
-        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
-
-    cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
-    assert stored == [{"access_token": "tok-B", "refresh_token": "rt-B",
-                       "account_id": "acc-1", "id_token": "id-B"}]
-
-
-def test_run_codex_exec_reconciles_rotated_refresh_token(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A"))
-    stored = []
-    monkeypatch.setattr(ct, "store_bundle", lambda b: stored.append(b))
-
-    def runner(args, *, env, **kw):
-        out_path = args[args.index("--output-last-message") + 1]
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write("ok")
-        # Simulate the CLI itself refreshing mid-run and rotating the refresh token.
-        auth_path = os.path.join(env["CODEX_HOME"], "auth.json")
-        with open(auth_path, "w", encoding="utf-8") as f:
-            json.dump({"tokens": {"access_token": "tok-B", "refresh_token": "rt-B",
-                                  "account_id": "acc-1"}}, f)
-        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
-
-    cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
-    assert stored == [{"access_token": "tok-B", "refresh_token": "rt-B",
-                       "account_id": "acc-1", "id_token": ""}]
-
-
-def test_run_codex_exec_no_reconcile_when_refresh_token_unchanged(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A"))
-    stored = []
-    monkeypatch.setattr(ct, "store_bundle", lambda b: stored.append(b))
-    cc.run_codex_exec("x", cwd=str(tmp_path), runner=_fake_ok_runner("ok"))
-    assert stored == []
 
 
 def test_run_codex_exec_invalid_sandbox_raises(tmp_path):
@@ -138,8 +62,38 @@ def test_run_codex_exec_invalid_sandbox_raises(tmp_path):
         cc.run_codex_exec("x", cwd=str(tmp_path), sandbox="bogus")
 
 
-def test_run_codex_exec_passes_model_flag_when_given(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
+def test_run_codex_exec_uses_persistent_codex_home(monkeypatch, tmp_path):
+    """The child's CODEX_HOME is the shared persistent home (config.codex_cli_home()), NOT a
+    per-call scratch dir — that shared login is what lets many users' calls reuse one
+    subscription safely."""
+    home = str(tmp_path / "codexhome")
+    monkeypatch.setattr(config, "codex_cli_home", lambda: home)
+    seen_env = {}
+    def runner(args, *, env, **kw):
+        seen_env.update(env)
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
+    assert seen_env["CODEX_HOME"] == home
+
+
+def test_run_codex_exec_codex_home_override(tmp_path):
+    """An explicit codex_home arg overrides the config default."""
+    home = str(tmp_path / "explicit")
+    seen_env = {}
+    def runner(args, *, env, **kw):
+        seen_env.update(env)
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("x", cwd=str(tmp_path), codex_home=home, runner=runner)
+    assert seen_env["CODEX_HOME"] == home
+
+
+def test_run_codex_exec_passes_model_flag_when_given(tmp_path):
     seen_args = {}
     def runner(args, **kw):
         seen_args["args"] = args
@@ -152,8 +106,7 @@ def test_run_codex_exec_passes_model_flag_when_given(monkeypatch, tmp_path):
     assert args[args.index("-m") + 1] == "gpt-5.5-codex"
 
 
-def test_run_codex_exec_omits_model_flag_when_not_given(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
+def test_run_codex_exec_omits_model_flag_when_not_given(tmp_path):
     seen_args = {}
     def runner(args, **kw):
         seen_args["args"] = args
@@ -166,7 +119,6 @@ def test_run_codex_exec_omits_model_flag_when_not_given(monkeypatch, tmp_path):
 
 
 def test_run_codex_exec_env_excludes_bott_secrets(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
     monkeypatch.setenv("BOTT_SECRET_KEY", "supersecret")
     monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@host/db")
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
@@ -184,47 +136,7 @@ def test_run_codex_exec_env_excludes_bott_secrets(monkeypatch, tmp_path):
     assert "DATABASE_URL" not in seen_env
 
 
-def test_run_codex_exec_reconcile_failure_does_not_propagate_and_cleans_up(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A"))
-    def boom(_bundle):
-        raise ValueError("db down")
-    monkeypatch.setattr(ct, "store_bundle", boom)
-    seen = {}
-    def runner(args, *, env, **kw):
-        seen["codex_home"] = env["CODEX_HOME"]
-        out_path = args[args.index("--output-last-message") + 1]
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write("ok")
-        # CLI rotates the refresh token mid-run — reconcile will be attempted and fail.
-        with open(os.path.join(env["CODEX_HOME"], "auth.json"), "w", encoding="utf-8") as f:
-            json.dump({"tokens": {"access_token": "tok-B", "refresh_token": "rt-B",
-                                  "account_id": "acc-1"}}, f)
-        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
-    # store_bundle raising must NOT surface out of run_codex_exec.
-    result = cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
-    assert result.text == "ok"
-    # ...and the scratch CODEX_HOME (holding a live auth.json) must still be removed.
-    assert not os.path.isdir(seen["codex_home"])
-
-
-def test_run_codex_exec_skips_reconcile_on_partial_rotation(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A"))
-    stored = []
-    monkeypatch.setattr(ct, "store_bundle", lambda b: stored.append(b))
-    def runner(args, *, env, **kw):
-        out_path = args[args.index("--output-last-message") + 1]
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write("ok")
-        # Rotated refresh token but missing account_id — an incomplete bundle we must skip.
-        with open(os.path.join(env["CODEX_HOME"], "auth.json"), "w", encoding="utf-8") as f:
-            json.dump({"tokens": {"access_token": "tok-B", "refresh_token": "rt-B"}}, f)
-        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
-    cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
-    assert stored == []
-
-
 def test_run_codex_exec_uses_sandbox_flag_by_default(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
     monkeypatch.setattr(config, "codex_cli_disable_sandbox", lambda: False)
     seen_args = {}
     def runner(args, **kw):
@@ -240,7 +152,6 @@ def test_run_codex_exec_uses_sandbox_flag_by_default(monkeypatch, tmp_path):
 
 
 def test_run_codex_exec_bypasses_sandbox_when_disabled(monkeypatch, tmp_path):
-    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
     monkeypatch.setattr(config, "codex_cli_disable_sandbox", lambda: True)
     seen_args = {}
     def runner(args, **kw):
@@ -253,3 +164,11 @@ def test_run_codex_exec_bypasses_sandbox_when_disabled(monkeypatch, tmp_path):
     args = seen_args["args"]
     assert "--dangerously-bypass-approvals-and-sandbox" in args
     assert "-s" not in args
+
+
+def test_is_logged_in(tmp_path):
+    home = tmp_path / "codexhome"
+    home.mkdir()
+    assert cc.is_logged_in(str(home)) is False
+    (home / "auth.json").write_text("{}", encoding="utf-8")
+    assert cc.is_logged_in(str(home)) is True
