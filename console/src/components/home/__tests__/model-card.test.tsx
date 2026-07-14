@@ -42,6 +42,14 @@ describe("ModelCard", () => {
         conflict: false, swap_preview: null,
         providers: [{ name: "codex", usable: false, hint: null, models: [] }],
         codex_usage: null,
+        // Task 3 made `active`/`catalogs` additive to the admin payload too — the flat
+        // fields above stay for back-compat, but `catalogs` is what now discriminates
+        // admin from member (see isAdminModels).
+        active: {
+          provider: "codex", chat: "gpt-5.5", build: "gpt-5.5", review: "gpt-5.4",
+          providers_by_role: { chat: "codex", build: "codex", review: "codex" },
+        },
+        catalogs: { codex: ["gpt-5.5", "gpt-5.4"], openrouter: [], bedrock: [] },
       },
       isLoading: false,
       isError: false,

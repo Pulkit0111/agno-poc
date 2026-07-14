@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { LoadingState, ErrorState, NoAccessState } from "@/components/common/states";
 import { CodexConnect } from "@/components/system/codex-connect";
 import { isForbidden } from "@/lib/api";
-import { isAdminModels, useModels, useSetModelOverride } from "@/lib/use-models";
+import {
+  isAdminModels, ProviderName, useModels, useSetModelOverride,
+} from "@/lib/use-models";
 import { useMe } from "@/lib/use-me";
 
 const ROLES = [
@@ -13,10 +16,19 @@ const ROLES = [
   { key: "review", label: "Review", hint: "judges PRs — must not share build's weights" },
 ] as const;
 
+const PROVIDER_LABELS: Record<ProviderName, string> = {
+  codex: "Codex", openrouter: "OpenRouter", bedrock: "Bedrock",
+};
+
 export default function ModelsPage() {
   const { data: me, isLoading: meLoading } = useMe();
   const { data: raw, isLoading, isError, error, refetch } = useModels();
   const setOverride = useSetModelOverride();
+  // Optimistic per-role overrides so a provider/model switch shows up instantly instead
+  // of waiting on the round trip + query invalidation — cleared whenever the server data
+  // moves on (a fresh fetch is the new source of truth).
+  const [providerOverride, setProviderOverride] = useState<Partial<Record<string, ProviderName>>>({});
+  const [modelOverride, setModelOverride] = useState<Partial<Record<string, string>>>({});
 
   if (meLoading) return <LoadingState rows={2} />;
   if (!me?.is_admin) return <NoAccessState />;
@@ -38,15 +50,46 @@ export default function ModelsPage() {
   const data = raw;
 
   const codex = data.providers.find((p) => p.name === "codex");
+  const openrouter = data.providers.find((p) => p.name === "openrouter");
+  const bedrock = data.providers.find((p) => p.name === "bedrock");
   const codexConnected = codex?.usable ?? false;
-  const codexModels = codex?.models ?? [];
+
+  // Bedrock only shows up as a pickable provider once it's actually usable (AWS creds
+  // present) — Codex and OpenRouter are always offered, each with their own connect/hint
+  // state surfaced inline.
+  const providerOptions: ProviderName[] = ["codex", "openrouter", ...(bedrock?.usable ? (["bedrock"] as const) : [])];
+
+  const handleProviderChange = (roleKey: string, provider: ProviderName) => {
+    setProviderOverride((prev) => ({ ...prev, [roleKey]: provider }));
+    setOverride.mutate({ key: `model.provider.${roleKey}`, value: provider });
+    // Never leave the model dropdown pointed at an id from the old provider's catalog —
+    // default to the new provider's first model and persist it too, unless the new
+    // provider has no catalog yet (no key configured).
+    const catalog = data.catalogs[provider] ?? [];
+    if (catalog.length > 0) {
+      setModelOverride((prev) => ({ ...prev, [roleKey]: catalog[0] }));
+      setOverride.mutate({ key: `model.${roleKey}`, value: catalog[0] });
+    } else {
+      setModelOverride((prev) => ({ ...prev, [roleKey]: "" }));
+    }
+  };
+
+  const handleModelChange = (roleKey: string, model: string) => {
+    setModelOverride((prev) => ({ ...prev, [roleKey]: model }));
+    setOverride.mutate({ key: `model.${roleKey}`, value: model });
+  };
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-lg tracking-tight">Models</h1>
         <p className="text-sm text-muted-foreground">
-          ChatGPT (Codex) is Bott&apos;s only model provider — connect it here and pick which model does which job
+          Pick which provider and model handles each job
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {openrouter?.usable
+            ? "OpenRouter connected ✓"
+            : "OpenRouter: add OPENROUTER_API_KEY to .env to use it"}
         </p>
       </div>
 
@@ -54,7 +97,10 @@ export default function ModelsPage() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {ROLES.map((role) => {
-          const current = data[role.key];
+          const provider = providerOverride[role.key] ?? data.active.providers_by_role[role.key];
+          const model = modelOverride[role.key] ?? data[role.key];
+          const catalog = data.catalogs[provider] ?? [];
+          const providerInfo = data.providers.find((p) => p.name === provider);
           const isConflict = role.key === "review" && data.conflict;
           return (
             <div key={role.key} className={`rounded-xl border bg-card p-4 shadow-sm ${isConflict ? "border-amber-500/40" : ""}`}>
@@ -62,20 +108,40 @@ export default function ModelsPage() {
                 {role.label}
                 {isConflict && <Badge variant="outline" className="text-amber-700 dark:text-amber-400">conflict</Badge>}
               </div>
-              <div className="mt-2 font-mono text-sm">{current}</div>
               <div className="mt-1 text-xs text-muted-foreground">{role.hint}</div>
-              {codexModels.length > 0 ? (
+
+              <label className="mt-3 block text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
+                Provider
+              </label>
+              <select
+                aria-label={`${role.label} provider`}
+                className="mt-1 w-full rounded-md border bg-background px-2.5 py-1.5 text-xs"
+                value={provider}
+                onChange={(e) => handleProviderChange(role.key, e.target.value as ProviderName)}
+              >
+                {providerOptions.map((p) => (
+                  <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+                ))}
+              </select>
+
+              <label className="mt-3 block text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
+                Model
+              </label>
+              {catalog.length > 0 ? (
                 <select
-                  className="mt-3 w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-xs"
-                  value={current}
-                  onChange={(e) => setOverride.mutate({ key: `model.${role.key}`, value: e.target.value })}
+                  aria-label={`${role.label} model`}
+                  className="mt-1 w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-xs"
+                  value={model}
+                  onChange={(e) => handleModelChange(role.key, e.target.value)}
                 >
-                  {codexModels.map((m) => (
+                  {catalog.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
               ) : (
-                <div className="mt-3 text-xs text-muted-foreground">Connect ChatGPT above to pick a model.</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {providerInfo?.hint ?? "Connect this provider above to pick a model."}
+                </div>
               )}
             </div>
           );
