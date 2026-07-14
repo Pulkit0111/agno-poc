@@ -366,16 +366,40 @@ def _slug(text: str) -> str:
     return s[:40] or "task"
 
 
-def _create_schedule_impl(db: Any, run_context: RunContext, cron: str, instruction: str) -> str:
+def _create_schedule_impl(
+    db: Any,
+    run_context: RunContext,
+    instruction: str,
+    *,
+    frequency: str | None = None,
+    time: str | None = None,
+    cron: str | None = None,
+) -> str:
+    """Resolve the cadence to a cron expression and create the recurring task. Callers may
+    give an easy `frequency` (daily/weekdays/weekly) + `time` (HH:MM) — converted server-side
+    via to_cron — OR a raw `cron` for advanced cadences. Requiring the model to hand-write
+    cron is fragile (weaker models omit or malform it), so frequency+time is the primary path."""
     try:
         uid = require_user_id(getattr(run_context, "user_id", None))
     except IsolationError:
         return "I couldn't tell who you are, so I won't create a schedule."
     if db is None:
         return "Scheduling isn't available right now."
+    resolved = (cron or "").strip()
+    if not resolved:
+        if frequency and time:
+            from bott.interfaces.slack_home.cron import to_cron
+            try:
+                resolved = to_cron(frequency, time)
+            except ValueError as e:
+                return (f"I couldn't set that cadence ({e}). Use a frequency of daily, "
+                        "weekdays, or weekly with a time like 09:00.")
+        else:
+            return ("Tell me how often to run it — a frequency (daily, weekdays, or weekly) "
+                    "and a time like 09:00 (or a cron expression for something more specific).")
     create_recurring_task(db, user_id=uid, task_name=_slug(instruction),
-                          instruction=instruction, cron=cron)
-    return f"Scheduled `{cron}` — {instruction}"
+                          instruction=instruction, cron=resolved)
+    return f"Scheduled `{resolved}` — {instruction}"
 
 
 def _list_my_schedules_impl(db: Any, run_context: RunContext) -> str:
@@ -416,10 +440,24 @@ def scheduling_tools(db: Any = None) -> list:
     resolves the caller's user_id from run_context (never a param) — isolation preserved."""
 
     @tool(name="create_schedule")
-    def create_schedule(run_context: RunContext, cron: str, instruction: str) -> str:
-        """Create a recurring task by describing it. `cron` is a 5-field cron expression;
-        `instruction` is what Bott should do each time it fires."""
-        return _create_schedule_impl(db, run_context, cron, instruction)
+    def create_schedule(
+        run_context: RunContext,
+        instruction: str,
+        frequency: str | None = None,
+        time: str | None = None,
+        cron: str | None = None,
+    ) -> str:
+        """Create a recurring task for the user.
+
+        Args:
+            instruction: what Bott should do each time it fires (e.g. "check open PRs").
+            frequency: how often — "daily", "weekdays", or "weekly". This is the easy path.
+            time: time of day in 24-hour "HH:MM" (e.g. "09:00"), paired with frequency.
+            cron: OPTIONAL 5-field cron expression — only for cadences frequency+time can't
+                express. Prefer frequency+time; you do NOT need to write cron yourself.
+        """
+        return _create_schedule_impl(
+            db, run_context, instruction, frequency=frequency, time=time, cron=cron)
 
     @tool(name="list_my_schedules")
     def list_my_schedules(run_context: RunContext) -> str:

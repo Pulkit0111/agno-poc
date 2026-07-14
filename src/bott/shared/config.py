@@ -482,7 +482,12 @@ def sprint_report_override(project_key: str) -> dict:
 
 
 # --- Agentic skills layer (Hermes-style) ---------------------------------------
-_DEFAULT_SHELL_ALLOWLIST = ["ls", "cat", "echo", "pwd", "head", "tail", "grep", "find", "wc", "python", "python3"]
+# Read-only file/text inspection only. Interpreters (python/python3) are deliberately EXCLUDED:
+# the workspace shell must not be a code-execution or network-egress path (e.g. `python -c
+# "import urllib; urllib.request.urlopen(...)"` would reach the network unmediated by the
+# action policy that guards the http/slack/github/atlassian connectors). curl/wget are absent
+# for the same reason. Override with BOTT_SHELL_ALLOWED_COMMANDS if an operator needs more.
+_DEFAULT_SHELL_ALLOWLIST = ["ls", "cat", "echo", "pwd", "head", "tail", "grep", "find", "wc"]
 
 
 def bott_skills_dir() -> str:

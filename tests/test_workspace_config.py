@@ -17,6 +17,15 @@ def test_shell_allowlist_has_safe_readonly_commands():
     assert "ls" in cmds and "cat" in cmds and "rm" not in cmds
 
 
+def test_shell_allowlist_excludes_interpreters_and_network():
+    """The workspace shell must not be a code-exec or network-egress path: no interpreters
+    (python/python3) and no network fetchers (curl/wget), so it can't bypass the action
+    policy that gates the http/slack/github/atlassian connectors."""
+    cmds = config.bott_shell_allowed_commands()
+    for banned in ("python", "python3", "curl", "wget", "nc", "ssh"):
+        assert banned not in cmds, f"{banned} must not be shell-allowlisted"
+
+
 def test_env_overrides(monkeypatch):
     monkeypatch.setenv("BOTT_WORKSPACE_DIR", "/tmp/ws")
     monkeypatch.setenv("BOTT_SHELL_ALLOWED_COMMANDS", "ls,echo")
