@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 
+import httpx
+
 from bott.shared import codex_tokens, config
 from bott.shared.config import model_provider
 from bott.shared.persistence.records import get_setting, set_setting
@@ -63,13 +65,25 @@ def provider_key_status(provider: str) -> tuple[bool, str]:
     return False, f"Unknown provider `{provider}`"
 
 
+def _is_text_to_text(model: dict) -> bool:
+    """Mirrors personal_finance_organizer/lib/openrouter.ts's filter: read declared input/output
+    modalities (defaulting to text when absent) and keep only models that both accept and
+    produce text — so the picker excludes image/audio-only models."""
+    arch = model.get("architecture") or {}
+    modality = arch.get("modality")
+    inputs = arch.get("input_modalities") or (modality.split("->")[:1] if modality else ["text"])
+    outputs = arch.get("output_modalities") or ["text"]
+    return "text" in inputs and "text" in outputs
+
+
 def _fetch_openrouter_models() -> list[str]:
-    """OpenRouter's live model catalog (ids). Best-effort — falls back to a curated list."""
+    """OpenRouter's live model catalog (ids), filtered to text→text models. Best-effort — falls
+    back to a curated list."""
     try:
-        import httpx
         r = httpx.get("https://openrouter.ai/api/v1/models", timeout=10)
         r.raise_for_status()
-        ids = [m.get("id") for m in (r.json().get("data") or []) if m.get("id")]
+        data = r.json().get("data") or []
+        ids = [m.get("id") for m in data if m.get("id") and _is_text_to_text(m)]
         return sorted(ids) or list(_OPENROUTER_FALLBACK)
     except Exception:  # noqa: BLE001 — never let a catalog fetch break the panel
         return list(_OPENROUTER_FALLBACK)
