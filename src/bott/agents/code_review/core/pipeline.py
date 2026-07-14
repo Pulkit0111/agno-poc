@@ -151,6 +151,7 @@ def review_pr(
             tool_calls=run.tool_calls,
             termination=run.termination,
             prior_review=prior_review,
+            engagement_observable=run.engagement_observable,
         )
         gate = apply_gate(run.output, ctx)
         rendered = render_github_review(
