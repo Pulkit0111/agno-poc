@@ -70,6 +70,24 @@ def test_refresh_ahead_when_expired(store, monkeypatch):
     assert ct._load_bundle()["refresh_token"] == "rt-new"
 
 
+def test_get_valid_token_carries_refresh_token(store):
+    ct.store_bundle({"access_token": _jwt(int(time.time()) + 3600),
+                     "refresh_token": "rt-carry", "account_id": "acc-1"})
+    tok = ct.get_valid_token()
+    assert tok.refresh_token == "rt-carry"
+
+
+def test_refresh_ahead_result_carries_new_refresh_token(store, monkeypatch):
+    ct.store_bundle({"access_token": _jwt(int(time.time()) - 10),
+                     "refresh_token": "rt-old", "account_id": "acc-1"})
+    def fake_refresh(rt):
+        return {"access_token": _jwt(int(time.time()) + 3600),
+                "refresh_token": "rt-new", "account_id": "acc-1"}
+    monkeypatch.setattr(ct, "_http_refresh", fake_refresh)
+    tok = ct.get_valid_token()
+    assert tok.refresh_token == "rt-new"
+
+
 def test_bootstrap_from_local_seeds_org_token(store, tmp_path, monkeypatch):
     import base64
     import json

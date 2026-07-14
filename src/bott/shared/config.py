@@ -650,3 +650,33 @@ def model_retry_delay_s() -> int:
 def bott_admins() -> set[str]:
     """Emails allowed to connect the org Codex account / override the model (csv)."""
     return {e.strip().lower() for e in os.getenv("BOTT_ADMINS", "").split(",") if e.strip()}
+
+
+# --- Codex CLI-exec (route build/review through the official `codex` binary) --
+def codex_cli_enabled() -> bool:
+    """Route build/review through the official `codex` CLI subprocess (codex exec) instead
+    of Agno's tool-calling loop, mirroring how a known-production reference app runs Codex —
+    the CLI's own request shape/telemetry is indistinguishable from a human running it
+    interactively, which is materially lower ban-risk than hitting the internal Responses API
+    directly (see codex_model.py). Off by default: opt in only after verifying the `codex`
+    binary + its bubblewrap sandbox actually work in the target deploy environment."""
+    return os.getenv("CODEX_CLI_EXEC", "0").strip().lower() in ("1", "true", "yes")
+
+
+def codex_cli_binary() -> str:
+    return os.getenv("CODEX_CLI_BIN", "codex")
+
+
+def codex_cli_timeout_s() -> int:
+    return int(os.getenv("CODEX_CLI_TIMEOUT_S", "900"))
+
+
+def codex_cli_disable_sandbox() -> bool:
+    """In a container, codex's bubblewrap sandbox needs unprivileged user namespaces, which
+    are often disabled (hardened kernels, restrictive container runtimes) — codex exec would
+    simply fail to start there. Docker is already the real isolation boundary in prod, so
+    when this is on, callers swap the CLI's `-s <sandbox>` flag for
+    `--dangerously-bypass-approvals-and-sandbox` instead. Off by default: dev on macOS uses
+    the real sandbox, and this should only be flipped on for the containerized deploy where
+    bubblewrap is verified to be unusable."""
+    return os.getenv("BOTT_CODEX_DISABLE_SANDBOX", "0").strip().lower() in ("1", "true", "yes")

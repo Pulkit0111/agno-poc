@@ -46,6 +46,7 @@ class CodexNotConnected(RuntimeError):
 class CodexToken:
     access_token: str
     account_id: str
+    refresh_token: str = ""
 
 
 # ── process-local steady-state cache ─────────────────────────────────────────
@@ -189,7 +190,7 @@ def get_valid_token() -> CodexToken:
             _alert_disconnected("the stored token bundle is gone")
         raise CodexNotConnected(NOT_CONNECTED_MSG)
     if _jwt_exp(bundle["access_token"]) - config.codex_refresh_margin_s() > time.time():
-        tok = CodexToken(bundle["access_token"], bundle["account_id"])
+        tok = CodexToken(bundle["access_token"], bundle["account_id"], bundle["refresh_token"])
         _cache_put(tok)
         return tok
     return _refresh_locked(bundle)
@@ -213,7 +214,7 @@ def _refresh_locked(bundle: dict) -> CodexToken:
             if row:
                 fresh = json.loads(SecretBox.from_env().decrypt(row[0]))
                 if _jwt_exp(fresh["access_token"]) - config.codex_refresh_margin_s() > time.time():
-                    tok = CodexToken(fresh["access_token"], fresh["account_id"])
+                    tok = CodexToken(fresh["access_token"], fresh["account_id"], fresh["refresh_token"])
                     _cache_put(tok)
                     return tok
                 bundle = fresh
@@ -234,7 +235,7 @@ def _refresh_locked(bundle: dict) -> CodexToken:
         # Commit the rotated bundle NOW, on its own connection — see the docstring.
         with get_engine().begin() as save_c:
             _save_bundle(save_c, merged)
-        tok = CodexToken(merged["access_token"], merged["account_id"])
+        tok = CodexToken(merged["access_token"], merged["account_id"], merged["refresh_token"])
         _cache_put(tok)
         return tok
 
