@@ -232,22 +232,39 @@ def test_get_models_usage_is_none_when_codex_not_usable(client, monkeypatch):
     assert body["codex_usage"] is None
 
 
-def test_get_models_only_fetches_active_provider_catalog(client, monkeypatch):
+def test_get_models_providers_list_only_populates_active_provider_catalog(client, monkeypatch):
+    """The `providers` array (legacy per-provider status list) still only populates
+    `models` for the currently-active provider — inactive providers show an empty list
+    there. `catalogs` (see the test below) is a SEPARATE field that intentionally fetches
+    every provider's live catalog, for the per-role provider picker."""
     import bott.interfaces.slack_home.models as models_mod
     monkeypatch.setattr(models_mod, "_active", lambda: {
         "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5-codex", "review": "gpt-5.5",
+        "providers_by_role": {"chat": "codex", "build": "codex", "review": "codex"},
     })
     monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
-    calls = []
-
-    def _tracking_available_models(p):
-        calls.append(p)
-        return ["gpt-5.5", "gpt-5.5-codex"]
-
-    monkeypatch.setattr(models_mod, "available_models", _tracking_available_models)
+    monkeypatch.setattr(models_mod, "available_models", lambda p: ["gpt-5.5", "gpt-5.5-codex"])
     _as(client, admin=True)
     body = client.get("/api/console/v1/models").json()
-    assert calls == ["codex"]
     by_name = {p["name"]: p["models"] for p in body["providers"]}
+    assert by_name["codex"] == ["gpt-5.5", "gpt-5.5-codex"]
     assert by_name["openrouter"] == []
     assert by_name["bedrock"] == []
+
+
+def test_get_models_catalogs_field_covers_every_provider(client, monkeypatch):
+    """`catalogs` (added for the per-role provider picker) fetches ALL three providers'
+    model lists regardless of which one is currently active — a role other than the
+    active one may still be switched to any provider, so its catalog must be available."""
+    import bott.interfaces.slack_home.models as models_mod
+    monkeypatch.setattr(models_mod, "_active", lambda: {
+        "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5-codex", "review": "gpt-5.5",
+        "providers_by_role": {"chat": "codex", "build": "codex", "review": "codex"},
+    })
+    monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
+    monkeypatch.setattr(models_mod, "available_models", lambda p: [f"{p}-model"])
+    _as(client, admin=True)
+    body = client.get("/api/console/v1/models").json()
+    assert body["catalogs"]["codex"]  # static FALLBACK_CODEX_MODELS, non-empty
+    assert body["catalogs"]["openrouter"] == ["openrouter-model"]
+    assert body["catalogs"]["bedrock"] == ["bedrock-model"]

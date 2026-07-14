@@ -900,6 +900,10 @@ def build_console_router(db) -> APIRouter:
             "provider": provider, "chat": active["chat"], "build": active["build"],
             "review": active["review"], "conflict": conflict, "swap_preview": swap_preview,
             "providers": providers, "codex_usage": codex_usage,
+            # Full task->model matrix (incl. per-role providers) + per-provider catalogs,
+            # for the console's per-role provider picker — additive, doesn't replace the
+            # flat fields above (kept for back-compat with existing callers).
+            "active": active, "catalogs": models_mod.catalogs(),
         }
 
     @r.post("/api/console/v1/models")
@@ -908,7 +912,7 @@ def build_console_router(db) -> APIRouter:
         require_admin(user)
         from bott.interfaces.slack_home import models as models_mod
         message = models_mod.apply_model_override(user["email"], body.key, body.value)
-        if message.startswith(("Unknown setting", "Sorry, that's not allowed")):
+        if message.startswith(("Unknown setting", "Sorry, that's not allowed", "Invalid provider")):
             raise _err(400, "override_failed", message)
         return {"message": message}
 

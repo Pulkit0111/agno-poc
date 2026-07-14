@@ -36,13 +36,21 @@ _BEDROCK_FALLBACK = [
 
 def _active() -> dict:
     """The task→model matrix as resolved right now. `heavy` remains as the legacy store
-    fallback build/review inherit when they have no explicit setting."""
-    from bott.shared.model import resolve_model_id
+    fallback build/review inherit when they have no explicit setting. `providers_by_role`
+    surfaces the per-role provider (chat/build/review may each sit on a different provider
+    via `model.provider.<role>`) alongside the legacy global `provider` field, kept for
+    back-compat with callers that only care about the single active provider."""
+    from bott.shared.model import resolve_model_id, resolve_provider
     return {
         "provider": get_setting("model.provider") or model_provider(),
         "chat": resolve_model_id("chat"),
         "build": resolve_model_id("build"),
         "review": resolve_model_id("review"),
+        "providers_by_role": {
+            "chat": resolve_provider("chat"),
+            "build": resolve_provider("build"),
+            "review": resolve_provider("review"),
+        },
     }
 
 
@@ -116,6 +124,21 @@ def available_models(provider: str) -> list[str]:
     return []
 
 
+_VALID_PROVIDERS = ("codex", "openrouter", "bedrock")
+
+
+def catalogs() -> dict:
+    """Per-provider model-id catalogs for the console's model picker, one call per
+    provider (codex is always the static fallback list; openrouter/bedrock hit their
+    live catalog — `available_models` already handles the fetch + fallback + missing-key
+    empty-list behavior)."""
+    return {
+        "codex": list(config.FALLBACK_CODEX_MODELS),
+        "openrouter": available_models("openrouter"),
+        "bedrock": available_models("bedrock"),
+    }
+
+
 def models_section(is_admin: bool) -> list[dict]:
     """Admin-only panel body (the '🤖 Models' header is added by build_home_view). Returns []
     for non-admins so members never see model controls."""
@@ -152,12 +175,22 @@ def _is_admin(email: str) -> bool:
     return roles.is_admin(email)
 
 
+_OVERRIDE_KEYS = (
+    "model.provider", "model.chat", "model.build", "model.review", "model.heavy",
+    # Per-role provider overrides let an admin pin e.g. Chat to OpenRouter while
+    # Build/Review stay on Codex — see bott.shared.model.resolve_provider.
+    "model.provider.chat", "model.provider.build", "model.provider.review",
+)
+
+
 def apply_model_override(actor_email: str, key: str, value: str) -> str:
     # model.heavy kept for back-compat (legacy tier build/review fall back to).
-    if key not in ("model.provider", "model.chat", "model.build", "model.review", "model.heavy"):
+    if key not in _OVERRIDE_KEYS:
         return f"Unknown setting `{key}`."
     if not _is_admin(actor_email):
         return "Sorry, that's not allowed — only an admin can change the model."
+    if key.startswith("model.provider") and value not in _VALID_PROVIDERS:
+        return f"Invalid provider `{value}` — must be one of {', '.join(_VALID_PROVIDERS)}."
     set_setting(key, value)
     a = _active()
     note = ("" if a["review"] != a["build"]
