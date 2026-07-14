@@ -59,6 +59,11 @@ def test_admin_payload_still_has_everything_it_had(client, monkeypatch):
     })
     monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
     monkeypatch.setattr(models_mod, "available_models", lambda p: ["gpt-5.5", "gpt-5.5-codex"])
+    # Admin GET now also calls catalogs(); the available_models stub above already
+    # short-circuits its fetchers, but stub them directly too so this test stays
+    # network-free even if catalogs() is later refactored to call the fetchers itself.
+    monkeypatch.setattr(models_mod, "_fetch_openrouter_models", lambda: ["openai/gpt-5.5"])
+    monkeypatch.setattr(models_mod, "_fetch_bedrock_models", lambda: ["anthropic.claude-opus-4-1-v1:0"])
     _as(client, admin=True)
     body = client.get("/api/console/v1/models").json()
 

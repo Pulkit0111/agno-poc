@@ -36,9 +36,13 @@ def _as(client, email="m@x.com", admin=False):
 
 def test_admin_get_includes_providers_by_role_and_catalogs(client, monkeypatch):
     import bott.interfaces.slack_home.models as models_mod
+    # Stub BOTH live catalog fetchers + force every provider "usable" so catalogs()
+    # resolves deterministically with zero network and zero environment dependence
+    # (an unmocked bedrock path would otherwise shell out to boto3 on any host that
+    # happens to have AWS creds set — a hidden network/env dependency).
+    monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
     monkeypatch.setattr(models_mod, "_fetch_openrouter_models", lambda: ["openai/gpt-5.5", "anthropic/claude-opus-4.8"])
-    from bott.shared import config
-    monkeypatch.setattr(config, "openrouter_api_key", lambda: "sk-test")
+    monkeypatch.setattr(models_mod, "_fetch_bedrock_models", lambda: ["anthropic.claude-opus-4-1-v1:0"])
     _as(client, admin=True)
     body = client.get("/api/console/v1/models").json()
 
@@ -46,6 +50,7 @@ def test_admin_get_includes_providers_by_role_and_catalogs(client, monkeypatch):
     assert body["active"]["providers_by_role"]["build"] in ("codex", "openrouter", "bedrock")
     assert body["active"]["providers_by_role"]["review"] in ("codex", "openrouter", "bedrock")
     assert "openai/gpt-5.5" in body["catalogs"]["openrouter"]
+    assert "anthropic.claude-opus-4-1-v1:0" in body["catalogs"]["bedrock"]
     assert isinstance(body["catalogs"]["codex"], list) and body["catalogs"]["codex"]
 
 
