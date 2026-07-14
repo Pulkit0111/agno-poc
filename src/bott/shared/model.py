@@ -111,7 +111,16 @@ def build_model(role: str = "chat", **overrides):
 def _build_for_provider(provider: str, model_id: str, overrides: dict):
     if provider == "openrouter":
         from agno.models.openrouter import OpenRouter
-        return OpenRouter(id=model_id, api_key=openrouter_api_key(), **{**_COMMON, **overrides})
+        # Many OpenRouter models emit chain-of-thought as `reasoning_content`, which the Agno
+        # Slack interface renders as a "*Reasoning:*" block before the answer (event_handler.py).
+        # Users should see the reply, not the raw thinking — ask OpenRouter to still reason but
+        # NOT return the reasoning tokens (`reasoning.exclude`), so reasoning_content stays empty.
+        # A caller can override via `overrides["extra_body"]`.
+        return OpenRouter(
+            id=model_id,
+            api_key=openrouter_api_key(),
+            **{"extra_body": {"reasoning": {"exclude": True}}, **_COMMON, **overrides},
+        )
     if provider == "bedrock":
         from agno.models.aws import AwsBedrock
         return AwsBedrock(id=model_id, **{**_COMMON, **overrides})

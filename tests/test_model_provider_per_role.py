@@ -59,6 +59,9 @@ def test_build_model_chat_openrouter_build_codex_mixed_roles(monkeypatch):
     chat = model_mod.build_model("chat")
     assert type(chat).__name__ == "OpenRouter"
     assert chat.id == "x/y"
+    # Reasoning tokens are suppressed so the Slack interface doesn't render a "*Reasoning:*"
+    # chain-of-thought block before the answer (reasoning.exclude keeps reasoning_content empty).
+    assert chat.extra_body == {"reasoning": {"exclude": True}}
 
     from bott.shared import codex_tokens as ct
     monkeypatch.setattr(model_mod, "get_valid_token", lambda: ct.CodexToken("tok", "acc"))
@@ -66,3 +69,10 @@ def test_build_model_chat_openrouter_build_codex_mixed_roles(monkeypatch):
     build = model_mod.build_model("build")
     assert type(build).__name__ != "OpenRouter"
     assert type(build).__name__ == "CodexModel"
+
+
+def test_openrouter_model_can_override_extra_body(monkeypatch):
+    """A caller-supplied extra_body wins over the reasoning-exclude default."""
+    monkeypatch.setattr(model_mod, "openrouter_api_key", lambda: "sk-x")
+    m = model_mod._build_for_provider("openrouter", "x/y", {"extra_body": {"custom": 1}})
+    assert m.extra_body == {"custom": 1}
