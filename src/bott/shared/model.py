@@ -52,6 +52,21 @@ def resolve_model_id(role: str) -> str:
     return role_model_id(role)
 
 
+def resolve_provider(role: str) -> str:
+    """The provider a role resolves to right now: per-role settings-store override
+    (`model.provider.<role>`) → global settings-store override (`model.provider`) →
+    env default (`config.model_provider()`). Lets an admin put e.g. Chat on OpenRouter
+    while Build/Review stay on Codex. Whitespace-only settings values are treated as
+    absent (a stray space shouldn't silently pin a provider)."""
+    per_role = _setting(f"model.provider.{role}")
+    if per_role and per_role.strip():
+        return per_role.strip()
+    global_override = _setting("model.provider")
+    if global_override and global_override.strip():
+        return global_override.strip()
+    return model_provider()
+
+
 def _review_anti_affinity(model_id: str, provider: str) -> str:
     """The reviewer must not be the model that wrote the code. If the review role resolves
     to the SAME id as the build role, swap to an alternate so implement and review never
@@ -80,7 +95,7 @@ def _review_anti_affinity(model_id: str, provider: str) -> str:
 def build_model(role: str = "chat", **overrides):
     """Build the model for a task role under the configured provider.
     `overrides` (e.g. retries, temperature) are forwarded to the underlying model."""
-    provider = _setting("model.provider") or model_provider()
+    provider = resolve_provider(role)
     model_id = resolve_model_id(role)
     if role == "review":
         model_id = _review_anti_affinity(model_id, provider)
