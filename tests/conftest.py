@@ -38,6 +38,14 @@ _MEMRA_ENV_KEYS = (
 # depending on whoever's machine runs the suite. Suppressed for the same reason as MEMRA_*.
 _ADMIN_ENV_KEYS = ("BOTT_ADMINS",)
 
+# CODEX_CLI_EXEC / BOTT_CODEX_DISABLE_SANDBOX flip build/review onto the codex-exec subprocess
+# path. A real .env that sets CODEX_CLI_EXEC=1 must NOT silently redirect the Agno-path tests
+# (which inject a fake agno Agent and assert it ran) onto the CLI branch — that's an
+# environment-dependent failure exactly like MEMRA_*/BOTT_ADMINS. Suppressed by default; the
+# CLI-path test modules opt back in via their own `monkeypatch.setenv("CODEX_CLI_EXEC","1")`
+# autouse fixtures, which run after this one.
+_CODEX_EXEC_ENV_KEYS = ("CODEX_CLI_EXEC", "BOTT_CODEX_DISABLE_SANDBOX")
+
 
 _pg_cleanup_engine = None
 
@@ -108,7 +116,8 @@ def _reset_connector_registry(monkeypatch):
     # Suppress MEMRA/admin env vars so memra_configured()/bott_admins() are empty by
     # default across all tests. Tests that need them set/monkeypatch explicitly, which
     # overrides this env-level suppression.
-    saved = {k: os.environ.pop(k, None) for k in (*_MEMRA_ENV_KEYS, *_ADMIN_ENV_KEYS)}
+    saved = {k: os.environ.pop(k, None)
+             for k in (*_MEMRA_ENV_KEYS, *_ADMIN_ENV_KEYS, *_CODEX_EXEC_ENV_KEYS)}
     yield
     REGISTRY._reset()
     # Restore for any subsequent test that truly depends on them.
