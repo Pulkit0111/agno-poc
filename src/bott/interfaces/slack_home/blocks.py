@@ -316,11 +316,19 @@ def _input(block_id: str, label: str, element: dict, *, optional: bool = False) 
 
 
 def build_set_models_modal(chat_current: str, build_current: str, review_current: str,
-                           options: list[str]) -> dict:
-    """The task→model matrix modal: chat / build / review. Review should DIFFER from build
-    (the reviewer must not be the model that wrote the code — the gateway auto-swaps if
-    they match, but picking distinct models here makes the choice deliberate)."""
-    opts = [(m, m) for m in options]
+                           chat_options: list[str], build_options: list[str],
+                           review_options: list[str]) -> dict:
+    """The task→model matrix modal: chat / build / review. Each role's picker is fed from
+    THAT role's own provider catalog (chat/build/review may each sit on a different
+    provider via a per-role override) — never a shared/global catalog. Offering e.g. a
+    Codex model id for a role pinned to OpenRouter would let an admin assign a
+    cross-provider id that looks valid but breaks every call for that role. Review should
+    also DIFFER from build (the reviewer must not be the model that wrote the code — the
+    gateway auto-swaps if they match, but picking distinct models here makes the choice
+    deliberate)."""
+    chat_opts = [(m, m) for m in chat_options]
+    build_opts = [(m, m) for m in build_options]
+    review_opts = [(m, m) for m in review_options]
     return {
         "type": "modal",
         "callback_id": "models_set_models",
@@ -329,13 +337,17 @@ def build_set_models_modal(chat_current: str, build_current: str, review_current
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
             _input("chat", "Chat model (conversation)",
-                   _static_select("v", opts, initial=chat_current if chat_current in options else None)),
+                   _static_select("v", chat_opts,
+                                  initial=chat_current if chat_current in chat_options else None)),
             _input("build", "Build model (plan / implement / triage)",
-                   _static_select("v", opts, initial=build_current if build_current in options else None)),
+                   _static_select("v", build_opts,
+                                  initial=build_current if build_current in build_options else None)),
             _input("review", "Review model (PR review — pick a DIFFERENT model than build)",
-                   _static_select("v", opts, initial=review_current if review_current in options else None)),
+                   _static_select("v", review_opts,
+                                  initial=review_current if review_current in review_options else None)),
             {"type": "context", "elements": [{"type": "mrkdwn",
-             "text": "If review = build, the reviewer shares the author's blind spots — "
+             "text": "Each picker only lists models for that role's current provider. "
+                     "If review = build, the reviewer shares the author's blind spots — "
                      "Bott will auto-swap the reviewer at run time."}]},
         ],
     }

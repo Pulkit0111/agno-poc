@@ -99,9 +99,29 @@ def test_ask_modal_shape():
 
 
 def test_set_models_modal_has_three_roles():
-    view = blocks.build_set_models_modal("a", "b", "c", ["a", "b", "c"])
+    view = blocks.build_set_models_modal("a", "b", "c", ["a", "b", "c"], ["a", "b", "c"], ["a", "b", "c"])
     input_ids = [b.get("block_id") for b in view["blocks"] if b["type"] == "input"]
     assert input_ids == ["chat", "build", "review"]
+
+
+def test_set_models_modal_uses_each_roles_own_catalog():
+    """Each role's picker must offer only that role's own provider's catalog — otherwise an
+    admin could assign a cross-provider model id to a role (e.g. a Codex id to a role pinned
+    to OpenRouter), which looks valid but breaks every call for that role."""
+    view = blocks.build_set_models_modal(
+        "openrouter-model", "codex-model", "codex-model-2",
+        ["openrouter-model", "other-openrouter-model"],
+        ["codex-model", "codex-model-2"],
+        ["codex-model", "codex-model-2"],
+    )
+    by_block = {b["block_id"]: b for b in view["blocks"] if b["type"] == "input"}
+    chat_values = [o["value"] for o in by_block["chat"]["element"]["options"]]
+    build_values = [o["value"] for o in by_block["build"]["element"]["options"]]
+    review_values = [o["value"] for o in by_block["review"]["element"]["options"]]
+    assert chat_values == ["openrouter-model", "other-openrouter-model"]
+    assert build_values == ["codex-model", "codex-model-2"]
+    assert review_values == ["codex-model", "codex-model-2"]
+    assert "codex-model" not in chat_values  # chat's picker never offers build/review's provider ids
 
 
 def test_quick_ask_modal_carries_kind_and_input():

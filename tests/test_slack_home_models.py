@@ -20,7 +20,20 @@ def store(monkeypatch, tmp_path):
 def test_models_section_is_admin_only(store):
     # Per design, the Models panel is entirely admin-only — members never see it.
     assert m.models_section(is_admin=False) == []
-    assert "provider" in str(m.models_section(is_admin=True)).lower()
+    text = str(m.models_section(is_admin=True)).lower()
+    # Per-role providers, not a single global one — see test_models_section_shows_per_role_providers.
+    assert "chat" in text and "build" in text and "review" in text
+
+
+def test_models_section_shows_per_role_providers(store):
+    """Panel text must show each role's OWN provider (chat/build/review can each sit on a
+    different provider via model.provider.<role>) — not one global provider line that hides
+    a per-role override from the admin about to open the 'Change models' modal."""
+    m.apply_model_override("admin@axelerant.com", "model.provider.chat", "openrouter")
+    text = str(m.models_section(is_admin=True))
+    assert "chat `openrouter/" in text
+    assert "build `codex/" in text
+    assert "review `codex/" in text
 
 
 def test_provider_key_status(store, monkeypatch):

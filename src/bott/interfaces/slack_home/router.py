@@ -509,17 +509,28 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                 if not models._is_admin(actor_email):
                     return {"ok": True}   # button isn't shown to non-admins; ignore crafted payloads
                 try:
+                    from bott.shared.model import resolve_provider
                     active = models._active()
-                    provider = active["provider"]
-                    options = models.available_models(provider)
-                    if not options:
-                        # Keys missing for bedrock/openrouter — explain instead of an empty picker.
-                        _, hint = models.provider_key_status(provider)
+                    by_role = active["providers_by_role"]
+                    # Each role's picker must be fed from THAT role's own provider catalog —
+                    # not one shared/global catalog — otherwise an admin could assign e.g. a
+                    # Codex model id to a role pinned to OpenRouter (a valid-looking config
+                    # that breaks every call for that role).
+                    role_options = {role: models.available_models(resolve_provider(role))
+                                    for role in ("chat", "build", "review")}
+                    missing = [role for role in ("chat", "build", "review") if not role_options[role]]
+                    if missing:
+                        # Keys missing for that role's provider — explain instead of an empty picker.
+                        lines = []
+                        for role in missing:
+                            _, hint = models.provider_key_status(by_role[role])
+                            lines.append(f"*{role}* (`{by_role[role]}`) — {hint}")
                         view = blocks.build_notice_modal(
-                            "Add keys first", f"Can't list `{provider}` models yet — {hint}.")
+                            "Add keys first", "Can't list models for every role yet:\n" + "\n".join(lines))
                     else:
-                        view = blocks.build_set_models_modal(active["chat"], active["build"],
-                                                             active["review"], options)
+                        view = blocks.build_set_models_modal(
+                            active["chat"], active["build"], active["review"],
+                            role_options["chat"], role_options["build"], role_options["review"])
                     client.views_open(trigger_id=trigger_id, view=view)
                 except Exception as e:  # noqa: BLE001
                     log.error("open set_models modal: %s", e)

@@ -104,6 +104,10 @@ export default function ModelsPage() {
             ? "OpenRouter connected ✓"
             : "OpenRouter: add OPENROUTER_API_KEY to .env to use it"}
         </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Changes apply immediately to reports, builds, reviews, and App-Home asks. The
+          always-on Slack chat assistant switches on Bott&apos;s next restart.
+        </p>
       </div>
 
       <CodexConnect connected={codexConnected} />

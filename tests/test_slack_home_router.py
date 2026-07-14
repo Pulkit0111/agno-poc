@@ -245,6 +245,53 @@ def test_admin_can_remove_any_schedule(tmp_path, monkeypatch):
     assert removed == [[str(sch.id)]]
 
 
+# ── Per-role model catalogs in the "Change models" modal ────────────────────────────
+# Under per-role provider overrides, each role's picker must be fed from THAT role's own
+# provider catalog — never a shared/global one — or an admin could assign a cross-provider
+# model id to a role and quietly break every call for it.
+
+
+def test_set_models_modal_feeds_each_role_from_its_own_provider_catalog(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOTT_ADMINS", "admin@axelerant.com")
+    _stub_slack_identity(monkeypatch, "admin@axelerant.com")
+    import bott.interfaces.slack_home.models as models_mod
+    import bott.shared.model as model_mod
+
+    # chat is pinned to openrouter; build/review stay on codex.
+    monkeypatch.setattr(
+        model_mod, "resolve_provider",
+        lambda role: "openrouter" if role == "chat" else "codex",
+    )
+    monkeypatch.setattr(models_mod, "_active", lambda: {
+        "provider": "codex", "chat": "or-model-a", "build": "gpt-5.5", "review": "gpt-5.4",
+        "providers_by_role": {"chat": "openrouter", "build": "codex", "review": "codex"},
+    })
+    # No live network — this is the same monkeypatch point tests/test_openrouter_catalog.py
+    # and tests/console/test_models_provider_switch.py use to avoid a real HTTP/boto3 call.
+    monkeypatch.setattr(
+        models_mod, "available_models",
+        lambda provider: {"openrouter": ["or-model-a", "or-model-b"],
+                          "codex": ["gpt-5.5", "gpt-5.4"]}[provider],
+    )
+
+    opened = []
+    monkeypatch.setattr("slack_sdk.WebClient.views_open", lambda self, **kw: opened.append(kw))
+    payload = {"type": "block_actions", "user": {"id": "U1"}, "trigger_id": "t",
+               "actions": [{"action_id": "models_set_models"}]}
+    r = _post_interactivity(_client(tmp_path), payload)
+    assert r.status_code == 200
+    assert len(opened) == 1
+    view = opened[0]["view"]
+    by_block = {b["block_id"]: b for b in view["blocks"] if b.get("type") == "input"}
+    chat_values = [o["value"] for o in by_block["chat"]["element"]["options"]]
+    build_values = [o["value"] for o in by_block["build"]["element"]["options"]]
+    review_values = [o["value"] for o in by_block["review"]["element"]["options"]]
+    assert chat_values == ["or-model-a", "or-model-b"]
+    assert build_values == ["gpt-5.5", "gpt-5.4"]
+    assert review_values == ["gpt-5.5", "gpt-5.4"]
+    assert "gpt-5.5" not in chat_values  # chat's picker never offers codex ids while on openrouter
+
+
 def test_admin_dismiss_works(tmp_path, monkeypatch):
     monkeypatch.setenv("BOTT_ADMINS", "admin@axelerant.com")
     _stub_slack_identity(monkeypatch, "admin@axelerant.com")

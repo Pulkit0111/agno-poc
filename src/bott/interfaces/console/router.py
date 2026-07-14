@@ -880,7 +880,11 @@ def build_console_router(db) -> APIRouter:
         conflict = active["review"] == active["build"]
         swap_preview = None
         if conflict:
-            alt = _review_anti_affinity(active["review"], provider)
+            # Anti-affinity previews the swap review would actually get at run time, which
+            # depends on review's OWN provider (it may sit on a different provider than the
+            # global `provider` under a per-role override) — not the global one.
+            review_provider = active["providers_by_role"]["review"]
+            alt = _review_anti_affinity(active["review"], review_provider)
             swap_preview = alt if alt != active["review"] else None
         providers = []
         for name in ("codex", "openrouter", "bedrock"):

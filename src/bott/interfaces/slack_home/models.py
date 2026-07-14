@@ -145,16 +145,21 @@ def models_section(is_admin: bool) -> list[dict]:
     if not is_admin:
         return []
     a = _active()
-    provider = a["provider"]
-    ok, hint = provider_key_status(provider)
+    by_role = a["providers_by_role"]
+    # Show each role's OWN provider, not a single global one — chat/build/review can each
+    # sit on a different provider (per-role override), and a single global line would hide
+    # that from an admin about to open the "Change models" modal.
+    ok, hint = provider_key_status(by_role["chat"])
     icon = "✅" if ok else "⚠️"
     # The reviewer must differ from the builder — same model = same blind spots. The gateway
     # auto-swaps at run time, but surface the conflict so the admin can set it deliberately.
     affinity = ("✅ review differs from build" if a["review"] != a["build"]
                 else "⚠️ review = build — I'll auto-swap the reviewer at run time; set a "
                      "distinct review model to choose which")
-    text = (f"*Task → model matrix* · provider `{provider}`\n"
-            f"chat `{a['chat']}`  ·  build `{a['build']}`  ·  review `{a['review']}`\n"
+    text = (f"*Task → model matrix*\n"
+            f"chat `{by_role['chat']}/{a['chat']}`  ·  "
+            f"build `{by_role['build']}/{a['build']}`  ·  "
+            f"review `{by_role['review']}/{a['review']}`\n"
             f"{affinity}\n{icon} {hint}")
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     # CODEX-ONLY surface (product decision): App Home offers Codex connect/status and the
@@ -197,7 +202,10 @@ def apply_model_override(actor_email: str, key: str, value: str) -> str:
             else "\n⚠️ review = build — the reviewer would share the author's blind spots; "
                  "I'll auto-swap at run time, but consider a distinct review model.")
     return (f"Updated. Now provider=`{a['provider']}` · chat=`{a['chat']}` · "
-            f"build=`{a['build']}` · review=`{a['review']}`.{note}")
+            f"build=`{a['build']}` · review=`{a['review']}`.{note}\n"
+            "Reports, builds, reviews, and App-Home asks pick this up immediately. The "
+            "always-on Slack chat assistant (the one that answers @-mentions/DMs) is built "
+            "once at startup — it switches on Bott's next restart.")
 
 
 def connect_codex(actor_email: str, auth_json: str) -> str:
