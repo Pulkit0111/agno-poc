@@ -20,7 +20,6 @@ from bott.shared.config import (
     codex_cli_binary,
     codex_cli_enabled,
     codex_cli_timeout_s,
-    model_provider,
     review_temperature,
 )
 from bott.shared.model import _review_anti_affinity, build_model, resolve_model_id, resolve_provider
@@ -170,7 +169,7 @@ def run_review_agent(
         tools=[ReviewTools(clone_path, essentials)],
         system_message=system_prompt,
         output_schema=ReviewOutput,
-        use_json_mode=(use_json_mode or model_provider() == "codex"),
+        use_json_mode=(use_json_mode or resolve_provider("review") == "codex"),
         tool_call_limit=budget.max_tool_calls,
         tool_hooks=[_progress_hook] if on_tool else None,
         telemetry=False,

@@ -60,6 +60,33 @@ def _write_auth_json(codex_home: str, access_token: str, refresh_token: str, acc
     return path
 
 
+# The subprocess must NOT inherit bott's full environment. The build/review roles feed
+# UNTRUSTED content (PR diffs, issue text) to a model that runs shell commands inside this
+# process's child; the whole os.environ would hand that model every bott secret —
+# BOTT_SECRET_KEY (decrypts the org token store), DATABASE_URL, GITHUB_APP_PRIVATE_KEY,
+# JIRA_API_TOKEN, OPENROUTER_API_KEY, SLACK_BOT_TOKEN, ... — one `printenv` away from
+# exfiltration via the review output. So we pass a MINIMAL, allowlisted env: only what the
+# CLI genuinely needs to run (its scratch CODEX_HOME, a PATH to find node/itself, HOME, and
+# a handful of locale/proxy/TLS vars that only matter when actually set).
+_ENV_PASSTHROUGH = (
+    "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
+    "NODE_EXTRA_CA_CERTS", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+    "SSL_CERT_FILE", "SSL_CERT_DIR",
+)
+
+
+def _subprocess_env(codex_home: str) -> dict:
+    env = {
+        "CODEX_HOME": codex_home,
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+    }
+    for k in _ENV_PASSTHROUGH:
+        if k in os.environ:
+            env[k] = os.environ[k]
+    return env
+
+
 def _read_back_rotation(codex_home: str, started_refresh_token: str) -> None:
     path = os.path.join(codex_home, "auth.json")
     try:
@@ -69,14 +96,30 @@ def _read_back_rotation(codex_home: str, started_refresh_token: str) -> None:
         return
     toks = data.get("tokens") or {}
     new_refresh = toks.get("refresh_token")
-    if new_refresh and new_refresh != started_refresh_token:
-        log.warning("codex CLI rotated the refresh token mid-run — reconciling into the org store "
-                    "(otherwise the next bott-initiated refresh would reuse the now-consumed token).")
+    if not new_refresh or new_refresh == started_refresh_token:
+        return
+    # A genuine CLI-side rotation — but only persist a COMPLETE bundle. store_bundle rejects
+    # missing fields (would raise ValueError), and a partial write would be worse than
+    # skipping: it could clobber the org row with empties.
+    access_token = toks.get("access_token")
+    account_id = toks.get("account_id")
+    if not access_token or not account_id:
+        log.warning("codex CLI rotated the refresh token but the scratch auth.json is missing "
+                    "access_token/account_id — skipping reconcile (cannot store a partial bundle).")
+        return
+    log.warning("codex CLI rotated the refresh token mid-run — reconciling into the org store "
+                "(otherwise the next bott-initiated refresh would reuse the now-consumed token).")
+    try:
         codex_tokens.store_bundle({
-            "access_token": toks.get("access_token", ""),
+            "access_token": access_token,
             "refresh_token": new_refresh,
-            "account_id": toks.get("account_id", ""),
+            "account_id": account_id,
         })
+    except Exception as e:  # noqa: BLE001 — reconcile is best-effort; must never propagate
+        # Must not raise out of the finally block: a raise here would skip scratch-dir
+        # cleanup (leaving a live auth.json on disk). Redacted — never log token material.
+        log.warning("failed to reconcile codex CLI token rotation into the org store: %s",
+                    redact(str(e)))
 
 
 def run_codex_exec(
@@ -135,7 +178,7 @@ def run_codex_exec(
 
         try:
             proc = runner(args, input=prompt, capture_output=True, text=True,
-                          cwd=cwd, timeout=timeout_s, env={**os.environ, "CODEX_HOME": codex_home})
+                          cwd=cwd, timeout=timeout_s, env=_subprocess_env(codex_home))
         except subprocess.TimeoutExpired as e:
             raise CodexCliError(f"codex exec timed out after {timeout_s}s") from e
 
@@ -157,16 +200,21 @@ def run_codex_exec(
         tokens_used = int(m.group(1)) if m else 0
         return CodexExecResult(text=text, data=data, tokens_used=tokens_used)
     finally:
-        if codex_home:
-            _read_back_rotation(codex_home, tok.refresh_token)
-            shutil.rmtree(codex_home, ignore_errors=True)
-        if out_path:
-            try:
-                os.unlink(out_path)
-            except OSError:
-                pass
-        if schema_path:
-            try:
-                os.unlink(schema_path)
-            except OSError:
-                pass
+        # rmtree MUST run even if _read_back_rotation somehow raises — otherwise a scratch
+        # dir with a LIVE auth.json (access+refresh token) would be left on disk.
+        try:
+            if codex_home:
+                _read_back_rotation(codex_home, tok.refresh_token)
+        finally:
+            if codex_home:
+                shutil.rmtree(codex_home, ignore_errors=True)
+            if out_path:
+                try:
+                    os.unlink(out_path)
+                except OSError:
+                    pass
+            if schema_path:
+                try:
+                    os.unlink(schema_path)
+                except OSError:
+                    pass

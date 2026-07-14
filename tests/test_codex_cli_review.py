@@ -112,3 +112,37 @@ def test_run_review_agent_default_path_unaffected(monkeypatch):
     except Exception:
         pass
     assert called == []
+
+
+class _CaptureAgent:
+    """Captures the kwargs run_review_agent builds the Agent with, then aborts the run."""
+    last_kwargs: dict = {}
+
+    def __init__(self, **kwargs):
+        _CaptureAgent.last_kwargs = kwargs
+
+    def run(self, *_a, **_k):
+        raise RuntimeError("stop after construction")
+
+
+def test_run_review_agent_json_mode_follows_per_role_provider(monkeypatch):
+    # CLI disabled (Agno path) + global provider NON-codex, but the review role is
+    # overridden to codex — use_json_mode must still be True (keys off resolve_provider,
+    # not the global model_provider()).
+    monkeypatch.setenv("CODEX_CLI_EXEC", "0")
+    monkeypatch.setenv("MODEL_PROVIDER", "openrouter")
+    monkeypatch.setattr(r, "resolve_provider", lambda role: "codex" if role == "review" else "openrouter")
+    monkeypatch.setattr(r, "build_model", lambda *a, **k: object())
+    monkeypatch.setattr(r, "Agent", _CaptureAgent)
+    r.run_review_agent(_FakeEssentials(), "/tmp/clone")
+    assert _CaptureAgent.last_kwargs["use_json_mode"] is True
+
+
+def test_run_review_agent_json_mode_off_for_non_codex_review(monkeypatch):
+    monkeypatch.setenv("CODEX_CLI_EXEC", "0")
+    monkeypatch.setenv("MODEL_PROVIDER", "codex")  # global is codex...
+    monkeypatch.setattr(r, "resolve_provider", lambda role: "openrouter")  # ...but review isn't
+    monkeypatch.setattr(r, "build_model", lambda *a, **k: object())
+    monkeypatch.setattr(r, "Agent", _CaptureAgent)
+    r.run_review_agent(_FakeEssentials(), "/tmp/clone")
+    assert _CaptureAgent.last_kwargs["use_json_mode"] is False

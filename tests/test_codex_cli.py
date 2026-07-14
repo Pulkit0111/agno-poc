@@ -139,6 +139,64 @@ def test_run_codex_exec_omits_model_flag_when_not_given(monkeypatch, tmp_path):
     assert "-m" not in seen_args["args"]
 
 
+def test_run_codex_exec_env_excludes_bott_secrets(monkeypatch, tmp_path):
+    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
+    monkeypatch.setenv("BOTT_SECRET_KEY", "supersecret")
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@host/db")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    seen_env = {}
+    def runner(args, *, env, **kw):
+        seen_env.update(env)
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
+    assert "CODEX_HOME" in seen_env
+    assert seen_env["PATH"] == "/usr/bin:/bin"
+    assert "BOTT_SECRET_KEY" not in seen_env
+    assert "DATABASE_URL" not in seen_env
+
+
+def test_run_codex_exec_reconcile_failure_does_not_propagate_and_cleans_up(monkeypatch, tmp_path):
+    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A"))
+    def boom(_bundle):
+        raise ValueError("db down")
+    monkeypatch.setattr(ct, "store_bundle", boom)
+    seen = {}
+    def runner(args, *, env, **kw):
+        seen["codex_home"] = env["CODEX_HOME"]
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        # CLI rotates the refresh token mid-run — reconcile will be attempted and fail.
+        with open(os.path.join(env["CODEX_HOME"], "auth.json"), "w", encoding="utf-8") as f:
+            json.dump({"tokens": {"access_token": "tok-B", "refresh_token": "rt-B",
+                                  "account_id": "acc-1"}}, f)
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    # store_bundle raising must NOT surface out of run_codex_exec.
+    result = cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
+    assert result.text == "ok"
+    # ...and the scratch CODEX_HOME (holding a live auth.json) must still be removed.
+    assert not os.path.isdir(seen["codex_home"])
+
+
+def test_run_codex_exec_skips_reconcile_on_partial_rotation(monkeypatch, tmp_path):
+    monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok-A", "acc-1", "rt-A"))
+    stored = []
+    monkeypatch.setattr(ct, "store_bundle", lambda b: stored.append(b))
+    def runner(args, *, env, **kw):
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        # Rotated refresh token but missing account_id — an incomplete bundle we must skip.
+        with open(os.path.join(env["CODEX_HOME"], "auth.json"), "w", encoding="utf-8") as f:
+            json.dump({"tokens": {"access_token": "tok-B", "refresh_token": "rt-B"}}, f)
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("x", cwd=str(tmp_path), runner=runner)
+    assert stored == []
+
+
 def test_run_codex_exec_uses_sandbox_flag_by_default(monkeypatch, tmp_path):
     monkeypatch.setattr(ct, "get_valid_token", lambda: CodexToken("tok", "acc", "rt"))
     monkeypatch.setattr(config, "codex_cli_disable_sandbox", lambda: False)
