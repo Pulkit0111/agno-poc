@@ -14,7 +14,8 @@ from bott.agents.build_fix.agent.tools import build_implement_tools, build_plan_
 from bott.agents.build_fix.core.models import ImplementResult
 from bott.agents.code_review.github.clone import CloneHandle, _run, writable_clone
 from bott.shared import config
-from bott.shared.model import build_model
+from bott.shared.codex_cli import CodexCliError, run_codex_exec
+from bott.shared.model import build_model, resolve_model_id, resolve_provider
 from bott.shared.observability.logging_setup import get_logger, redact
 
 log = get_logger("bott.build_fix.pipeline")
@@ -75,20 +76,23 @@ def plan_from_repo(
     try:
         branch = _pr_head_branch(owner, name, pr_number, token) if pr_number else None
         handle = writable_clone(owner, name, token=token, branch=branch)
-        from agno.agent import Agent
+        if config.codex_cli_enabled() and resolve_provider("build") == "codex":
+            plan_text = _plan_via_cli(handle.path, request_text)
+        else:
+            from agno.agent import Agent
 
-        budget = config.implement_budget()
-        agent = Agent(
-            model=build_model("build"),
-            tools=build_plan_tools(handle.path),
-            system_message=PLAN_SYSTEM_PROMPT,
-            tool_call_limit=budget.max_tool_calls,
-            telemetry=False,
-            markdown=False,
-        )
-        run = _run_agent_bounded(agent, f"Requested change:\n{request_text}\n\nProduce the plan.",
-                                 budget.timeout_s)
-        plan_text = (getattr(run, "content", "") or "").strip()
+            budget = config.implement_budget()
+            agent = Agent(
+                model=build_model("build"),
+                tools=build_plan_tools(handle.path),
+                system_message=PLAN_SYSTEM_PROMPT,
+                tool_call_limit=budget.max_tool_calls,
+                telemetry=False,
+                markdown=False,
+            )
+            run = _run_agent_bounded(agent, f"Requested change:\n{request_text}\n\nProduce the plan.",
+                                     budget.timeout_s)
+            plan_text = (getattr(run, "content", "") or "").strip()
         return plan_text or request_text
     except Exception as exc:  # noqa: BLE001 — never raise into the worker
         log.warning("plan_from_repo failed for %s/%s: %s", owner, name, exc)
@@ -126,25 +130,47 @@ def _pr_head_branch(owner: str, name: str, pr_number: int, token) -> str:
         return gh.get_pr(owner, name, pr_number).head_ref
 
 
+def _plan_via_cli(clone_path: str, request_text: str) -> str:
+    prompt = f"{PLAN_SYSTEM_PROMPT}\n\nRequested change:\n{request_text}\n\nProduce the plan."
+    result = run_codex_exec(prompt, cwd=clone_path, sandbox="read-only",
+                            model_id=resolve_model_id("build"),
+                            timeout_s=config.codex_cli_timeout_s(), binary=config.codex_cli_binary())
+    return result.text.strip()
+
+
+def _implement_via_cli(clone_path: str, plan_text: str) -> str:
+    prompt = f"{IMPLEMENT_SYSTEM_PROMPT}\n\nImplement this approved plan:\n\n{plan_text}"
+    try:
+        result = run_codex_exec(prompt, cwd=clone_path, sandbox="workspace-write",
+                                model_id=resolve_model_id("build"),
+                                timeout_s=config.codex_cli_timeout_s(), binary=config.codex_cli_binary())
+    except CodexCliError as e:
+        return f"[codex exec failed: {e}]"
+    return result.text.strip()
+
+
 def _clone_and_run_agent(owner: str, name: str, plan_text: str, *, token, model_id, branch=None):
     """Clone, run the implement agent over the clone, return (clone_path, diff_summary, note, handle).
     ``branch`` checks out an existing PR's head so the change lands on that PR.
     The CloneHandle is intentionally NOT cleaned here — implement_task owns the lifecycle."""
     handle = writable_clone(owner, name, token=token, branch=branch)
-    from agno.agent import Agent
+    if config.codex_cli_enabled() and resolve_provider("build") == "codex":
+        note = _implement_via_cli(handle.path, plan_text)
+    else:
+        from agno.agent import Agent
 
-    budget = config.implement_budget()
-    agent = Agent(
-        model=build_model("build"),
-        tools=build_implement_tools(handle.path),
-        system_message=IMPLEMENT_SYSTEM_PROMPT,
-        tool_call_limit=budget.max_tool_calls,
-        telemetry=False,
-        markdown=False,
-    )
-    run = _run_agent_bounded(agent, f"Implement this approved plan:\n\n{plan_text}",
-                             budget.timeout_s)
-    note = getattr(run, "content", "") or ""
+        budget = config.implement_budget()
+        agent = Agent(
+            model=build_model("build"),
+            tools=build_implement_tools(handle.path),
+            system_message=IMPLEMENT_SYSTEM_PROMPT,
+            tool_call_limit=budget.max_tool_calls,
+            telemetry=False,
+            markdown=False,
+        )
+        run = _run_agent_bounded(agent, f"Implement this approved plan:\n\n{plan_text}",
+                                 budget.timeout_s)
+        note = getattr(run, "content", "") or ""
     return handle.path, _diff_summary(handle.path), note, handle
 
 
