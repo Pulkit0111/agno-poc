@@ -12,14 +12,18 @@ from typing import Callable, Optional
 
 from agno.agent import Agent
 
+from bott.shared.codex_cli import CodexCliError, run_codex_exec
 from bott.shared.config import (
     DEFAULT_MODEL,
     Budget,
     calculate_cost,
+    codex_cli_binary,
+    codex_cli_enabled,
+    codex_cli_timeout_s,
     model_provider,
     review_temperature,
 )
-from bott.shared.model import build_model
+from bott.shared.model import _review_anti_affinity, build_model, resolve_model_id, resolve_provider
 
 from ..agent.prompt import PROMPT_VERSION, build_system_prompt
 from ..agent.tools import ReviewTools
@@ -65,6 +69,62 @@ class AgentRunResult:
     error: Optional[str] = None
     prompt_version: str = PROMPT_VERSION
     model_id: str = DEFAULT_MODEL
+    engagement_observable: bool = True
+
+
+def _run_review_agent_cli(
+    essentials: PrEssentials,
+    clone_path: str,
+    *,
+    project_addendum: Optional[str],
+    prior_review: Optional[str],
+) -> AgentRunResult:
+    """Review via `codex exec` instead of Agno's tool-calling loop. Codex's own tool use
+    inside the subprocess isn't traceable from here, so tool_calls is always empty and
+    engagement_observable=False — the verdict gate (verdict_gate.py) relaxes its
+    tool-call-cross-check preconditions accordingly.
+
+    The model is resolved the SAME way the Agno path resolves it (resolve_model_id +
+    anti-affinity), NOT taken from the caller's `model_id` argument — that argument is only
+    a cost-calculation label upstream (see slack_app.py's `review_model = a.get("model_id")
+    or bott_model()`), never the actual selector. Skipping this resolution would silently
+    let every CLI-exec review run on the CLI's own default model, defeating both bott's
+    per-role model config AND the anti-affinity invariant (reviewer != author model)."""
+    from bott.agents.code_review.agent.prompt import build_cli_review_prompt
+
+    provider = resolve_provider("review")
+    resolved_model_id = _review_anti_affinity(resolve_model_id("review"), provider)
+
+    prompt = build_cli_review_prompt(essentials, project_addendum, prior_review)
+    schema = ReviewOutput.model_json_schema()
+    try:
+        result = run_codex_exec(
+            prompt, cwd=clone_path, sandbox="read-only", model_id=resolved_model_id,
+            output_schema=schema, timeout_s=codex_cli_timeout_s(),
+            binary=codex_cli_binary(),
+        )
+    except CodexCliError as e:
+        return AgentRunResult(output=None, termination="model_error", error=str(e),
+                              model_id=resolved_model_id, engagement_observable=False)
+
+    if result.data is None:
+        return AgentRunResult(output=None, termination="no_submission",
+                              error="codex exec produced no structured output",
+                              model_id=resolved_model_id, engagement_observable=False)
+    try:
+        output = ReviewOutput(**result.data)
+    except Exception as e:  # pydantic ValidationError
+        return AgentRunResult(output=None, termination="no_submission",
+                              error=f"codex exec output failed schema validation: {e}",
+                              model_id=resolved_model_id, engagement_observable=False)
+
+    return AgentRunResult(
+        output=output, tool_calls=[], termination="natural",
+        total_tokens=result.tokens_used,
+        # cost_usd left None — the CLI's stderr only reports a combined token count, not
+        # the input/output split calculate_cost() needs.
+        model_id=resolved_model_id, engagement_observable=False,
+    )
 
 
 def run_review_agent(
@@ -79,6 +139,11 @@ def run_review_agent(
     on_tool: Optional[Callable[[str, dict], None]] = None,
 ) -> AgentRunResult:
     budget = budget or Budget()
+    if codex_cli_enabled() and resolve_provider("review") == "codex":
+        return _run_review_agent_cli(
+            essentials, clone_path,
+            project_addendum=project_addendum, prior_review=prior_review,
+        )
     system_prompt = build_system_prompt(essentials, project_addendum, prior_review)
 
     def _progress_hook(function_name, function_call, arguments):

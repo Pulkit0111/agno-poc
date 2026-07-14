@@ -249,3 +249,42 @@ DIFF (capped{", truncated" if essentials.diff_truncated else ""})
 {essentials.diff or "(empty)"}{diff_note}
 ===== END UNTRUSTED PR CONTENT =====
 """
+
+
+def _format_all_comments(essentials: PrEssentials) -> str:
+    """Full PR comment text — `build_system_prompt`'s `comment_summary` is only a COUNT,
+    which is fine when the agent can call `get_pr_comments()` itself. The CLI-exec path has
+    no such tool (it only sees the filesystem), so the actual content must be inlined here."""
+    issue_lines = [
+        f"[issue] @{c.author or 'anon'}: {c.body[:200]}" for c in essentials.issue_comments
+    ]
+    review_lines = [
+        f"[inline {c.path}:{c.line or '?'}] @{c.author or 'anon'}: {c.body[:200]}"
+        for c in essentials.review_comments
+    ]
+    allc = issue_lines + review_lines
+    return "(no comments)" if not allc else "\n".join(allc)
+
+
+def build_cli_review_prompt(
+    essentials: PrEssentials,
+    project_addendum: Optional[str] = None,
+    prior_review: Optional[str] = None,
+) -> str:
+    """Same review brief as build_system_prompt, adapted for the Codex CLI subprocess: the
+    CLI has its OWN filesystem/shell tools (the named TOOLS AVAILABLE list doesn't exist in
+    that environment) but no access to `essentials` beyond what's written into this prompt —
+    so full PR comments are inlined instead of left behind a `get_pr_comments()` tool call."""
+    base = build_system_prompt(essentials, project_addendum, prior_review)
+    comments = _format_all_comments(essentials)
+    tail = (
+        "\n\nFULL PR COMMENTS (the count above is a summary; this is the actual content)\n"
+        f"{comments}\n"
+        "\nYou are running as a standalone CLI agent with direct read access to the checked-out "
+        "repo at your current working directory — use your own file-reading and search "
+        "capabilities instead of the named TOOLS AVAILABLE above (they don't exist in this "
+        "environment; the WORKFLOW and HYPOTHESIS CHECKLIST still apply exactly as written). "
+        "When you are done, output ONLY a single JSON object matching the required schema — "
+        "no prose before or after it, no markdown code fence."
+    )
+    return base + tail
