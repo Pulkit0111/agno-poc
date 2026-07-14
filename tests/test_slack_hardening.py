@@ -32,6 +32,47 @@ def test_guarded_send_passes_through_success_and_return_value():
     assert asyncio.run(wrapped(object(), channel="C1", message="hi", thread_ts="1")) == "posted"
 
 
+def test_guarded_send_normalizes_markdown_to_mrkdwn_kwarg():
+    """A weaker model's CommonMark (**bold**, [t](u)) is converted to Slack mrkdwn before
+    it posts, so the thread never shows literal ** / [](). Covers the `message` kwarg path."""
+    seen = {}
+
+    async def capture(*a, **k):
+        seen["message"] = k.get("message")
+        return "ok"
+
+    wrapped = guarded_send(capture)
+    asyncio.run(wrapped(object(), channel="C1",
+                        message="**Done** — see [PR](https://x/1)", thread_ts="1"))
+    assert seen["message"] == "*Done* — see <https://x/1|PR>"
+
+
+def test_guarded_send_normalizes_markdown_positional_message():
+    """Covers the positional call shape: (async_client, channel, thread_ts, message)."""
+    seen = {}
+
+    async def capture(*a, **k):
+        seen["args"] = a
+        return "ok"
+
+    wrapped = guarded_send(capture)
+    asyncio.run(wrapped(object(), "C1", "1", "**bold**"))
+    assert seen["args"][3] == "*bold*"
+
+
+def test_guarded_send_leaves_correct_mrkdwn_untouched():
+    """Idempotent for a model that already emits Slack mrkdwn — single * is not doubled."""
+    seen = {}
+
+    async def capture(*a, **k):
+        seen["message"] = k.get("message")
+        return "ok"
+
+    wrapped = guarded_send(capture)
+    asyncio.run(wrapped(object(), channel="C1", message="*already* `code`", thread_ts="1"))
+    assert seen["message"] == "*already* `code`"
+
+
 def test_guarded_send_swallows_read_only_channel():
     async def boom(*a, **k):
         raise _err("restricted_action_read_only_channel")

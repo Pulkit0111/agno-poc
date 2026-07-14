@@ -48,10 +48,28 @@ def _error_code(exc: Exception) -> str:
 
 
 def guarded_send(original: Callable) -> Callable:
-    """Wrap an async Slack send fn so non-postable ``SlackApiError``s are logged+swallowed."""
+    """Wrap Agno's async Slack send fn to do two things:
+
+    1. Normalize the model's CommonMark to Slack *mrkdwn* (``**bold**`` → ``*bold*``,
+       ``[t](u)`` → ``<u|t>``, ``# heading`` → ``*heading*``) so chat replies render
+       correctly no matter how well the chosen model follows the Slack-formatting
+       instruction — weaker/cheaper models routinely emit standard Markdown, which Slack
+       shows literally. Agno's own send helper does NOT convert, so without this the user
+       sees raw ``**`` in the thread.
+    2. Log+swallow the small set of non-postable ``SlackApiError``s (read-only/not-in-channel).
+    """
     from slack_sdk.errors import SlackApiError
 
+    from bott.shared.mrkdwn import to_mrkdwn
+
     async def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        # Signature: send_slack_message_async(async_client, channel, thread_ts, message, italics=False)
+        # Rewrite the message (4th positional / `message` kwarg) through to_mrkdwn. Idempotent
+        # for already-correct mrkdwn — single `*`, `_`, and code spans are left untouched.
+        if isinstance(kwargs.get("message"), str):
+            kwargs["message"] = to_mrkdwn(kwargs["message"])
+        elif len(args) > 3 and isinstance(args[3], str):
+            args = (*args[:3], to_mrkdwn(args[3]), *args[4:])
         try:
             return await original(*args, **kwargs)
         except SlackApiError as e:
@@ -77,5 +95,6 @@ def install_slack_send_guard() -> bool:
     if current is None or getattr(current, _GUARD_FLAG, False):
         return False
     eh.send_slack_message_async = guarded_send(current)
-    log.info("Installed Slack send guard (swallows non-postable channel errors).")
+    log.info("Installed Slack send guard (normalizes markdown → mrkdwn; swallows "
+             "non-postable channel errors).")
     return True
