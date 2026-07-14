@@ -187,6 +187,22 @@ All settings come from the environment (see `.env.example`). Key groups:
   `CODEX_MAX_CONCURRENT_REQUESTS` / `CODEX_MAX_CONCURRENT_PER_USER` (default 4 / 2) cap how
   many Codex calls run at once org-wide and per-user, since everyone shares one account's
   rate-limit pool; `MODEL_RETRY_DELAY_S` (default 3) is the base retry backoff.
+- **Codex CLI-exec (opt-in, `build`/`review` only):** `CODEX_CLI_EXEC=1` routes those two
+  roles through the official `codex` CLI binary (`codex exec`) as a subprocess instead of the
+  direct Responses-API adapter — this is what a known-production reference implementation
+  does, and it materially lowers ban-risk on the shared org subscription because the request
+  shape is indistinguishable from a human running the CLI interactively. It engages per role
+  only when that role's provider resolves to `codex` (so Chat can stay on OpenRouter while
+  Build/Review use the CLI); `chat` is never affected (the CLI can't participate in Agno's
+  tool-calling loop). Requires the `codex` binary on PATH (`CODEX_CLI_BIN` overrides the
+  name/path), `CODEX_CLI_TIMEOUT_S` (default 900) per call, and the org token already
+  connected (console → Models, same as today). **Before enabling in any environment**, run
+  `python scripts/eval_codex_cli.py` there — Codex's own bubblewrap sandbox needs to create a
+  Linux user namespace, which many containers block by default (`bwrap: No permissions to
+  create a new namespace`); the script fails loudly and explains the fix. `BOTT_CODEX_DISABLE_SANDBOX=1`
+  swaps the sandbox for `--dangerously-bypass-approvals-and-sandbox` — use ONLY when the
+  process is already container-confined, never on a shared host. This repo has no Dockerfile
+  of its own, so that verification has to happen against your actual host/container.
 - **Slack:** `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`.
 - **GitHub App (build/review/triage PRs):** `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` /
   `_PATH`, `GITHUB_WEBHOOK_SECRET`, `ALLOWED_POST_REPOS` (allowlist), `REVIEW_SLACK_CHANNEL`.
