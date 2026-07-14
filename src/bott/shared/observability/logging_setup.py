@@ -21,6 +21,10 @@ _TOKEN_RES = [
     re.compile(r"xox[bapr]-[A-Za-z0-9-]{10,}"),          # Slack tokens
     re.compile(r"sk-[A-Za-z0-9_\-]{20,}"),               # OpenAI keys
     re.compile(r"ghs_[A-Za-z0-9]{20,}"),
+    # JWTs (Codex/ChatGPT access token is a JWT). A JWT is three base64url segments;
+    # the header always begins `{"` → base64url `eyJ`, so anchoring on that avoids
+    # matching arbitrary dotted identifiers while still scrubbing any echoed token.
+    re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"),
 ]
 
 

@@ -16,5 +16,14 @@ def test_redacts_openai_key():
     assert "sk-proj-" not in redact("key=sk-proj-abcdefghijklmnopqrstuvwxyz0123")
 
 
+def test_redacts_jwt_access_token():
+    jwt = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjb2RleCJ9.sig-nature_ABC123"
+    r = redact(f"codex exec failed: token={jwt} at boundary")
+    assert jwt not in r
+    assert "eyJhbGciOi" not in r
+    assert r.startswith("codex exec failed: token=")
+    assert r.endswith(" at boundary")
+
+
 def test_passthrough_non_secret():
     assert redact("nothing secret here, just text") == "nothing secret here, just text"

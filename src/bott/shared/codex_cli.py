@@ -102,11 +102,15 @@ def run_codex_exec(
 
     tok = codex_tokens.get_valid_token()
     binary = binary or "codex"
-    codex_home = tempfile.mkdtemp(prefix="bott-codex-home-")
-    out_fd, out_path = tempfile.mkstemp(prefix="bott-codex-out-", suffix=".txt")
-    os.close(out_fd)
+    # Create both scratch temps inside the try so the finally always cleans them up — if
+    # mkstemp raised while mkdtemp had already succeeded, the empty CODEX_HOME would leak.
+    codex_home = ""
+    out_path = ""
     schema_path: Optional[str] = None
     try:
+        codex_home = tempfile.mkdtemp(prefix="bott-codex-home-")
+        out_fd, out_path = tempfile.mkstemp(prefix="bott-codex-out-", suffix=".txt")
+        os.close(out_fd)
         _write_auth_json(codex_home, tok.access_token, tok.refresh_token, tok.account_id)
 
         args = [binary, "exec", "--skip-git-repo-check"]
@@ -153,12 +157,14 @@ def run_codex_exec(
         tokens_used = int(m.group(1)) if m else 0
         return CodexExecResult(text=text, data=data, tokens_used=tokens_used)
     finally:
-        _read_back_rotation(codex_home, tok.refresh_token)
-        shutil.rmtree(codex_home, ignore_errors=True)
-        try:
-            os.unlink(out_path)
-        except OSError:
-            pass
+        if codex_home:
+            _read_back_rotation(codex_home, tok.refresh_token)
+            shutil.rmtree(codex_home, ignore_errors=True)
+        if out_path:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
         if schema_path:
             try:
                 os.unlink(schema_path)
