@@ -73,6 +73,7 @@ class GateRunCtx:
     tool_calls: list[ToolCallTrace]
     termination: Termination
     prior_review: Optional[PriorReview] = None
+    engagement_observable: bool = True
 
 
 @dataclass
@@ -195,14 +196,18 @@ def apply_gate(output: ReviewOutput, ctx: GateRunCtx) -> GateResult:
         )
     )
 
-    # 2. Diff size vs lookups.
+    # 2. Diff size vs lookups. Skipped when tool calls aren't observable (CLI-exec) —
+    # there's nothing to count, and treating an empty trace as "zero lookups" would
+    # spuriously downgrade every large-diff CLI-exec review.
     lookup_count = sum(1 for c in ctx.tool_calls if c.name in LOOKUP_TOOLS)
-    lookups_ok = (not is_large_diff) or lookup_count >= MIN_LOOKUPS_FOR_LARGE
+    lookups_ok = (not ctx.engagement_observable) or (not is_large_diff) or lookup_count >= MIN_LOOKUPS_FOR_LARGE
     decisions.append(
         GateDecision(
             "diff_vs_lookups",
             lookups_ok,
-            (
+            "tool calls not observable (CLI-exec) — engagement check skipped"
+            if not ctx.engagement_observable
+            else (
                 f"large diff ({ctx.pr_size.changed_files} files, "
                 f"+{ctx.pr_size.additions}/-{ctx.pr_size.deletions}); {lookup_count} lookup(s)"
             )
@@ -211,28 +216,36 @@ def apply_gate(output: ReviewOutput, ctx: GateRunCtx) -> GateResult:
         )
     )
 
-    # 2b. Depth of engagement.
+    # 2b. Depth of engagement. Same rationale as above.
     investigative_count = sum(1 for c in ctx.tool_calls if c.name in INVESTIGATIVE_TOOLS)
-    depth_ok = (not is_large_diff) or investigative_count >= 1
+    depth_ok = (not ctx.engagement_observable) or (not is_large_diff) or investigative_count >= 1
     decisions.append(
         GateDecision(
             "depth_of_engagement",
             depth_ok,
-            f"{investigative_count} investigative tool call(s) (search_code / find_references / get_file_history / read_review_rules)"
+            "tool calls not observable (CLI-exec) — depth check skipped"
+            if not ctx.engagement_observable
+            else f"{investigative_count} investigative tool call(s) (search_code / find_references / get_file_history / read_review_rules)"
             if is_large_diff
             else "small diff; depth check not enforced",
         )
     )
 
-    # 3. Every line_comment.path must appear in a tool call's args.
+    # 3. Every line_comment.path must appear in a tool call's args. Skipped when not
+    # observable — an empty tool_calls list would otherwise flag EVERY line_comment as
+    # unbacked, since there'd be nothing to have "visited".
     visited_paths = _collect_visited_paths(ctx.tool_calls)
-    unbacked = [lc for lc in output.line_comments if lc.path not in visited_paths]
-    claims_ok = len(unbacked) == 0
+    unbacked = [] if not ctx.engagement_observable else [
+        lc for lc in output.line_comments if lc.path not in visited_paths
+    ]
+    claims_ok = (not ctx.engagement_observable) or len(unbacked) == 0
     decisions.append(
         GateDecision(
             "claims_backed_by_tools",
             claims_ok,
-            f"all {len(output.line_comments)} line_comment(s) backed"
+            "tool calls not observable (CLI-exec) — evidence check skipped"
+            if not ctx.engagement_observable
+            else f"all {len(output.line_comments)} line_comment(s) backed"
             if claims_ok
             else f"{len(unbacked)} unbacked claim(s): {', '.join(l.path for l in unbacked)}",
         )
@@ -289,13 +302,17 @@ def apply_gate(output: ReviewOutput, ctx: GateRunCtx) -> GateResult:
         )
     )
 
-    # 9. Withdrawal evidence (re-review from a prior `issues` verdict).
+    # 9. Withdrawal evidence (re-review from a prior `issues` verdict). Skipped when not
+    # observable — evidence_paths can't be cross-checked against an empty tool-call trace.
     is_rereview_from_issues = (
         ctx.prior_review is not None and ctx.prior_review.verdict == "issues"
     )
     withdrawal_ok = True
     withdrawal_detail = "no prior issues to withdraw"
-    if is_rereview_from_issues and ctx.prior_review is not None:
+    if not ctx.engagement_observable:
+        if is_rereview_from_issues:
+            withdrawal_detail = "tool calls not observable (CLI-exec) — withdrawal-evidence check skipped"
+    elif is_rereview_from_issues and ctx.prior_review is not None:
         prior = ctx.prior_review.issue_findings
         current_by_key = {f"{lc.path}:{lc.line}" for lc in output.line_comments}
         withdrawn_by_key = {

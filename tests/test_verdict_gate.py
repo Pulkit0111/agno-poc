@@ -700,3 +700,62 @@ def test_footer_null_on_softnote_flip():
         baseline_ctx(termination="budget"),
     )
     assert downgrade_footer(r) is None
+
+
+# --- engagement_observable (CLI-exec has no tool-call trace) --------------------
+def test_engagement_not_observable_skips_lookup_and_claims_checks():
+    """A CLI-exec review has NO tool_calls trace at all — the diff_vs_lookups,
+    depth_of_engagement, and claims_backed_by_tools preconditions must not penalize that,
+    or every CLI-exec review with a large diff or any line_comment would spuriously downgrade."""
+    output = ReviewOutput(
+        verdict="approve",
+        summary="ok",
+        confidence="high",
+        line_comments=[
+            LineComment(path="a.py", line=1, body="x", severity="suggestion", category="conventions")
+        ],
+    )
+    ctx = GateRunCtx(
+        pr_size=PrSize(changed_files=10, additions=500, deletions=0),
+        files=[],
+        ci=CiStatus(overall="pass", failing=[], pending=[], passing=[]),
+        tool_calls=[],
+        termination="natural",
+        engagement_observable=False,
+    )
+    gate = apply_gate(output, ctx)
+    assert gate.final_verdict == "approve"
+    lookup = next(d for d in gate.decisions if d.precondition == "diff_vs_lookups")
+    depth = next(d for d in gate.decisions if d.precondition == "depth_of_engagement")
+    claims = next(d for d in gate.decisions if d.precondition == "claims_backed_by_tools")
+    assert lookup.passed and depth.passed and claims.passed
+
+
+def test_engagement_observable_true_still_enforces_lookup_check():
+    """Default behavior (Agno tool-calling path) is completely unchanged.
+
+    Note: line_comments must be non-empty here — a SUGGESTIONS verdict with zero
+    line_comments soft-flips back to APPROVE (see the v3.2 rule at the bottom of
+    apply_gate), which would mask the very downgrade this test is checking for.
+    """
+    output = ReviewOutput(
+        verdict="approve",
+        summary="ok",
+        confidence="high",
+        line_comments=[
+            LineComment(path="a.py", line=1, body="x", severity="suggestion", category="conventions")
+        ],
+    )
+    ctx = GateRunCtx(
+        pr_size=PrSize(changed_files=10, additions=500, deletions=0),
+        files=[],
+        ci=CiStatus(overall="pass", failing=[], pending=[], passing=[]),
+        tool_calls=[],
+        termination="natural",
+    )
+    gate = apply_gate(output, ctx)
+    assert gate.final_verdict == "suggestions"  # downgraded — large diff, zero lookups
+    lookup = next(d for d in gate.decisions if d.precondition == "diff_vs_lookups")
+    depth = next(d for d in gate.decisions if d.precondition == "depth_of_engagement")
+    claims = next(d for d in gate.decisions if d.precondition == "claims_backed_by_tools")
+    assert not lookup.passed and not depth.passed and not claims.passed
