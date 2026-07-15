@@ -682,6 +682,12 @@ def codex_cli_timeout_s() -> int:
     return int(os.getenv("CODEX_CLI_TIMEOUT_S", "900"))
 
 
+def codex_chat_timeout_s() -> int:
+    """Per-turn ceiling for CHAT codex exec calls — much tighter than the build/review
+    ceiling (codex_cli_timeout_s): a person is sitting in Slack waiting for this one."""
+    return int(os.getenv("CODEX_CHAT_TIMEOUT_S", "300"))
+
+
 def codex_cli_disable_sandbox() -> bool:
     """In a container, codex's bubblewrap sandbox needs unprivileged user namespaces, which
     are often disabled (hardened kernels, restrictive container runtimes) — codex exec would

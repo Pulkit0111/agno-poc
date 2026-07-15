@@ -195,6 +195,91 @@ def test_run_codex_exec_strictifies_output_schema(tmp_path):
     assert caller_schema == original  # caller's dict untouched
 
 
+def test_run_codex_exec_extra_config_env_and_ephemeral(tmp_path):
+    """Chat-path plumbing: -c overrides (MCP server wiring), extra env (the bearer ticket),
+    and --ephemeral (no session files pile up on the shared server)."""
+    captured = {}
+    def runner(args, *, env, **kw):
+        captured["args"] = args
+        captured["env"] = env
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="tokens used: 5")
+    res = cc.run_codex_exec("p", cwd=str(tmp_path), sandbox="read-only",
+                            extra_config={"mcp_servers.bott.url": '"http://x/mcp"'},
+                            extra_env={"BOTT_MCP_TICKET": "t1"}, ephemeral=True,
+                            runner=runner)
+    args = captured["args"]
+    assert "--ephemeral" in args
+    assert 'mcp_servers.bott.url="http://x/mcp"' in args
+    assert args[args.index('mcp_servers.bott.url="http://x/mcp"') - 1] == "-c"
+    assert captured["env"]["BOTT_MCP_TICKET"] == "t1"
+    assert res.text == "ok"
+    assert res.tokens_used == 5
+
+
+def test_run_codex_exec_extra_env_cannot_leak_os_environ(monkeypatch, tmp_path):
+    """extra_env adds ONLY the given keys — the minimal-allowlist env stays minimal."""
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@host/db")
+    seen_env = {}
+    def runner(args, *, env, **kw):
+        seen_env.update(env)
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("p", cwd=str(tmp_path), extra_env={"A": "1"}, runner=runner)
+    assert seen_env["A"] == "1"
+    assert "DATABASE_URL" not in seen_env
+
+
+def test_run_codex_exec_quota_error_classified(tmp_path):
+    """Rate-limit/usage-cap stderr on failure surfaces as CodexQuotaError so callers can
+    tell 'the org subscription is throttled' apart from a generic failure."""
+    def runner(args, **kw):
+        return subprocess.CompletedProcess(args, returncode=1, stdout="",
+                                           stderr="stream error: You've hit your usage limit.")
+    with pytest.raises(cc.CodexQuotaError):
+        cc.run_codex_exec("p", cwd=str(tmp_path), runner=runner)
+    # And a quota error IS still a CodexCliError, so existing handlers keep working.
+    assert issubclass(cc.CodexQuotaError, cc.CodexCliError)
+
+
+def test_run_codex_exec_non_quota_failure_stays_cli_error(tmp_path):
+    def runner(args, **kw):
+        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="boom")
+    with pytest.raises(cc.CodexCliError) as ei:
+        cc.run_codex_exec("p", cwd=str(tmp_path), runner=runner)
+    assert not isinstance(ei.value, cc.CodexQuotaError)
+
+
+def test_run_codex_exec_user_id_routes_through_concurrency(monkeypatch, tmp_path):
+    """When user_id is given the call runs inside the org/per-user concurrency guard —
+    the whole org shares ONE subscription, so CLI calls must queue like shim calls did."""
+    entered = {}
+    class _Guard:
+        def __init__(self, uid): entered["user_id"] = uid
+        def __enter__(self): entered["entered"] = True
+        def __exit__(self, *a): entered["exited"] = True
+    monkeypatch.setattr(cc, "acquire_sync", _Guard)
+    def runner(args, **kw):
+        assert entered.get("entered"), "subprocess must run inside the concurrency guard"
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("p", cwd=str(tmp_path), user_id="u@x.com", runner=runner)
+    assert entered == {"user_id": "u@x.com", "entered": True, "exited": True}
+
+
+def test_codex_chat_timeout_config(monkeypatch):
+    monkeypatch.delenv("CODEX_CHAT_TIMEOUT_S", raising=False)
+    assert config.codex_chat_timeout_s() == 300
+    monkeypatch.setenv("CODEX_CHAT_TIMEOUT_S", "120")
+    assert config.codex_chat_timeout_s() == 120
+
+
 def test_is_logged_in(monkeypatch, tmp_path):
     """is_logged_in asks the CLI (`codex login status`) rather than checking a file, since
     the auth-store layout is version-dependent."""

@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from bott.shared import config
+from bott.shared.codex_concurrency import acquire_sync
 from bott.shared.observability.logging_setup import get_logger, redact
 
 log = get_logger("bott.codex_cli")
@@ -37,11 +38,20 @@ log = get_logger("bott.codex_cli")
 _TOKENS_USED_RE = re.compile(r"tokens\s*used\s*[:=]\s*(\d+)", re.IGNORECASE)
 _VALID_SANDBOXES = ("read-only", "workspace-write")
 
+# Case-insensitive stderr markers that mean "the shared subscription is throttled/capped",
+# not "this request was malformed" — callers surface these as a distinct, honest message
+# ("the org ChatGPT plan hit its usage limit") instead of a generic failure.
+_QUOTA_MARKERS = ("usage limit", "rate limit", "too many requests", "429")
+
 SubprocessRunner = Callable[..., subprocess.CompletedProcess]
 
 
 class CodexCliError(RuntimeError):
     pass
+
+
+class CodexQuotaError(CodexCliError):
+    """The org ChatGPT subscription's usage cap / rate limit was hit (shared pool)."""
 
 
 @dataclass
@@ -125,6 +135,10 @@ def run_codex_exec(
     timeout_s: int = 900,
     binary: Optional[str] = None,
     codex_home: Optional[str] = None,
+    extra_config: Optional[dict] = None,
+    extra_env: Optional[dict] = None,
+    ephemeral: bool = False,
+    user_id: Optional[str] = None,
     runner: SubprocessRunner = subprocess.run,
 ) -> CodexExecResult:
     """Run one `codex exec` invocation against `cwd`, using the persistent CODEX_HOME login
@@ -134,7 +148,15 @@ def run_codex_exec(
     `model_id`, when given, is passed via `-m` — callers MUST resolve it themselves (e.g.
     `bott.shared.model.resolve_model_id(role)`, with `_review_anti_affinity` for the review
     role) rather than leaving it unset, or every call silently falls back to whatever model
-    the `codex` CLI defaults to, bypassing bott's per-role model selection entirely."""
+    the `codex` CLI defaults to, bypassing bott's per-role model selection entirely.
+
+    `extra_config` entries become `-c key=value` CLI overrides (values are passed raw — the
+    caller pre-quotes TOML strings). `extra_env` keys are ADDED to the minimal allowlisted
+    child env (used for the per-invocation MCP bearer ticket — never for bott secrets).
+    `ephemeral` adds `--ephemeral` so per-turn chat calls leave no session files behind.
+    `user_id`, when given, runs the subprocess inside the org/per-user concurrency guard
+    (codex_concurrency) — the whole org shares one subscription, so concurrent calls must
+    queue instead of stampeding the backend."""
     if sandbox not in _VALID_SANDBOXES:
         raise ValueError(f"unknown sandbox {sandbox!r} (use one of {_VALID_SANDBOXES})")
 
@@ -159,6 +181,10 @@ def run_codex_exec(
         else:
             args += ["-s", sandbox]
         args += ["-C", cwd]
+        if ephemeral:
+            args += ["--ephemeral"]
+        for key, value in (extra_config or {}).items():
+            args += ["-c", f"{key}={value}"]
         if model_id:
             args += ["-m", model_id]
         args += ["--output-last-message", out_path]
@@ -169,15 +195,30 @@ def run_codex_exec(
                 json.dump(strict_schema, sf)
             args += ["--output-schema", schema_path]
 
+        env = _subprocess_env(home)
+        env.update(extra_env or {})
+
+        def _spawn():
+            return runner(args, input=prompt, capture_output=True, text=True,
+                          cwd=cwd, timeout=timeout_s, env=env)
+
         try:
-            proc = runner(args, input=prompt, capture_output=True, text=True,
-                          cwd=cwd, timeout=timeout_s, env=_subprocess_env(home))
+            if user_id is not None:
+                with acquire_sync(user_id):
+                    proc = _spawn()
+            else:
+                proc = _spawn()
         except subprocess.TimeoutExpired as e:
             raise CodexCliError(f"codex exec timed out after {timeout_s}s") from e
 
         if proc.returncode != 0:
-            raise CodexCliError(f"codex exec failed (exit {proc.returncode}): "
-                                f"{redact((proc.stderr or '').strip()[-2000:])}")
+            stderr = (proc.stderr or "").strip()
+            message = (f"codex exec failed (exit {proc.returncode}): "
+                       f"{redact(stderr[-2000:])}")
+            lowered = stderr.lower()
+            if any(marker in lowered for marker in _QUOTA_MARKERS):
+                raise CodexQuotaError(message)
+            raise CodexCliError(message)
 
         with open(out_path, encoding="utf-8") as f:
             text = f.read().strip()
