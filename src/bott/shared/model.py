@@ -33,14 +33,27 @@ def _setting(key: str):
         return None
 
 
+def _codex_id(value, key: str):
+    """Reject stored model ids that can't be codex ids. OpenRouter ids are
+    'vendor/model' — a ChatGPT-account codex login rejects them with a 400, so a stale
+    row left over from the removed provider layer would break every call for that role
+    (observed live: chat pinned to 'poolside/laguna-m.1:free'). Ignore with a warning
+    and fall through to the env default instead."""
+    if value and "/" in value:
+        log.warning("ignoring stale non-codex model id %r in settings key %s — "
+                    "bott is codex-only; falling back to the env default", value, key)
+        return None
+    return value
+
+
 def resolve_model_id(role: str) -> str:
     """The model id a role resolves to right now (admin settings-store override → env
     fallback chain). build/review also honor a legacy `model.heavy` store override."""
-    direct = _setting(f"model.{role}")
+    direct = _codex_id(_setting(f"model.{role}"), f"model.{role}")
     if direct:
         return direct
     if role in ("build", "review"):
-        legacy = _setting("model.heavy")
+        legacy = _codex_id(_setting("model.heavy"), "model.heavy")
         if legacy:
             return legacy
     return role_model_id(role)

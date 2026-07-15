@@ -25,3 +25,13 @@ def test_stale_env_provider_is_ignored(monkeypatch):
     monkeypatch.setenv("MODEL_PROVIDER", "openrouter")
     assert model_mod.resolve_provider("chat") == "codex"
     assert type(model_mod.build_model("chat")).__name__ == "CodexExecChat"
+
+
+def test_stale_openrouter_model_id_is_ignored(monkeypatch):
+    """A leftover model.chat row with an OpenRouter-style id ('vendor/model') must be
+    ignored — a ChatGPT-account codex login 400s on those, so honoring it would break
+    every chat turn (observed live: 'poolside/laguna-m.1:free')."""
+    monkeypatch.setattr(model_mod, "_setting",
+                        lambda k: {"model.chat": "poolside/laguna-m.1:free"}.get(k))
+    monkeypatch.setenv("BOTT_CHAT_MODEL", "gpt-5.5")
+    assert model_mod.resolve_model_id("chat") == "gpt-5.5"
