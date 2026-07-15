@@ -1,8 +1,7 @@
-"""Build and run the Agno review agent — port of agent.ts (runReviewAgent).
-
-Runs the agent programmatically (agent.run), maps the RunOutput into an
-AgentRunResult the gate + renderer consume: the recorded tool calls, token/cost
-usage, and a termination classification.
+"""Run the PR review through `codex exec` and map its structured output into the
+AgentRunResult the gate + renderer consume. Codex's own tool use inside the subprocess
+isn't traceable from here, so engagement_observable=False and the verdict gate relaxes
+its tool-call cross-checks (see verdict_gate.py).
 """
 
 from __future__ import annotations
@@ -10,49 +9,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from agno.agent import Agent
-
 from bott.shared.codex_cli import CodexCliError, run_codex_exec
 from bott.shared.config import (
     DEFAULT_MODEL,
     Budget,
-    calculate_cost,
     codex_cli_binary,
-    codex_cli_enabled,
     codex_cli_timeout_s,
-    review_temperature,
 )
-from bott.shared.model import _review_anti_affinity, build_model, resolve_model_id, resolve_provider
+from bott.shared.model import _review_anti_affinity, resolve_model_id, resolve_provider
 
-from ..agent.prompt import PROMPT_VERSION, build_system_prompt
-from ..agent.tools import ReviewTools
+from ..agent.prompt import PROMPT_VERSION
 from ..github.fetch_essentials import PrEssentials
 from .models import ReviewOutput
 from .types import ToolCallTrace
 from .verdict_gate import Termination
-
-USER_TRIGGER = (
-    "Review the pull request described in your instructions. Investigate with your "
-    "tools, then produce your final structured review as a single JSON object matching "
-    "the required schema. (The literal word 'json' here also satisfies the Codex/Responses "
-    "json_object requirement.)"
-)
-
-
-def _classify_termination(status_str: str, n_tool_calls: int, has_output: bool,
-                          max_tool_calls: int) -> Termination:
-    """Map a finished run to a termination reason. `status_str` is str(run.status): Agno's
-    RunStatus.error renders as "RunStatus.error" (value "ERROR"), so match "error"
-    case-insensitively — a strict ``== "error"`` misses it and a real model failure then
-    masquerades as no_submission (the misleading "PR may be large" message)."""
-    if "error" in (status_str or "").lower():
-        return "model_error"
-    if n_tool_calls >= max_tool_calls:
-        return "budget"
-    if has_output:
-        return "natural"
-    return "no_submission"
-
 
 @dataclass
 class AgentRunResult:
@@ -137,94 +107,15 @@ def run_review_agent(
     use_json_mode: bool = False,
     on_tool: Optional[Callable[[str, dict], None]] = None,
 ) -> AgentRunResult:
-    budget = budget or Budget()
-    if codex_cli_enabled() and resolve_provider("review") == "codex":
-        return _run_review_agent_cli(
-            essentials, clone_path,
-            project_addendum=project_addendum, prior_review=prior_review,
-        )
-    system_prompt = build_system_prompt(essentials, project_addendum, prior_review)
+    """Run the PR review through `codex exec` (the only execution path — every LLM call in
+    bott rides the org ChatGPT subscription via the official CLI).
 
-    def _progress_hook(function_name, function_call, arguments):
-        # Fire a progress callback before each tool runs, then execute it.
-        if on_tool:
-            try:
-                on_tool(function_name, dict(arguments or {}))
-            except Exception:
-                pass
-        return function_call(**arguments)
-
-    agent = Agent(
-        # Survive per-minute TPM limits (low account tier): the agentic loop sends a
-        # large growing context, so transient 429s are expected.
-        # "review" role — the gateway enforces anti-affinity with the "build" role, so the
-        # model reviewing a PR is never the model that wrote it (no shared blind spots).
-        model=build_model(
-            "review",
-            retries=5, delay_between_retries=3,
-            # Optional reproducibility knob; only passed when explicitly set (gpt-5 reasoning
-            # models reject temperature != 1, so default is to omit it entirely).
-            **({"temperature": review_temperature()} if review_temperature() is not None else {}),
-        ),
-        tools=[ReviewTools(clone_path, essentials)],
-        system_message=system_prompt,
-        output_schema=ReviewOutput,
-        use_json_mode=(use_json_mode or resolve_provider("review") == "codex"),
-        tool_call_limit=budget.max_tool_calls,
-        tool_hooks=[_progress_hook] if on_tool else None,
-        telemetry=False,
-        markdown=False,
-    )
-
-    try:
-        run = agent.run(USER_TRIGGER)
-    except Exception as e:  # model/transport error
-        return AgentRunResult(
-            output=None, termination="model_error", error=str(e), model_id=model_id
-        )
-
-    tool_calls = [
-        ToolCallTrace(
-            name=t.tool_name or "",
-            args=dict(t.tool_args or {}),
-            result_summary=str(t.result)[:500] if t.result is not None else "",
-        )
-        for t in (run.tools or [])
-    ]
-
-    content = run.content
-    output = content if isinstance(content, ReviewOutput) else None
-
-    m = run.metrics
-    status = str(getattr(run, "status", "") or "")
-
-    termination = _classify_termination(status, len(tool_calls), output is not None,
-                                        budget.max_tool_calls)
-    run_error: Optional[str] = None
-    if termination == "model_error":
-        # Surface the real cause (a 400/json error, a rate limit, ...) instead of dropping it —
-        # slack_app logs result.run.error, so a hidden None is what made failures opaque.
-        run_error = (str(getattr(run, "content", "") or "").strip()
-                     or "the model returned an error before producing a verdict")
-
-    input_tokens = getattr(m, "input_tokens", 0) or 0
-    output_tokens = getattr(m, "output_tokens", 0) or 0
-    cache_read = getattr(m, "cache_read_tokens", 0) or 0
-    cache_write = getattr(m, "cache_write_tokens", 0) or 0
-    cost = getattr(m, "cost", None)
-    if cost is None:
-        cost = calculate_cost(model_id, input_tokens, output_tokens, cache_read, cache_write)
-
-    return AgentRunResult(
-        output=output,
-        tool_calls=tool_calls,
-        termination=termination,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=getattr(m, "total_tokens", 0) or 0,
-        cache_read_tokens=cache_read,
-        cache_write_tokens=cache_write,
-        cost_usd=cost,
-        error=run_error,
-        model_id=model_id,
+    `model_id`, `budget`, `use_json_mode` and `on_tool` are accepted for caller
+    compatibility but unused: the CLI resolves its own model (resolve_model_id +
+    anti-affinity), runs its own internal loop (no per-tool progress to hook), and
+    enforces structured output via --output-schema."""
+    del model_id, budget, use_json_mode, on_tool  # caller-compat only (see docstring)
+    return _run_review_agent_cli(
+        essentials, clone_path,
+        project_addendum=project_addendum, prior_review=prior_review,
     )

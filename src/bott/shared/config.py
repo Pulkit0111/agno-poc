@@ -652,15 +652,13 @@ def bott_admins() -> set[str]:
     return {e.strip().lower() for e in os.getenv("BOTT_ADMINS", "").split(",") if e.strip()}
 
 
-# --- Codex CLI-exec (route build/review through the official `codex` binary) --
+# --- Codex CLI-exec (every LLM call runs through the official `codex` binary) ---
 def codex_cli_enabled() -> bool:
-    """Route build/review through the official `codex` CLI subprocess (codex exec) instead
-    of Agno's tool-calling loop, mirroring how a known-production reference app runs Codex —
-    the CLI's own request shape/telemetry is indistinguishable from a human running it
-    interactively, which is materially lower ban-risk than hitting the internal Responses API
-    directly (see codex_model.py). Off by default: opt in only after verifying the `codex`
-    binary + its bubblewrap sandbox actually work in the target deploy environment."""
-    return os.getenv("CODEX_CLI_EXEC", "0").strip().lower() in ("1", "true", "yes")
+    """Historical flag from when CLI-exec was opt-in for build/review. codex exec is now
+    the ONLY execution path (build/review/triage/chat all shell out to the pinned binary);
+    call sites no longer consult this. Kept only so stale CODEX_CLI_EXEC env entries don't
+    error, and for any external script still importing it. Always-on default."""
+    return os.getenv("CODEX_CLI_EXEC", "1").strip().lower() in ("1", "true", "yes")
 
 
 def codex_cli_binary() -> str:

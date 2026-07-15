@@ -22,29 +22,16 @@ class _FakeHandle:
         self.cleanup = MagicMock()
 
 
-def _make_fake_agent(plan_content: str):
-    """Return a fake agno.agent.Agent class whose .run() yields canned content."""
-    fake_run = SimpleNamespace(content=plan_content)
-    fake_agent_instance = MagicMock()
-    fake_agent_instance.run.return_value = fake_run
-    FakeAgent = MagicMock(return_value=fake_agent_instance)
-    return FakeAgent, fake_agent_instance
-
-
 # ---------------------------------------------------------------------------
 # plan_from_repo — happy path
 # ---------------------------------------------------------------------------
 
-def test_plan_from_repo_returns_agent_plan(monkeypatch):
-    """plan_from_repo returns the agent's plan text."""
+def test_plan_from_repo_returns_cli_plan(monkeypatch):
+    """plan_from_repo returns the codex-exec plan text."""
     handle = _FakeHandle()
     monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token, branch=None: handle)
-
-    FakeAgent, fake_instance = _make_fake_agent("1. Add /health endpoint\n2. Touch app.py")
-    # Patch agno.agent.Agent inside the lazy import block
-    fake_agno = SimpleNamespace(agent=SimpleNamespace(Agent=FakeAgent))
-    monkeypatch.setitem(sys.modules, "agno", fake_agno)
-    monkeypatch.setitem(sys.modules, "agno.agent", SimpleNamespace(Agent=FakeAgent))
+    monkeypatch.setattr(pipeline_mod, "_plan_via_cli",
+                        lambda clone_path, request_text: "1. Add /health endpoint\n2. Touch app.py")
 
     result = pipeline_mod.plan_from_repo("myorg", "myrepo", "add a health endpoint", token="tok")
 
@@ -53,12 +40,10 @@ def test_plan_from_repo_returns_agent_plan(monkeypatch):
 
 
 def test_plan_from_repo_always_cleans_up_on_success(monkeypatch):
-    """cleanup() is called even when the agent succeeds."""
+    """cleanup() is called even when planning succeeds."""
     handle = _FakeHandle()
     monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token, branch=None: handle)
-
-    FakeAgent, _ = _make_fake_agent("some plan")
-    monkeypatch.setitem(sys.modules, "agno.agent", SimpleNamespace(Agent=FakeAgent))
+    monkeypatch.setattr(pipeline_mod, "_plan_via_cli", lambda clone_path, request_text: "some plan")
 
     pipeline_mod.plan_from_repo("o", "r", "do thing", token=None)
 
@@ -80,13 +65,15 @@ def test_plan_from_repo_returns_fallback_on_clone_error(monkeypatch):
     assert "Plan generation failed" in result
 
 
-def test_plan_from_repo_cleans_up_on_agent_exception(monkeypatch):
-    """cleanup() is called even when the agent itself raises."""
+def test_plan_from_repo_cleans_up_on_cli_exception(monkeypatch):
+    """cleanup() is called even when codex exec raises."""
     handle = _FakeHandle()
     monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token, branch=None: handle)
 
-    FakeAgent = MagicMock(side_effect=RuntimeError("agent blew up"))
-    monkeypatch.setitem(sys.modules, "agno.agent", SimpleNamespace(Agent=FakeAgent))
+    def boom(clone_path, request_text):
+        raise RuntimeError("codex blew up")
+
+    monkeypatch.setattr(pipeline_mod, "_plan_via_cli", boom)
 
     result = pipeline_mod.plan_from_repo("o", "r", "original request", token=None)
 
@@ -94,13 +81,11 @@ def test_plan_from_repo_cleans_up_on_agent_exception(monkeypatch):
     assert "original request" in result
 
 
-def test_plan_from_repo_fallback_on_empty_agent_output(monkeypatch):
-    """When the agent returns empty content, fall back to the request text."""
+def test_plan_from_repo_fallback_on_empty_cli_output(monkeypatch):
+    """When codex exec returns empty text, fall back to the request text."""
     handle = _FakeHandle()
     monkeypatch.setattr(pipeline_mod, "writable_clone", lambda owner, name, *, token, branch=None: handle)
-
-    FakeAgent, _ = _make_fake_agent("")  # empty content
-    monkeypatch.setitem(sys.modules, "agno.agent", SimpleNamespace(Agent=FakeAgent))
+    monkeypatch.setattr(pipeline_mod, "_plan_via_cli", lambda clone_path, request_text: "")
 
     result = pipeline_mod.plan_from_repo("o", "r", "raw request", token=None)
 

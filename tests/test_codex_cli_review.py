@@ -47,13 +47,7 @@ class _FakeEssentials:
     files: list = field(default_factory=list)
 
 
-@pytest.fixture(autouse=True)
-def _enable_cli(monkeypatch):
-    monkeypatch.setenv("CODEX_CLI_EXEC", "1")
-    monkeypatch.setenv("MODEL_PROVIDER", "codex")
-
-
-def test_run_review_agent_uses_cli_when_enabled(monkeypatch):
+def test_run_review_agent_uses_cli(monkeypatch):
     good_output = {"verdict": "approve", "summary": "looks fine", "confidence": "high",
                   "line_comments": [], "withdrawn_findings": [], "reasoning_summary": ""}
 
@@ -101,48 +95,22 @@ def test_run_review_agent_cli_error_is_model_error(monkeypatch):
     assert "boom" in result.error
 
 
-def test_run_review_agent_default_path_unaffected(monkeypatch):
+def test_run_review_agent_always_uses_cli_regardless_of_env(monkeypatch):
+    """codex exec is the ONLY review path now — legacy CODEX_CLI_EXEC=0 must not resurrect
+    the removed Agno branch."""
     monkeypatch.setenv("CODEX_CLI_EXEC", "0")
+    monkeypatch.setattr(r, "resolve_model_id", lambda role: "gpt-5.5")
+    monkeypatch.setattr(r, "_review_anti_affinity", lambda model_id, provider: model_id)
     called = []
-    monkeypatch.setattr(r, "run_codex_exec", lambda *a, **k: called.append(1))
-    # Falls through to the Agno path, which will fail fast without a real model/agent —
-    # we only need to assert the CLI branch was never taken.
-    try:
-        r.run_review_agent(_FakeEssentials(), "/tmp/clone")
-    except Exception:
-        pass
-    assert called == []
 
+    def fake_run_codex_exec(prompt, **kw):
+        called.append(1)
+        return codex_cli.CodexExecResult(
+            text="", tokens_used=1,
+            data={"verdict": "approve", "summary": "s", "confidence": "high",
+                  "line_comments": [], "withdrawn_findings": [], "reasoning_summary": ""})
 
-class _CaptureAgent:
-    """Captures the kwargs run_review_agent builds the Agent with, then aborts the run."""
-    last_kwargs: dict = {}
-
-    def __init__(self, **kwargs):
-        _CaptureAgent.last_kwargs = kwargs
-
-    def run(self, *_a, **_k):
-        raise RuntimeError("stop after construction")
-
-
-def test_run_review_agent_json_mode_follows_per_role_provider(monkeypatch):
-    # CLI disabled (Agno path) + global provider NON-codex, but the review role is
-    # overridden to codex — use_json_mode must still be True (keys off resolve_provider,
-    # not the global model_provider()).
-    monkeypatch.setenv("CODEX_CLI_EXEC", "0")
-    monkeypatch.setenv("MODEL_PROVIDER", "openrouter")
-    monkeypatch.setattr(r, "resolve_provider", lambda role: "codex" if role == "review" else "openrouter")
-    monkeypatch.setattr(r, "build_model", lambda *a, **k: object())
-    monkeypatch.setattr(r, "Agent", _CaptureAgent)
-    r.run_review_agent(_FakeEssentials(), "/tmp/clone")
-    assert _CaptureAgent.last_kwargs["use_json_mode"] is True
-
-
-def test_run_review_agent_json_mode_off_for_non_codex_review(monkeypatch):
-    monkeypatch.setenv("CODEX_CLI_EXEC", "0")
-    monkeypatch.setenv("MODEL_PROVIDER", "codex")  # global is codex...
-    monkeypatch.setattr(r, "resolve_provider", lambda role: "openrouter")  # ...but review isn't
-    monkeypatch.setattr(r, "build_model", lambda *a, **k: object())
-    monkeypatch.setattr(r, "Agent", _CaptureAgent)
-    r.run_review_agent(_FakeEssentials(), "/tmp/clone")
-    assert _CaptureAgent.last_kwargs["use_json_mode"] is False
+    monkeypatch.setattr(r, "run_codex_exec", fake_run_codex_exec)
+    result = r.run_review_agent(_FakeEssentials(), "/tmp/clone")
+    assert called == [1]
+    assert result.output.verdict == "approve"

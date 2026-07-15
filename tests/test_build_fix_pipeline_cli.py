@@ -1,16 +1,8 @@
 """CLI-exec build path — codex_cli.run_codex_exec is monkeypatched, no real binary spawned."""
 from __future__ import annotations
 
-import pytest
-
 from bott.agents.build_fix import pipeline as bp
 from bott.shared import codex_cli
-
-
-@pytest.fixture(autouse=True)
-def _enable_cli(monkeypatch):
-    monkeypatch.setenv("CODEX_CLI_EXEC", "1")
-    monkeypatch.setenv("MODEL_PROVIDER", "codex")
 
 
 def test_plan_via_cli_returns_stripped_text(monkeypatch):
@@ -48,7 +40,7 @@ def test_implement_via_cli_surfaces_error_as_note(monkeypatch):
     assert "sandbox denied" in note
 
 
-def test_plan_from_repo_uses_cli_path_when_enabled(monkeypatch):
+def test_plan_from_repo_uses_cli_path(monkeypatch):
     class _FakeHandle:
         path = "/tmp/fake-clone"
         def cleanup(self): pass

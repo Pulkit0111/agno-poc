@@ -1,9 +1,10 @@
 from bott.shared import config
 
 
-def test_codex_cli_enabled_defaults_off(monkeypatch):
+def test_codex_cli_enabled_defaults_on(monkeypatch):
+    """codex exec is the only execution path now — the legacy flag defaults on."""
     monkeypatch.delenv("CODEX_CLI_EXEC", raising=False)
-    assert config.codex_cli_enabled() is False
+    assert config.codex_cli_enabled() is True
 
 
 def test_codex_cli_enabled_true_values(monkeypatch):

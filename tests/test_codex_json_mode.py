@@ -48,10 +48,3 @@ def test_codex_error_carries_real_status_code():
 
     err = _provider_error(RuntimeError("connection reset"), "name", "id")
     assert err.status_code == 502  # unknown/transport errors stay retryable
-
-
-def test_review_user_trigger_mentions_json():
-    # Belt-and-suspenders: the review's user message itself contains "json" so the request is
-    # accepted even independent of the adapter guard.
-    from bott.agents.code_review.core.runner import USER_TRIGGER
-    assert "json" in USER_TRIGGER.lower()
