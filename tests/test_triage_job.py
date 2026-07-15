@@ -46,3 +46,42 @@ def test_run_triage_job_refuses_when_not_allowlisted(monkeypatch):
     assert out["status"] == "refused_not_allowlisted"
     assert not approvals  # INVARIANT: no approval created for a non-allowlisted repo
     assert posts  # a refusal was posted
+
+
+def test_default_diagnose_runs_codex_exec(monkeypatch):
+    """_default_diagnose shells to codex exec (read-only, ephemeral, temp cwd) and splits
+    the output on FIX: — no Agno agent, no Responses shim."""
+    from bott.agents.triage import triage as t
+    from bott.shared import codex_cli
+
+    captured = {}
+
+    def fake_run_codex_exec(prompt, **kw):
+        captured["prompt"] = prompt
+        captured.update(kw)
+        return codex_cli.CodexExecResult(
+            text="Root cause: null deref in worker.\nFIX: guard the None case", data=None,
+            tokens_used=3)
+
+    monkeypatch.setattr("bott.shared.codex_cli.run_codex_exec", fake_run_codex_exec)
+    monkeypatch.setattr("bott.shared.model.resolve_model_id", lambda role: "gpt-5.5-b")
+    diag, brief = t._default_diagnose({"title": "boom"}, [{"e": 1}])
+    assert diag.startswith("Root cause")
+    assert brief == "guard the None case"
+    assert captured["sandbox"] == "read-only"
+    assert captured["ephemeral"] is True
+    assert captured["model_id"] == "gpt-5.5-b"
+    assert "boom" in captured["prompt"]
+
+
+def test_default_diagnose_without_fix_marker(monkeypatch):
+    from bott.agents.triage import triage as t
+    from bott.shared import codex_cli
+
+    monkeypatch.setattr("bott.shared.codex_cli.run_codex_exec",
+                        lambda prompt, **kw: codex_cli.CodexExecResult(
+                            text="  just a diagnosis  ", data=None, tokens_used=1))
+    monkeypatch.setattr("bott.shared.model.resolve_model_id", lambda role: "m")
+    diag, brief = t._default_diagnose({}, [])
+    assert diag == "just a diagnosis"
+    assert brief == "just a diagnosis"

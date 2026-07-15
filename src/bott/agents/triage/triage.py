@@ -19,14 +19,23 @@ def _default_fetch(sentry_issue_id: str):
 
 
 def _default_diagnose(issue: dict, events: list) -> tuple[str, str]:
-    """Run the diagnosis agent; split its output into (diagnosis, fix_brief)."""
-    from agno.agent import Agent
+    """Diagnose via `codex exec` (the org ChatGPT subscription — the only LLM path in
+    bott); split its output into (diagnosis, fix_brief). No repo checkout is involved, so
+    it runs in an empty temp cwd, read-only sandbox, ephemeral session."""
+    import tempfile
 
     from bott.agents.triage.agent.prompt import TRIAGE_SYSTEM
-    from bott.shared.model import build_model
+    from bott.shared import codex_cli, config
+    from bott.shared import model as model_mod
     context = json.dumps({"issue": issue, "events": events}, default=str)[:6000]
-    agent = Agent(model=build_model("build"), instructions=TRIAGE_SYSTEM)
-    out = agent.run(f"Triage this incident:\n{context}").content or ""
+    with tempfile.TemporaryDirectory(prefix="bott-triage-") as cwd:
+        result = codex_cli.run_codex_exec(
+            f"{TRIAGE_SYSTEM}\n\nTriage this incident:\n{context}",
+            cwd=cwd, sandbox="read-only", ephemeral=True,
+            model_id=model_mod.resolve_model_id("build"),
+            timeout_s=config.codex_cli_timeout_s(),
+            binary=config.codex_cli_binary())
+    out = result.text
     if "FIX:" in out:
         diag, brief = out.split("FIX:", 1)
         return diag.strip(), brief.strip()
