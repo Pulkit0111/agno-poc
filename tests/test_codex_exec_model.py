@@ -78,7 +78,9 @@ def test_invoke_without_identity_runs_toolless(monkeypatch):
     monkeypatch.setattr(cem, "run_codex_exec", fake)
     cem.CodexExecChat(id="gpt-5.5").invoke(
         messages=_msgs(), assistant_message=Message(role="assistant"), run_response=None)
-    assert captured["extra_config"] == {}
+    # No MCP wiring and no ticket — only the always-on built-in-tool lockdown remains.
+    assert "mcp_servers.bott.url" not in captured["extra_config"]
+    assert captured["extra_config"]["features.shell_tool"] == "false"
     assert captured["extra_env"] == {}
 
 
@@ -159,3 +161,22 @@ def test_build_model_chat_returns_codex_exec_chat(monkeypatch):
     m = model_mod.build_model("chat")
     assert isinstance(m, cem.CodexExecChat)
     assert m.retries == 3
+
+
+def test_chat_disables_codex_builtin_tools_and_bypasses_sandbox(monkeypatch):
+    """Chat's codex exec must (a) bypass the sandbox/approval layer — otherwise every MCP
+    tool call is auto-cancelled — and (b) disable codex's own shell + web search so the
+    bypass exposes nothing beyond bott's ticket-scoped MCP tools."""
+    captured = {}
+
+    def fake(prompt, **kw):
+        captured.update(kw)
+        return CodexExecResult(text="ok", data=None, tokens_used=1)
+
+    monkeypatch.setattr(cem, "run_codex_exec", fake)
+    cem.CodexExecChat(id="gpt-5.5").invoke(
+        messages=_msgs(), assistant_message=Message(role="assistant"),
+        run_response=_run_response())
+    assert captured["bypass_sandbox"] is True
+    assert captured["extra_config"]["features.shell_tool"] == "false"
+    assert captured["extra_config"]["tools.web_search"] == "false"

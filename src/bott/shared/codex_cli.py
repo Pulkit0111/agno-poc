@@ -146,6 +146,7 @@ def run_codex_exec(
     extra_config: Optional[dict] = None,
     extra_env: Optional[dict] = None,
     ephemeral: bool = False,
+    bypass_sandbox: bool = False,
     user_id: Optional[str] = None,
     runner: SubprocessRunner = subprocess.run,
 ) -> CodexExecResult:
@@ -164,7 +165,15 @@ def run_codex_exec(
     `ephemeral` adds `--ephemeral` so per-turn chat calls leave no session files behind.
     `user_id`, when given, runs the subprocess inside the org/per-user concurrency guard
     (codex_concurrency) — the whole org shares one subscription, so concurrent calls must
-    queue instead of stampeding the backend."""
+    queue instead of stampeding the backend.
+
+    `bypass_sandbox` forces `--dangerously-bypass-approvals-and-sandbox` regardless of
+    BOTT_CODEX_DISABLE_SANDBOX. Needed by the CHAT path: codex exec 0.142.x runs with
+    approval policy "never" and auto-cancels every external MCP tool call under a normal
+    sandbox ("user cancelled MCP tool call", verified live) — the bypass flag is the only
+    way MCP tools run non-interactively. Callers using it MUST also disable codex's own
+    shell (`features.shell_tool=false` via extra_config) so the bypass exposes no
+    unsandboxed shell — bott's MCP tools then are the only capabilities."""
     if sandbox not in _VALID_SANDBOXES:
         raise ValueError(f"unknown sandbox {sandbox!r} (use one of {_VALID_SANDBOXES})")
 
@@ -178,13 +187,20 @@ def run_codex_exec(
         out_fd, out_path = tempfile.mkstemp(prefix="bott-codex-out-", suffix=".txt")
         os.close(out_fd)
 
-        args = [binary, "exec", "--skip-git-repo-check"]
+        # --ignore-user-config keeps every bott invocation HERMETIC: without it, codex
+        # merges $CODEX_HOME/config.toml — on a dev box that's the operator's PERSONAL
+        # config, and their private MCP servers leaked into bott chat turns (observed
+        # live: a bott turn invoked the operator's node_repl server). Auth still comes
+        # from CODEX_HOME; only the config file is ignored.
+        args = [binary, "exec", "--skip-git-repo-check", "--ignore-user-config"]
         # In a container, codex's bubblewrap sandbox needs unprivileged user namespaces,
         # which are often disabled (hardened kernels, restrictive container runtimes) — codex
         # exec would simply fail to start there. Docker is already the real isolation
         # boundary in that deploy, so swap `-s <sandbox>` for the CLI's own
         # "trust the environment" flag instead of asking it to sandbox itself again.
-        if config.codex_cli_disable_sandbox():
+        # `bypass_sandbox` forces the same flag for callers whose MCP tools would
+        # otherwise be auto-cancelled (see docstring).
+        if bypass_sandbox or config.codex_cli_disable_sandbox():
             args += ["--dangerously-bypass-approvals-and-sandbox"]
         else:
             args += ["-s", sandbox]

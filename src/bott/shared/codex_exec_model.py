@@ -88,16 +88,24 @@ class CodexExecChat(Model):
         if extra_line:
             prompt = f"{prompt}\n\n{extra_line}"
 
-        extra_config: dict = {}
+        # Chat runs codex with NO built-in tools: `features.shell_tool=false` removes
+        # codex's own shell (bott's MCP tools — incl. the allowlisted, user-scoped
+        # workspace shell — are the only capabilities), and web search stays off. This is
+        # what makes the sandbox/approval bypass below safe: there is nothing to bypass
+        # INTO except bott's identity-scoped tools.
+        extra_config: dict = {
+            "features.shell_tool": "false",
+            "tools.web_search": "false",
+        }
         extra_env: dict = {}
         if user_id:
             # Wire bott's MCP tool server into codex's own loop, authenticated with a
             # one-turn ticket minted from the VERIFIED identity (never model text).
             from bott.interfaces.mcp.tickets import make_ticket
-            extra_config = {
+            extra_config.update({
                 "mcp_servers.bott.url": f'"{config.bott_mcp_url()}"',
                 "mcp_servers.bott.bearer_token_env_var": '"BOTT_MCP_TICKET"',
-            }
+            })
             extra_env = {"BOTT_MCP_TICKET": make_ticket(user_id, session_id)}
 
         metrics = getattr(assistant_message, "metrics", None)
@@ -109,6 +117,12 @@ class CodexExecChat(Model):
                     prompt,
                     cwd=cwd,
                     sandbox="read-only",
+                    # Required for MCP: codex exec's non-interactive approval policy
+                    # auto-cancels every MCP tool call under a normal sandbox ("user
+                    # cancelled MCP tool call", verified live on 0.142.5). Safe here
+                    # because codex's own shell is disabled above — the model's only
+                    # capabilities are bott's ticket-scoped MCP tools.
+                    bypass_sandbox=True,
                     ephemeral=True,
                     model_id=self.id,
                     output_schema=output_schema,

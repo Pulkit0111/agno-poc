@@ -329,3 +329,36 @@ def test_auth_classification_beats_quota(tmp_path):
                                            stderr="401 Unauthorized after rate limit check")
     with pytest.raises(cc.CodexAuthError):
         cc.run_codex_exec("p", cwd=str(tmp_path), runner=runner)
+
+
+def test_run_codex_exec_always_ignores_user_config(tmp_path):
+    """Hermetic invocations: without --ignore-user-config, codex merges the operator's
+    personal $CODEX_HOME/config.toml — their private MCP servers leaked into bott chat
+    turns (observed live). Auth still comes from CODEX_HOME."""
+    seen = {}
+    def runner(args, **kw):
+        seen["args"] = args
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("p", cwd=str(tmp_path), runner=runner)
+    assert "--ignore-user-config" in seen["args"]
+
+
+def test_run_codex_exec_bypass_sandbox_param(monkeypatch, tmp_path):
+    """bypass_sandbox=True forces the bypass flag even when BOTT_CODEX_DISABLE_SANDBOX is
+    off — the chat path needs it because codex exec auto-cancels MCP tool calls under a
+    normal sandbox ('user cancelled MCP tool call')."""
+    monkeypatch.setattr(config, "codex_cli_disable_sandbox", lambda: False)
+    seen = {}
+    def runner(args, **kw):
+        seen["args"] = args
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("p", cwd=str(tmp_path), sandbox="read-only", bypass_sandbox=True,
+                      runner=runner)
+    assert "--dangerously-bypass-approvals-and-sandbox" in seen["args"]
+    assert "-s" not in seen["args"]

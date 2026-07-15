@@ -98,6 +98,9 @@ class CodexExecMemoryManager(MemoryManager):
             with tempfile.TemporaryDirectory(prefix="bott-memory-") as cwd:
                 result = run_codex_exec(
                     prompt, cwd=cwd, sandbox="read-only", ephemeral=True,
+                    # Pure extraction: no shell, no web — just the structured answer.
+                    extra_config={"features.shell_tool": "false",
+                                  "tools.web_search": "false"},
                     model_id=resolve_model_id("chat"),
                     output_schema=_OPS_SCHEMA,
                     timeout_s=config.codex_chat_timeout_s(),
