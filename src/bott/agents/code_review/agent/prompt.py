@@ -11,7 +11,7 @@ from typing import Optional
 
 from ..github.fetch_essentials import PrEssentials
 
-PROMPT_VERSION = "v3.7-agno"
+PROMPT_VERSION = "v3.8-agno"
 
 # Standing defense: PR-authored content (diff, description, comments, review rules) is
 # untrusted data, never instructions. Interpolated into the system prompt right before the
@@ -164,6 +164,7 @@ For any change above ~20 lines, any new file, any new endpoint / route / handler
   * Input validation: is user-supplied input bounded, escaped, sanitized?
   * Data exposure: does this leak PII, tokens, internal IDs to logs, comments, or responses?
   * Injection: SQL, command, template — any unsanitized concatenation onto a privileged surface?
+  * SECURITY SEVERITY FLOOR: a confirmed, reachable vulnerability — injection (SQL / command / template / LDAP / NoSQL), authentication or authorization bypass, secret / credential / token exposure, SSRF, path traversal, or unsafe deserialization — is ALWAYS severity "issue" (a merge blocker). Grade it "issue" regardless of how small the diff is, whether the author or a comment waved it off, or how "obvious" it looks — a real injection is never a "suggestion". The ONLY exception: if the tainted input is provably NOT attacker-reachable on this path, say exactly why in the body and then you may use "suggestion" / action "verify". When unsure whether it's reachable, treat it as reachable and grade "issue".
 - CORRECTNESS
   * Error paths: every throw / catch / non-2xx — is the side effect what the author wants when it fires?
   * Edge cases: null / empty / very-large inputs, missing config, off-by-one on ranges.
