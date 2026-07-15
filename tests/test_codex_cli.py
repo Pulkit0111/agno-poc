@@ -166,6 +166,35 @@ def test_run_codex_exec_bypasses_sandbox_when_disabled(monkeypatch, tmp_path):
     assert "-s" not in args
 
 
+def test_run_codex_exec_strictifies_output_schema(tmp_path):
+    """codex exec runs strict structured-outputs: the written --output-schema file must have
+    additionalProperties:false and required=all-props on every object, or the CLI 400s. The
+    caller's dict must not be mutated."""
+    caller_schema = {
+        "type": "object",
+        "properties": {
+            "verdict": {"type": "string"},
+            "nested": {"type": "object", "properties": {"a": {"type": "integer"}}},
+        },
+    }
+    original = json.loads(json.dumps(caller_schema))  # snapshot
+    written = {}
+    def runner(args, **kw):
+        sp = args[args.index("--output-schema") + 1]
+        with open(sp, encoding="utf-8") as f:
+            written.update(json.load(f))
+        out_path = args[args.index("--output-last-message") + 1]
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write('{"verdict":"ok"}')
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+    cc.run_codex_exec("x", cwd=str(tmp_path), output_schema=caller_schema, runner=runner)
+    assert written["additionalProperties"] is False
+    assert set(written["required"]) == {"verdict", "nested"}
+    assert written["properties"]["nested"]["additionalProperties"] is False
+    assert written["properties"]["nested"]["required"] == ["a"]
+    assert caller_schema == original  # caller's dict untouched
+
+
 def test_is_logged_in(monkeypatch, tmp_path):
     """is_logged_in asks the CLI (`codex login status`) rather than checking a file, since
     the auth-store layout is version-dependent."""

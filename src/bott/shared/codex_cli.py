@@ -20,6 +20,7 @@ a single-use-refresh-token race that revoked the login under concurrency).
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -63,6 +64,25 @@ _ENV_PASSTHROUGH = (
     "NODE_EXTRA_CA_CERTS", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
     "SSL_CERT_FILE", "SSL_CERT_DIR",
 )
+
+
+def _strictify_schema(node):
+    """Make a JSON Schema acceptable to `codex exec --output-schema`, which runs OpenAI
+    structured-outputs in STRICT mode: every object must set `additionalProperties: false`
+    and list ALL its properties as `required`. Pydantic's `model_json_schema()` does neither,
+    so `codex exec` rejects it with a 400 ("'additionalProperties' is required to be supplied
+    and to be false"). We transform a deep copy in place and recurse through properties,
+    array items, $defs, and anyOf/oneOf/allOf branches."""
+    if isinstance(node, dict):
+        if node.get("type") == "object" or "properties" in node:
+            node["additionalProperties"] = False
+            node["required"] = list((node.get("properties") or {}).keys())
+        for v in node.values():
+            _strictify_schema(v)
+    elif isinstance(node, list):
+        for v in node:
+            _strictify_schema(v)
+    return node
 
 
 def _subprocess_env(codex_home: str) -> dict:
@@ -143,9 +163,10 @@ def run_codex_exec(
             args += ["-m", model_id]
         args += ["--output-last-message", out_path]
         if output_schema is not None:
+            strict_schema = _strictify_schema(copy.deepcopy(output_schema))
             schema_fd, schema_path = tempfile.mkstemp(prefix="bott-codex-schema-", suffix=".json")
             with os.fdopen(schema_fd, "w", encoding="utf-8") as sf:
-                json.dump(output_schema, sf)
+                json.dump(strict_schema, sf)
             args += ["--output-schema", schema_path]
 
         try:
