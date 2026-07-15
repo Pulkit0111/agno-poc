@@ -147,10 +147,14 @@ def build_memory_manager(db=None) -> MemoryManager:
     )
 
 
-def build_agent(user_id: str, db=None) -> Agent:
-    user_id = require_user_id(user_id)
-    model = build_model("chat")
-
+def build_chat_toolkits(db=None, skills: Skills | None = None,
+                        include_skill_tools: bool = False) -> list:
+    """The full chat tool surface — ONE list consumed by both the Agno agent (historically
+    as in-process tools) and the MCP server (which serves the same tools to codex exec).
+    `include_skill_tools` adds the Skills access tools (get_skill_instructions, ...) that
+    Agno normally injects itself via Agent(skills=...) — the MCP server needs them
+    explicitly, the agent must not get them twice."""
+    skills = skills or build_skills()
     tools: list = []
     tools.extend(build_tools())   # Build & fix: plan → approve → implement → draft PR
     tools.extend(review_tools())  # PR review (queue → durable worker runs + posts)
@@ -194,9 +198,18 @@ def build_agent(user_id: str, db=None) -> Agent:
             )
         )
 
-    skills = build_skills()
     tools.extend(build_workspace_tools(db=db, skills=skills))
     tools.extend(skill_authoring_tools(skills=skills))
+    if include_skill_tools:
+        tools.extend(skills.get_tools())
+    return tools
+
+
+def build_agent(user_id: str, db=None) -> Agent:
+    user_id = require_user_id(user_id)
+    model = build_model("chat")
+    skills = build_skills()
+    tools = build_chat_toolkits(db=db, skills=skills)
 
     return Agent(
         id="bott",

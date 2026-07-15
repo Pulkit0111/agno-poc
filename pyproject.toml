@@ -32,6 +32,7 @@ dependencies = [
     "croniter==6.2.2",
     "pytz==2026.2",
     "alembic==1.18.5",
+    "mcp>=1.28.1",
 ]
 
 [project.optional-dependencies]

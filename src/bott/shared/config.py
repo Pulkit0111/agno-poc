@@ -680,6 +680,23 @@ def codex_cli_timeout_s() -> int:
     return int(os.getenv("CODEX_CLI_TIMEOUT_S", "900"))
 
 
+def bott_mcp_port() -> int:
+    """Loopback port for bott's own MCP server (chat tools served to codex exec).
+    Bound to 127.0.0.1 only — the bearer ticket is the auth, the loopback bind is the
+    network boundary."""
+    return int(os.getenv("BOTT_MCP_PORT", "7801"))
+
+
+def bott_mcp_url() -> str:
+    """URL codex exec is pointed at for bott's chat-tools MCP server."""
+    return os.getenv("BOTT_MCP_URL") or f"http://127.0.0.1:{bott_mcp_port()}/mcp"
+
+
+def bott_mcp_ticket_ttl_s() -> int:
+    """Max age of a per-invocation MCP bearer ticket. Generous: one chat turn."""
+    return int(os.getenv("BOTT_MCP_TICKET_TTL_S", "3600"))
+
+
 def codex_chat_timeout_s() -> int:
     """Per-turn ceiling for CHAT codex exec calls — much tighter than the build/review
     ceiling (codex_cli_timeout_s): a person is sitting in Slack waiting for this one."""

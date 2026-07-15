@@ -238,6 +238,17 @@ def main() -> None:
     reminders.start_reminder_thread()
     log.info("Reminder sweep thread started.")
 
+    # MCP chat-tools server: chat turns run through `codex exec`, whose loop calls bott's
+    # tools over this loopback server (bearer-ticket auth). Chat is degraded (no tools)
+    # without it, so a failure here is loud but non-fatal.
+    try:
+        from bott.agents.bott_agent import build_chat_toolkits
+        from bott.interfaces.mcp.server import start_mcp_server_thread
+
+        start_mcp_server_thread(build_chat_toolkits(db=_db, include_skill_tools=True))
+    except Exception as e:  # noqa: BLE001 — chat degrades; the rest of bott still serves
+        log.error("MCP chat-tools server failed to start (%s) — chat will run without tools.", e)
+
     try:
         agent_os.serve(
             app=app,

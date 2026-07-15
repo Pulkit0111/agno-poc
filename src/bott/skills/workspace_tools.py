@@ -6,6 +6,7 @@ allowlisted commands. This is the safety model for a single-user POC (no cloud s
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import json
 import os
@@ -58,6 +59,21 @@ def _user_workspace_dir(user_id: str) -> Path:
     return path.resolve()
 
 
+@contextlib.contextmanager
+def workspace_scope(user_id):
+    """Point the workspace tools' base_dir at `user_id`'s own subdirectory for the duration
+    of the block (no-op when user_id is falsy). The public seam shared by the Agno tool
+    hook below and the MCP server's tool dispatch — both must scope the same way."""
+    if not user_id:
+        yield
+        return
+    token = _workspace_override.set(_user_workspace_dir(user_id))
+    try:
+        yield
+    finally:
+        _workspace_override.reset(token)
+
+
 def scope_workspace_to_user(run_context=None, function_call=None, args=None):
     """Agent-wide tool hook: for the duration of one tool call, point the workspace tools'
     `base_dir` at the calling user's own subdirectory instead of the one shared folder.
@@ -76,11 +92,8 @@ def scope_workspace_to_user(run_context=None, function_call=None, args=None):
     user_id = getattr(run_context, "user_id", None) if run_context is not None else None
     if not user_id or function_call is None:
         return function_call(**args) if function_call is not None else None
-    token = _workspace_override.set(_user_workspace_dir(user_id))
-    try:
+    with workspace_scope(user_id):
         return function_call(**args)
-    finally:
-        _workspace_override.reset(token)
 
 
 class _HardenedCodingTools(_ScopedBaseDirMixin, CodingTools):
