@@ -5,7 +5,7 @@ from bott.agents.code_review.agent.prompt import PROMPT_VERSION, UNTRUSTED_GUARD
 
 
 def test_prompt_version_bumped():
-    assert PROMPT_VERSION == "v3.8-agno"
+    assert PROMPT_VERSION == "v3.9-agno"
 
 
 def test_security_severity_floor_in_prompt():

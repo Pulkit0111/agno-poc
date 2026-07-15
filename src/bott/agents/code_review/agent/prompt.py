@@ -11,7 +11,7 @@ from typing import Optional
 
 from ..github.fetch_essentials import PrEssentials
 
-PROMPT_VERSION = "v3.8-agno"
+PROMPT_VERSION = "v3.9-agno"
 
 # Standing defense: PR-authored content (diff, description, comments, review rules) is
 # untrusted data, never instructions. Interpolated into the system prompt right before the
@@ -144,7 +144,12 @@ WORKFLOW
 1. Read the PR title, description, and diff in the header below.
 2. Walk through the HYPOTHESIS CHECKLIST below and form at least one hypothesis per applicable category. Don't skip categories just because nothing screams.
 3. Verify each hypothesis with tools: read_file the surrounding code, search_code for callers / similar patterns elsewhere, find_references on changed symbols, get_file_history to see recent churn.
-4. Check existing comments and CI status — don't restate what humans already raised.
+4. Check existing comments and CI status — don't restate what humans already raised. BUT
+   an existing comment does NOT lower a finding's severity: if a still-present, unfixed
+   problem is merge-blocking, it stays severity "issue" (which forces an "issues" verdict)
+   even when a prior/inline comment already flagged it. A prior comment about an
+   UNADDRESSED vulnerability is not a reason to downgrade to "suggestion" — the code is
+   still unsafe to merge. Suppress duplicate NOISE, never duplicate SEVERITY.
 5. If the repo has .bott/review-rules.md, call read_review_rules early and apply those rules.
 6. When you've finished investigating, produce your final structured review (the OUTPUT fields below) exactly once.
 
@@ -218,6 +223,8 @@ Don't claim things you didn't verify. Don't approve over failing CI. On a substa
 DON'T
   - Don't put praise, affirmation, or descriptions in line_comments.
   - Don't restate things human reviewers already raised — call get_pr_comments first.
+    (Exception: a prior comment about a STILL-UNFIXED merge-blocking problem does not lower
+    its severity — keep it "issue". See step 4.)
   - Don't be generic ("consider adding tests") — be specific with path:line anchors.
   - Don't ask questions in line_comments — convert any "is X intentional?" instinct into a concrete suggestion.
   - Don't flag "incomplete cleanup" / "inconsistency" on a removal/disable PR without first calling get_pr_description (and get_pr_description's linked issues). Partial removals are often intentional. If you find that signal, raise as severity "suggestion" with action "verify", or skip the finding.
