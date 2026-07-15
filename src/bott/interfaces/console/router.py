@@ -880,19 +880,15 @@ def build_console_router(db) -> APIRouter:
         conflict = active["review"] == active["build"]
         swap_preview = None
         if conflict:
-            # Anti-affinity previews the swap review would actually get at run time, which
-            # depends on review's OWN provider (it may sit on a different provider than the
-            # global `provider` under a per-role override) — not the global one.
-            review_provider = active["providers_by_role"]["review"]
-            alt = _review_anti_affinity(active["review"], review_provider)
+            # Anti-affinity previews the swap review would actually get at run time.
+            alt = _review_anti_affinity(active["review"])
             swap_preview = alt if alt != active["review"] else None
-        providers = []
-        for name in ("codex", "openrouter", "bedrock"):
-            usable, hint = models_mod.provider_key_status(name)
-            providers.append({
-                "name": name, "usable": usable, "hint": hint,
-                "models": models_mod.available_models(name) if (usable and name == provider) else [],
-            })
+        # Codex-only: one provider entry (shape kept for the console client).
+        usable, hint = models_mod.provider_key_status("codex")
+        providers = [{
+            "name": "codex", "usable": usable, "hint": hint,
+            "models": models_mod.available_models("codex"),
+        }]
         codex_usage = None
         if any(p["name"] == "codex" and p["usable"] for p in providers):
             from bott.shared.codex_usage import usage_summary

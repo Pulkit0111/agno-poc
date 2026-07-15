@@ -10,7 +10,7 @@ vi.mock("@/lib/use-me", async () => {
   return { ...actual, useMe: vi.fn() };
 });
 // The codex-connect card pulls in its own mutations/polling — irrelevant to this page's
-// provider/model pickers, so stub it out to a simple marker.
+// model pickers, so stub it out to a simple marker.
 vi.mock("@/components/system/codex-connect", () => ({
   CodexConnect: ({ connected }: { connected: boolean }) => (
     <div data-testid="codex-connect">{connected ? "codex connected" : "codex not connected"}</div>
@@ -32,18 +32,13 @@ const BASE_DATA: AdminModelsState = {
   conflict: false, swap_preview: null,
   providers: [
     { name: "codex", usable: true, hint: null, models: ["gpt-5.5", "gpt-5.5-codex", "gpt-5.4"] },
-    { name: "openrouter", usable: true, hint: "OpenRouter key present", models: [] },
-    { name: "bedrock", usable: false, hint: "Add AWS credentials to list and use Bedrock models", models: [] },
   ],
   codex_usage: null,
   active: {
     provider: "codex", chat: "gpt-5.5", build: "gpt-5.5-codex", review: "gpt-5.4",
-    providers_by_role: { chat: "codex", build: "codex", review: "codex" },
   },
   catalogs: {
     codex: ["gpt-5.5", "gpt-5.5-codex", "gpt-5.4"],
-    openrouter: ["anthropic/claude-opus-4.8", "openai/gpt-5.5"],
-    bedrock: [],
   },
 };
 
@@ -66,64 +61,33 @@ beforeEach(() => {
 });
 
 describe("ModelsPage", () => {
-  it("renders the three jobs, each with a provider dropdown and a model dropdown", () => {
+  it("renders the three jobs, each with a model dropdown and no provider dropdown", () => {
     render(<ModelsPage />);
     for (const label of ["Chat", "Build", "Review"]) {
       expect(screen.getByText(label)).toBeDefined();
     }
-    expect(screen.getByLabelText("Chat provider")).toBeDefined();
     expect(screen.getByLabelText("Chat model")).toBeDefined();
-    expect(screen.getByLabelText("Build provider")).toBeDefined();
     expect(screen.getByLabelText("Build model")).toBeDefined();
-    expect(screen.getByLabelText("Review provider")).toBeDefined();
     expect(screen.getByLabelText("Review model")).toBeDefined();
+    // Codex is the only provider — no per-role provider pickers.
+    expect(screen.queryByLabelText("Chat provider")).toBeNull();
+    expect(screen.queryByLabelText("Build provider")).toBeNull();
+    expect(screen.queryByLabelText("Review provider")).toBeNull();
   });
 
-  it("replaces the old 'Codex is the only provider' copy", () => {
+  it("drops all OpenRouter/Bedrock provider copy", () => {
     render(<ModelsPage />);
-    expect(screen.getByText("Pick which provider and model handles each job")).toBeDefined();
-    expect(screen.queryByText(/Bott's only model provider/i)).toBeNull();
+    expect(screen.getByText("Pick which Codex model handles each job")).toBeDefined();
+    expect(screen.queryByText(/openrouter/i)).toBeNull();
+    expect(screen.queryByText(/bedrock/i)).toBeNull();
   });
 
-  it("only offers Bedrock as a provider option when it's usable", () => {
-    render(<ModelsPage />);
-    const select = screen.getByLabelText("Chat provider") as HTMLSelectElement;
-    const options = within(select).getAllByRole("option").map((o) => o.textContent);
-    expect(options).toEqual(["Codex", "OpenRouter"]);
-  });
-
-  it("offers Bedrock once it's usable", () => {
-    setData({
-      providers: BASE_DATA.providers.map((p) => (p.name === "bedrock" ? { ...p, usable: true } : p)),
-    });
-    render(<ModelsPage />);
-    const select = screen.getByLabelText("Chat provider") as HTMLSelectElement;
-    const options = within(select).getAllByRole("option").map((o) => o.textContent);
-    expect(options).toEqual(["Codex", "OpenRouter", "Bedrock"]);
-  });
-
-  it("shows the model dropdown fed by the codex catalog by default", () => {
+  it("shows the model dropdown fed by the codex catalog", () => {
     render(<ModelsPage />);
     const select = screen.getByLabelText("Chat model") as HTMLSelectElement;
     const options = within(select).getAllByRole("option").map((o) => o.textContent);
     expect(options).toEqual(["gpt-5.5", "gpt-5.5-codex", "gpt-5.4"]);
     expect(select.value).toBe("gpt-5.5");
-  });
-
-  it("selecting OpenRouter for Chat's provider fires the provider mutation and swaps the model catalog", () => {
-    render(<ModelsPage />);
-    const providerSelect = screen.getByLabelText("Chat provider") as HTMLSelectElement;
-    fireEvent.change(providerSelect, { target: { value: "openrouter" } });
-
-    expect(mutate).toHaveBeenCalledWith({ key: "model.provider.chat", value: "openrouter" });
-    // Auto-defaults + persists the first model in the new provider's catalog so the
-    // dropdown is never left empty/mismatched.
-    expect(mutate).toHaveBeenCalledWith({ key: "model.chat", value: "anthropic/claude-opus-4.8" });
-
-    const modelSelect = screen.getByLabelText("Chat model") as HTMLSelectElement;
-    const options = within(modelSelect).getAllByRole("option").map((o) => o.textContent);
-    expect(options).toEqual(["anthropic/claude-opus-4.8", "openai/gpt-5.5"]);
-    expect(modelSelect.value).toBe("anthropic/claude-opus-4.8");
   });
 
   it("changing the model dropdown fires the model mutation", () => {
@@ -133,45 +97,27 @@ describe("ModelsPage", () => {
     expect(mutate).toHaveBeenCalledWith({ key: "model.chat", value: "gpt-5.4" });
   });
 
-  it("shows an empty-catalog hint instead of a model dropdown when the provider has no key", () => {
+  it("passes codex connection state through to the connect card", () => {
+    render(<ModelsPage />);
+    expect(screen.getByTestId("codex-connect").textContent).toBe("codex connected");
+  });
+
+  it("tells the connect card when codex is not connected", () => {
     setData({
-      active: {
-        ...BASE_DATA.active,
-        providers_by_role: { ...BASE_DATA.active.providers_by_role, chat: "bedrock" },
-      },
+      providers: [{ name: "codex", usable: false, hint: "Connect ChatGPT to enable Codex", models: [] }],
+    });
+    render(<ModelsPage />);
+    expect(screen.getByTestId("codex-connect").textContent).toBe("codex not connected");
+  });
+
+  it("shows a connect hint instead of a model dropdown when the codex catalog is empty", () => {
+    setData({
+      providers: [{ name: "codex", usable: false, hint: "Connect ChatGPT to enable Codex", models: [] }],
+      catalogs: { codex: [] },
     });
     render(<ModelsPage />);
     expect(screen.queryByLabelText("Chat model")).toBeNull();
-    expect(screen.getByText("Add AWS credentials to list and use Bedrock models")).toBeDefined();
-  });
-
-  it("keeps the provider select on the active provider even when it's now unusable (no coercion to Codex)", () => {
-    // Bedrock is the active provider for Chat but is NOT usable (no AWS creds) — the
-    // dropdown must still show "bedrock", not silently coerce to the first option.
-    setData({
-      active: {
-        ...BASE_DATA.active,
-        providers_by_role: { ...BASE_DATA.active.providers_by_role, chat: "bedrock" },
-      },
-    });
-    render(<ModelsPage />);
-    const select = screen.getByLabelText("Chat provider") as HTMLSelectElement;
-    expect(select.value).toBe("bedrock");
-    const options = within(select).getAllByRole("option").map((o) => o.textContent);
-    expect(options).toEqual(["Codex", "OpenRouter", "Bedrock (unavailable)"]);
-  });
-
-  it("shows OpenRouter connected when usable", () => {
-    render(<ModelsPage />);
-    expect(screen.getByText("OpenRouter connected ✓")).toBeDefined();
-  });
-
-  it("shows the add-key hint when OpenRouter isn't usable", () => {
-    setData({
-      providers: BASE_DATA.providers.map((p) => (p.name === "openrouter" ? { ...p, usable: false } : p)),
-    });
-    render(<ModelsPage />);
-    expect(screen.getByText("OpenRouter: add OPENROUTER_API_KEY to .env to use it")).toBeDefined();
+    expect(screen.getAllByText("Connect ChatGPT to enable Codex")).toHaveLength(3);
   });
 
   it("keeps the review anti-affinity banner when review equals build", () => {
@@ -191,6 +137,6 @@ describe("ModelsPage", () => {
       data: { email: "m@axelerant.com", is_admin: false }, isLoading: false, isError: false,
     } as unknown as ReturnType<typeof useMe>);
     render(<ModelsPage />);
-    expect(screen.queryByLabelText("Chat provider")).toBeNull();
+    expect(screen.queryByLabelText("Chat model")).toBeNull();
   });
 });

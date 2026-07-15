@@ -281,21 +281,6 @@ _PROVIDER_OPTIONS = [
 ]
 
 
-def build_set_provider_modal(current: str | None = None) -> dict:
-    """Modal to pick the active model provider."""
-    return {
-        "type": "modal",
-        "callback_id": "models_set_provider",
-        "title": {"type": "plain_text", "text": "Change model provider"},
-        "submit": {"type": "plain_text", "text": "Save"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": [
-            _input("provider", "Provider",
-                   _static_select("v", _PROVIDER_OPTIONS, initial=current)),
-        ],
-    }
-
-
 def _static_select(action_id: str, options: list[tuple[str, str]], initial: str | None = None) -> dict:
     opts = [{"text": {"type": "plain_text", "text": t[:75]}, "value": v[:75]} for t, v in options]
     el: dict[str, Any] = {"type": "static_select", "action_id": action_id, "options": opts}

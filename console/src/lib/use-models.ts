@@ -10,24 +10,19 @@ export type CodexUsage = {
   top_users: { user_id: string; requests: number }[];
 };
 
-/** Valid `model.provider.<role>` values (Task 3, Part A) — kept in sync with the
- * backend's `_VALID_PROVIDERS` in bott.interfaces.slack_home.models. */
-export type ProviderName = "codex" | "openrouter" | "bedrock";
-
 /** The three model roles, wherever they land in the payload. */
 export type ActiveModels = { provider: string; chat: string; build: string; review: string };
 
-/** Which provider each role currently resolves to — chat/build/review may each sit on a
- * different provider via `model.provider.<role>`. */
-export type ProvidersByRole = { chat: ProviderName; build: ProviderName; review: ProviderName };
-
 /** The full task→model matrix, as nested under `active` in both the admin and member
- * payloads (the backend computes it once, before branching on role). */
-export type FullActive = ActiveModels & { providers_by_role: ProvidersByRole };
+ * payloads. `providers_by_role` is a legacy field — codex-only backends stop sending it,
+ * and the UI ignores it either way. */
+export type FullActive = ActiveModels & {
+  providers_by_role?: Record<"chat" | "build" | "review", string>;
+};
 
-/** Per-provider model-id catalogs, admin-only — feeds the per-role model dropdown once a
- * provider is picked. */
-export type Catalogs = { codex: string[]; openrouter: string[]; bedrock: string[] };
+/** Model-id catalogs, admin-only — feeds the per-role model dropdown. Codex is the only
+ * provider; older backends may still send openrouter/bedrock keys, which are ignored. */
+export type Catalogs = { codex: string[] };
 
 /** Admin payload: flat active-model fields plus conflict/usage detail, plus the additive
  * `active`/`catalogs` the per-role provider picker needs. */

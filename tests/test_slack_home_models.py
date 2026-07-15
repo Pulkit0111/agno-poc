@@ -25,44 +25,39 @@ def test_models_section_is_admin_only(store):
     assert "chat" in text and "build" in text and "review" in text
 
 
-def test_models_section_shows_per_role_providers(store):
-    """Panel text must show each role's OWN provider (chat/build/review can each sit on a
-    different provider via model.provider.<role>) — not one global provider line that hides
-    a per-role override from the admin about to open the 'Change models' modal."""
-    m.apply_model_override("admin@axelerant.com", "model.provider.chat", "openrouter")
+def test_models_section_is_codex_only(store):
+    """Panel text shows the codex task→model matrix — no provider switching remains."""
     text = str(m.models_section(is_admin=True))
-    assert "chat `openrouter/" in text
-    assert "build `codex/" in text
-    assert "review `codex/" in text
+    assert "(codex)" in text
+    assert "openrouter" not in text.lower()
+    assert "bedrock" not in text.lower()
 
 
-def test_provider_key_status(store, monkeypatch):
-    monkeypatch.setattr(m.config, "openrouter_api_key", lambda: None)
-    ok, hint = m.provider_key_status("openrouter")
-    assert ok is False and "OPENROUTER_API_KEY" in hint
-    monkeypatch.setattr(m.config, "openrouter_api_key", lambda: "k")
+def test_provider_key_status_codex_only(store, monkeypatch):
+    monkeypatch.setattr(m.codex_cli, "is_logged_in", lambda *a, **k: False)
+    ok, hint = m.provider_key_status("codex")
+    assert ok is False and "not connected" in hint.lower()
     ok, _ = m.provider_key_status("openrouter")
-    assert ok is True
+    assert ok is False  # unknown provider now
 
 
 def test_available_models_codex_lists_known(store):
     assert "gpt-5.5" in m.available_models("codex")
-
-
-def test_available_models_openrouter_needs_key_then_lists(store, monkeypatch):
-    monkeypatch.setattr(m.config, "openrouter_api_key", lambda: None)
-    assert m.available_models("openrouter") == []  # no key → no catalog
-    monkeypatch.setattr(m.config, "openrouter_api_key", lambda: "k")
-    monkeypatch.setattr(m, "_fetch_openrouter_models", lambda: ["anthropic/x", "openai/y"])
-    assert m.available_models("openrouter") == ["anthropic/x", "openai/y"]
+    assert m.available_models("openrouter") == []
 
 
 def test_override_admin_only(store):
-    assert "not allowed" in m.apply_model_override("nobody@x.com", "model.provider", "openrouter").lower()
+    assert "not allowed" in m.apply_model_override("nobody@x.com", "model.chat", "gpt-5.4").lower()
     from bott.shared.persistence.records import get_setting
-    assert get_setting("model.provider") is None  # non-admin must NOT have written the setting
-    out = m.apply_model_override("admin@axelerant.com", "model.provider", "openrouter")
-    assert get_setting("model.provider") == "openrouter" and "openrouter" in out.lower()
+    assert get_setting("model.chat") is None  # non-admin must NOT have written the setting
+    out = m.apply_model_override("admin@axelerant.com", "model.chat", "gpt-5.4")
+    assert get_setting("model.chat") == "gpt-5.4" and "updated" in out.lower()
+
+
+def test_provider_override_key_is_gone(store):
+    """Codex-only: the provider setting keys are no longer accepted at all."""
+    assert "unknown setting" in m.apply_model_override(
+        "admin@axelerant.com", "model.provider", "openrouter").lower()
 
 
 def test_connect_codex_admin_only(store, monkeypatch, tmp_path):
@@ -139,9 +134,7 @@ def test_app_home_models_panel_is_codex_only(store):
     assert "bedrock" not in rendered and "openrouter" not in rendered
 
 
-def test_provider_picker_modal_offers_codex_only(store):
+def test_provider_picker_modal_is_gone(store):
+    """Codex-only: there is no provider picker modal anymore."""
     from bott.interfaces.slack_home import blocks as blocks_mod
-    modal = blocks_mod.build_set_provider_modal()
-    values = [o["value"] for blk in modal["blocks"] if blk.get("type") == "input"
-              for o in blk["element"]["options"]]
-    assert values == ["codex"]
+    assert not hasattr(blocks_mod, "build_set_provider_modal")

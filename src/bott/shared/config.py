@@ -508,9 +508,11 @@ def bott_shell_allowed_commands() -> list[str]:
     return list(_DEFAULT_SHELL_ALLOWLIST)
 
 
-# --- Foundation: model provider + per-role routing -----------------------------
+# --- Foundation: model routing (codex-only) --------------------------------------
 def model_provider() -> str:
-    """'codex' (dev proxy), 'bedrock', or 'openrouter' (prod). One global provider."""
+    """Always effectively 'codex' — bott is codex-only. The env var is still read so a
+    stale MODEL_PROVIDER entry surfaces in resolve_provider()'s warning instead of being
+    silently swallowed, but nothing builds a non-codex model anymore."""
     return (os.getenv("MODEL_PROVIDER") or "codex").strip().lower()
 
 
@@ -536,33 +538,6 @@ def database_url() -> str | None:
 def bott_secret_key() -> str | None:
     """Fernet key for SecretBox (urlsafe base64, 32 bytes). Env in dev; vault/KMS later."""
     return os.getenv("BOTT_SECRET_KEY") or None
-
-
-def openrouter_api_key() -> str | None:
-    return os.getenv("OPENROUTER_API_KEY") or None
-
-
-def fallback_model_provider() -> str | None:
-    """Optional secondary provider (`bedrock` or `openrouter`) build_model() switches to
-    when the primary provider is `codex` and the shared org login is broken (token missing,
-    refresh failed). Unset by default: no fallback, so a Codex outage surfaces as a clear
-    error — plus an admin alert — instead of silently degrading to a different model with
-    nobody told. Set FALLBACK_MODEL_PROVIDER=bedrock (or openrouter) to opt in."""
-    v = (os.getenv("FALLBACK_MODEL_PROVIDER") or "").strip().lower()
-    return v or None
-
-
-# Sane, capable defaults if a fallback provider is enabled but FALLBACK_MODEL_ID isn't set —
-# these are provider-specific ids, unlike the codex model ids in BOTT_*_MODEL, so they can't
-# just reuse whatever's already configured for the primary (codex) provider.
-_FALLBACK_MODEL_DEFAULTS: dict[str, str] = {
-    "bedrock": "anthropic.claude-sonnet-4-6-v1:0",
-    "openrouter": "anthropic/claude-sonnet-4.6",
-}
-
-
-def fallback_model_id(provider: str) -> str:
-    return os.getenv("FALLBACK_MODEL_ID") or _FALLBACK_MODEL_DEFAULTS.get(provider, "")
 
 
 # --- Build-fix: implement pipeline budget -------------------------------------

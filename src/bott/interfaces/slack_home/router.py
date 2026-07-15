@@ -491,42 +491,21 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                     client.views_open(trigger_id=trigger_id, view=blocks.build_connect_codex_modal())
                 except Exception as e:  # noqa: BLE001
                     log.error("open connect_codex modal: %s", e)
-            elif cmd == "models_set_provider":
-                # Admin-only: open a static-select modal to change the model provider.
-                actor_email = _resolve_email(user_id) if user_id else ""
-                if not models._is_admin(actor_email):
-                    return {"ok": True}   # button isn't shown to non-admins; ignore crafted payloads
-                try:
-                    from bott.shared.persistence.records import get_setting
-                    current = get_setting("model.provider")
-                    client.views_open(trigger_id=trigger_id,
-                                      view=blocks.build_set_provider_modal(current=current))
-                except Exception as e:  # noqa: BLE001
-                    log.error("open set_provider modal: %s", e)
             elif cmd == "models_set_models":
                 # Admin-only: open a dual static-select modal to change chat + heavy model ids.
                 actor_email = _resolve_email(user_id) if user_id else ""
                 if not models._is_admin(actor_email):
                     return {"ok": True}   # button isn't shown to non-admins; ignore crafted payloads
                 try:
-                    from bott.shared.model import resolve_provider
                     active = models._active()
-                    by_role = active["providers_by_role"]
-                    # Each role's picker must be fed from THAT role's own provider catalog —
-                    # not one shared/global catalog — otherwise an admin could assign e.g. a
-                    # Codex model id to a role pinned to OpenRouter (a valid-looking config
-                    # that breaks every call for that role).
-                    role_options = {role: models.available_models(resolve_provider(role))
+                    # Codex-only: every role picks from the one codex catalog.
+                    role_options = {role: models.available_models("codex")
                                     for role in ("chat", "build", "review")}
                     missing = [role for role in ("chat", "build", "review") if not role_options[role]]
                     if missing:
-                        # Keys missing for that role's provider — explain instead of an empty picker.
-                        lines = []
-                        for role in missing:
-                            _, hint = models.provider_key_status(by_role[role])
-                            lines.append(f"*{role}* (`{by_role[role]}`) — {hint}")
+                        _, hint = models.provider_key_status("codex")
                         view = blocks.build_notice_modal(
-                            "Add keys first", "Can't list models for every role yet:\n" + "\n".join(lines))
+                            "Connect Codex first", f"Can't list models yet: {hint}")
                     else:
                         view = blocks.build_set_models_modal(
                             active["chat"], active["build"], active["review"],
@@ -566,7 +545,7 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
             # window — doing it inline makes Slack show "trouble connecting" even on success.
             # Models modals are admin-gated and post a DM with the result; they don't
             # modify the schedule list, but we refresh Home so the Models section updates.
-            if cb in ("models_connect_codex", "models_set_provider", "models_set_models"):
+            if cb in ("models_connect_codex", "models_set_models"):
                 actor_email = _resolve_email(user_id) if user_id else ""
 
                 def _do_models_submit(cb=cb, values=values, actor_email=actor_email,
@@ -575,11 +554,6 @@ def build_slack_home_router(db, token: str, signing_secret: str, *, chat_prefix:
                         if cb == "models_connect_codex":
                             auth_text = (_val(values, "auth_json").get("value") or "").strip()
                             result = models.connect_codex(actor_email, auth_text)
-                        elif cb == "models_set_provider":
-                            selected = (_val(values, "provider").get("selected_option") or {})
-                            provider_val = selected.get("value") or ""
-                            result = models.apply_model_override(actor_email, "model.provider",
-                                                                 provider_val)
                         else:  # models_set_models — the chat/build/review matrix
                             def _sel(block_id):
                                 return ((values.get(block_id) or {}).get("v", {})

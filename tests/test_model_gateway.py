@@ -11,20 +11,12 @@ def _no_setting_override(monkeypatch):
     monkeypatch.setattr(model_mod, "_setting", lambda k: None)
 
 
-def test_openrouter_provider(monkeypatch):
-    _no_setting_override(monkeypatch)
-    monkeypatch.setenv("MODEL_PROVIDER", "openrouter")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    monkeypatch.setenv("BOTT_HEAVY_MODEL", "anthropic/claude-sonnet-4")
-    m = build_model("heavy")
-    assert m.id == "anthropic/claude-sonnet-4"
-
-
-def test_unknown_provider_raises(monkeypatch):
+def test_any_env_provider_still_builds_codex(monkeypatch):
+    """Codex-only: a stale/unknown MODEL_PROVIDER is ignored (with a warning), never
+    honored and never a crash."""
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "nope")
-    with pytest.raises(ValueError):
-        build_model("chat")
+    assert type(build_model("chat")).__name__ == "CodexExecChat"
 
 
 def test_codex_provider_builds_exec_model(monkeypatch):
@@ -45,16 +37,6 @@ def test_codex_model_carries_retry_policy(monkeypatch):
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
     monkeypatch.setenv("BOTT_CHAT_MODEL", "gpt-5.5")
-    m = model_mod.build_model("chat")
-    assert m.retries >= 3
-    assert m.exponential_backoff is True
-
-
-def test_openrouter_model_still_carries_retry_policy(monkeypatch):
-    _no_setting_override(monkeypatch)
-    monkeypatch.setenv("MODEL_PROVIDER", "openrouter")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    monkeypatch.setenv("BOTT_CHAT_MODEL", "x/y")
     m = model_mod.build_model("chat")
     assert m.retries >= 3
     assert m.exponential_backoff is True
@@ -160,10 +142,11 @@ def test_codex_broken_login_alerts_admins_on_call(monkeypatch):
     assert alerted and "login is broken" in alerted[0]
 
 
-def test_settings_override_beats_env(monkeypatch):
+def test_stale_provider_setting_is_ignored(monkeypatch):
+    """Codex-only: an old model.provider settings row must not flip anything."""
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
     monkeypatch.setattr(model_mod, "_setting", lambda k: {"model.provider": "openrouter"}.get(k))
-    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    monkeypatch.setenv("BOTT_CHAT_MODEL", "x/y")
+    monkeypatch.setenv("BOTT_CHAT_MODEL", "gpt-5.5")
     m = model_mod.build_model("chat")
-    assert m.id == "x/y"  # OpenRouter model built because settings overrode provider
+    assert type(m).__name__ == "CodexExecChat"
+    assert m.id == "gpt-5.5"

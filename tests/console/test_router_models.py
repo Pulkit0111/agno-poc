@@ -78,42 +78,12 @@ def test_get_models_conflict_shows_swap_preview(client, monkeypatch):
     })
     monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
     monkeypatch.setattr(models_mod, "available_models", lambda p: ["gpt-5.5", "gpt-5.5-codex"])
-    monkeypatch.setattr(model_mod, "_review_anti_affinity", lambda model_id, provider: "gpt-5.5")
+    monkeypatch.setattr(model_mod, "_review_anti_affinity",
+                        lambda model_id, provider="codex": "gpt-5.5")
     _as(client, admin=True)
     body = client.get("/api/console/v1/models").json()
     assert body["conflict"] is True
     assert body["swap_preview"] == "gpt-5.5"
-
-
-def test_get_models_swap_preview_uses_reviews_own_provider_not_global(client, monkeypatch):
-    """review may sit on a DIFFERENT provider than the global `provider` (per-role
-    override) — the swap preview must reflect review's own provider's anti-affinity, not
-    the global one's, or it previews a swap that would never actually happen at run time."""
-    import bott.interfaces.slack_home.models as models_mod
-    import bott.shared.model as model_mod
-    monkeypatch.setattr(models_mod, "_active", lambda: {
-        "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5-codex", "review": "gpt-5.5-codex",
-        "providers_by_role": {"chat": "codex", "build": "codex", "review": "openrouter"},
-    })
-    monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
-    monkeypatch.setattr(models_mod, "available_models", lambda p: ["gpt-5.5", "gpt-5.5-codex"])
-
-    seen_providers = []
-
-    def _fake_anti_affinity(model_id, provider):
-        seen_providers.append(provider)
-        # codex's anti-affinity has a safe alternate; openrouter's does not (mirrors the
-        # real function's behavior — see bott.shared.model._review_anti_affinity).
-        return "gpt-5.4" if provider == "codex" else model_id
-
-    monkeypatch.setattr(model_mod, "_review_anti_affinity", _fake_anti_affinity)
-    _as(client, admin=True)
-    body = client.get("/api/console/v1/models").json()
-    # review's own provider (openrouter) must be what's passed to the anti-affinity check —
-    # never the global "codex" provider.
-    assert seen_providers == ["openrouter"]
-    assert body["conflict"] is True
-    assert body["swap_preview"] is None  # openrouter's anti-affinity kept the same id
 
 
 def test_override_requires_admin(client):
@@ -280,8 +250,7 @@ def test_get_models_providers_list_only_populates_active_provider_catalog(client
     body = client.get("/api/console/v1/models").json()
     by_name = {p["name"]: p["models"] for p in body["providers"]}
     assert by_name["codex"] == ["gpt-5.5", "gpt-5.5-codex"]
-    assert by_name["openrouter"] == []
-    assert by_name["bedrock"] == []
+    assert set(by_name) == {"codex"}  # codex-only: no other provider entries
 
 
 def test_get_models_catalogs_field_covers_every_provider(client, monkeypatch):
@@ -298,5 +267,4 @@ def test_get_models_catalogs_field_covers_every_provider(client, monkeypatch):
     _as(client, admin=True)
     body = client.get("/api/console/v1/models").json()
     assert body["catalogs"]["codex"]  # static FALLBACK_CODEX_MODELS, non-empty
-    assert body["catalogs"]["openrouter"] == ["openrouter-model"]
-    assert body["catalogs"]["bedrock"] == ["bedrock-model"]
+    assert set(body["catalogs"]) == {"codex"}  # codex-only
