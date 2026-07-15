@@ -77,11 +77,22 @@ def _subprocess_env(codex_home: str) -> dict:
     return env
 
 
-def is_logged_in(codex_home: Optional[str] = None) -> bool:
-    """True when the persistent CODEX_HOME has a login the CLI can use (auth.json present).
-    A plain file check — the reference reports connection status the same way."""
+def is_logged_in(codex_home: Optional[str] = None, binary: Optional[str] = None) -> bool:
+    """Whether the codex CLI has a usable login for this CODEX_HOME, per the CLI itself
+    (`codex login status`). We ASK the binary rather than looking for a specific file because
+    the auth-store layout differs across codex versions (older builds keep a flat auth.json;
+    newer ones keep it in a state DB) — the CLI's own status is the version-proof signal.
+    Note this only confirms a login is CONFIGURED locally; it can't detect a server-side
+    revocation (only actually running `codex exec` surfaces that)."""
     home = codex_home or config.codex_cli_home()
-    return os.path.exists(os.path.join(home, "auth.json"))
+    binary = binary or config.codex_cli_binary()
+    try:
+        proc = subprocess.run([binary, "login", "status"], capture_output=True, text=True,
+                              timeout=15, env=_subprocess_env(home))
+    except Exception:  # noqa: BLE001 — binary missing / timeout → treat as not logged in
+        return False
+    out = f"{proc.stdout}\n{proc.stderr}".lower()
+    return "not logged in" not in out and "logged in" in out
 
 
 def run_codex_exec(

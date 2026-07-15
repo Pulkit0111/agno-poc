@@ -166,9 +166,28 @@ def test_run_codex_exec_bypasses_sandbox_when_disabled(monkeypatch, tmp_path):
     assert "-s" not in args
 
 
-def test_is_logged_in(tmp_path):
-    home = tmp_path / "codexhome"
-    home.mkdir()
-    assert cc.is_logged_in(str(home)) is False
-    (home / "auth.json").write_text("{}", encoding="utf-8")
-    assert cc.is_logged_in(str(home)) is True
+def test_is_logged_in(monkeypatch, tmp_path):
+    """is_logged_in asks the CLI (`codex login status`) rather than checking a file, since
+    the auth-store layout is version-dependent."""
+    calls = {}
+    def fake_status(args, *, capture_output, text, timeout, env):
+        calls["args"] = args
+        calls["codex_home"] = env["CODEX_HOME"]
+        return subprocess.CompletedProcess(args, returncode=0,
+                                           stdout=calls["out"], stderr="")
+    monkeypatch.setattr(cc.subprocess, "run", fake_status)
+
+    calls["out"] = "Logged in using ChatGPT"
+    assert cc.is_logged_in(str(tmp_path)) is True
+    assert calls["args"][:3] == ["codex", "login", "status"]
+    assert calls["codex_home"] == str(tmp_path)
+
+    calls["out"] = "Not logged in"
+    assert cc.is_logged_in(str(tmp_path)) is False
+
+
+def test_is_logged_in_false_when_binary_errors(monkeypatch, tmp_path):
+    def boom(*a, **k):
+        raise FileNotFoundError("codex not found")
+    monkeypatch.setattr(cc.subprocess, "run", boom)
+    assert cc.is_logged_in(str(tmp_path)) is False
