@@ -75,6 +75,12 @@ def effective_manager_model() -> str:
 
 SKILL_INSTRUCTIONS = [
     "Your tools are served over MCP (the 'bott' server) — call them normally by name.",
+    "ALWAYS end your turn with a short reply to the user IN YOUR OWN WORDS — never finish "
+    "with an empty message. After you call a tool, don't go silent assuming the tool's "
+    "return was the answer: tell the user what you did and what happens next (e.g. after "
+    "queuing a PR review, say 'I've queued the review of owner/repo#N — I'll post it in "
+    "this thread when it's ready.'). A tool's raw return is NOT shown to the user; only "
+    "your reply is.",
     "You have a library of skills (listed for you) plus general tools (files, terminal, code) "
     "fenced to a workspace. BEFORE you pick a tool, scan your skill list: if a skill's name or "
     "description matches the request (e.g. 'client weekly status' → the client-weekly-status "
