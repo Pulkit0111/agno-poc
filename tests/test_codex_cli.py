@@ -305,3 +305,27 @@ def test_is_logged_in_false_when_binary_errors(monkeypatch, tmp_path):
         raise FileNotFoundError("codex not found")
     monkeypatch.setattr(cc.subprocess, "run", boom)
     assert cc.is_logged_in(str(tmp_path)) is False
+
+
+def test_run_codex_exec_auth_error_classified(tmp_path):
+    """A logged-out CLI falls back to unauthenticated api.openai.com calls — 401 stderr
+    must classify as CodexAuthError (non-retryable upstream), not a generic failure.
+    Observed live: without this, Agno retried a dead login 4× with reconnect spam."""
+    def runner(args, **kw):
+        return subprocess.CompletedProcess(
+            args, returncode=1, stdout="",
+            stderr="ERROR: unexpected status 401 Unauthorized: Missing bearer or basic "
+                   "authentication in header, url: https://api.openai.com/v1/responses")
+    with pytest.raises(cc.CodexAuthError):
+        cc.run_codex_exec("p", cwd=str(tmp_path), runner=runner)
+    assert issubclass(cc.CodexAuthError, cc.CodexCliError)
+
+
+def test_auth_classification_beats_quota(tmp_path):
+    """'401' appears in auth markers; if stderr somehow carries both, auth wins — a dead
+    login must never be retried as if it were a transient rate limit."""
+    def runner(args, **kw):
+        return subprocess.CompletedProcess(args, returncode=1, stdout="",
+                                           stderr="401 Unauthorized after rate limit check")
+    with pytest.raises(cc.CodexAuthError):
+        cc.run_codex_exec("p", cwd=str(tmp_path), runner=runner)

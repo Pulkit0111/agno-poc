@@ -41,6 +41,12 @@ _VALID_SANDBOXES = ("read-only", "workspace-write")
 # ("the org ChatGPT plan hit its usage limit") instead of a generic failure.
 _QUOTA_MARKERS = ("usage limit", "rate limit", "too many requests", "429")
 
+# Markers that mean "the org login is broken/absent". Checked BEFORE quota: a logged-out
+# CLI falls back to unauthenticated api.openai.com calls and its stderr says
+# "401 Unauthorized ... Missing bearer" — retrying that is pure noise (observed live:
+# Agno retried a dead login 4× with full reconnect spam before surfacing anything).
+_AUTH_MARKERS = ("401", "unauthorized", "not logged in", "missing bearer")
+
 SubprocessRunner = Callable[..., subprocess.CompletedProcess]
 
 
@@ -50,6 +56,10 @@ class CodexCliError(RuntimeError):
 
 class CodexQuotaError(CodexCliError):
     """The org ChatGPT subscription's usage cap / rate limit was hit (shared pool)."""
+
+
+class CodexAuthError(CodexCliError):
+    """The org login is broken or absent — nothing to retry until an admin reconnects."""
 
 
 @dataclass
@@ -214,6 +224,8 @@ def run_codex_exec(
             message = (f"codex exec failed (exit {proc.returncode}): "
                        f"{redact(stderr[-2000:])}")
             lowered = stderr.lower()
+            if any(marker in lowered for marker in _AUTH_MARKERS):
+                raise CodexAuthError(message)
             if any(marker in lowered for marker in _QUOTA_MARKERS):
                 raise CodexQuotaError(message)
             raise CodexCliError(message)

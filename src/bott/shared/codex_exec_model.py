@@ -22,7 +22,7 @@ from agno.models.base import Model
 from agno.models.response import ModelResponse
 
 from bott.shared import config
-from bott.shared.codex_cli import CodexCliError, CodexQuotaError, run_codex_exec
+from bott.shared.codex_cli import CodexAuthError, CodexCliError, CodexQuotaError, run_codex_exec
 from bott.shared.observability.logging_setup import get_logger
 
 log = get_logger("bott.codex_exec_model")
@@ -123,19 +123,23 @@ class CodexExecChat(Model):
                 message="The org ChatGPT subscription hit its usage limit — try again "
                         f"later. ({e})",
                 status_code=429, model_name=self.name, model_id=self.id) from e
+        except CodexAuthError as e:
+            # Non-retryable (Agno treats 401 as terminal): a dead login won't heal between
+            # attempts — alert the admins once (throttled) and fail this request honestly.
+            try:
+                from bott.shared.alerts import alert_admins_throttled
+                alert_admins_throttled(
+                    "codex-disconnected",
+                    "Bott's shared Codex (ChatGPT) login is broken or missing — every "
+                    "model call will fail until an admin reconnects it (console → Models "
+                    f"→ Connect ChatGPT, or `codex login`). First error: {str(e)[:300]}")
+            except Exception:  # noqa: BLE001 — alerting must not mask the real error
+                pass
+            raise ModelProviderError(
+                message="The org ChatGPT (codex) login is broken or missing — an admin "
+                        "needs to reconnect it from the console (Models → Connect ChatGPT).",
+                status_code=401, model_name=self.name, model_id=self.id) from e
         except CodexCliError as e:
-            lowered = str(e).lower()
-            if "not logged in" in lowered or "login" in lowered:
-                try:
-                    from bott.shared.alerts import alert_admins_throttled
-                    alert_admins_throttled(
-                        "codex-disconnected",
-                        f"Bott's shared Codex (ChatGPT) login is broken: {e}. Every model "
-                        "call will fail until an admin reconnects it from the console.")
-                except Exception:  # noqa: BLE001 — alerting must not mask the real error
-                    pass
-                raise ModelProviderError(message=str(e), status_code=401,
-                                         model_name=self.name, model_id=self.id) from e
             raise ModelProviderError(message=str(e), status_code=502,
                                      model_name=self.name, model_id=self.id) from e
         finally:

@@ -124,14 +124,14 @@ def test_codex_broken_login_alerts_admins_on_call(monkeypatch):
 
     from bott.shared import alerts
     from bott.shared import codex_exec_model as cem
-    from bott.shared.codex_cli import CodexCliError
+    from bott.shared.codex_cli import CodexAuthError
 
     alerted = []
     monkeypatch.setattr(alerts, "alert_admins", lambda text: alerted.append(text))
     alerts._last_sent.clear()
 
     def fake(prompt, **kw):
-        raise CodexCliError("codex exec failed (exit 1): Not logged in")
+        raise CodexAuthError("codex exec failed (exit 1): 401 Unauthorized: Missing bearer")
 
     monkeypatch.setattr(cem, "run_codex_exec", fake)
     with pytest.raises(ModelProviderError) as ei:
@@ -139,7 +139,7 @@ def test_codex_broken_login_alerts_admins_on_call(monkeypatch):
             messages=[Message(role="user", content="hi")],
             assistant_message=Message(role="assistant"))
     assert ei.value.status_code == 401
-    assert alerted and "login is broken" in alerted[0]
+    assert alerted and "login is broken or missing" in alerted[0]
 
 
 def test_stale_provider_setting_is_ignored(monkeypatch):
