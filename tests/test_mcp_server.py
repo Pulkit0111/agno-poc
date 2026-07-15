@@ -9,6 +9,8 @@ import pytest
 from agno.tools.function import Function
 from agno.tools.toolkit import Toolkit
 
+from agno.run import RunContext
+
 from bott.interfaces.mcp import server as mcp_server
 from bott.interfaces.mcp.tickets import Identity, make_ticket
 from bott.shared.secrets import generate_key
@@ -27,6 +29,13 @@ def _greet(name: str) -> str:
 def _whoami(run_context=None) -> str:
     """Report the calling user."""
     return f"user={getattr(run_context, 'user_id', None)}"
+
+
+def _whoami_typed(run_context: RunContext, note: str = "") -> str:
+    """Report the calling user — run_context TYPED as RunContext, exactly like the real
+    action_items/scheduling/channel_map/skill_authoring tools. Agno wraps this in a
+    pydantic validate_call, so the dispatcher must inject a real RunContext, not a stand-in."""
+    return f"typed-user={run_context.user_id}"
 
 
 async def _async_echo(text: str) -> str:
@@ -94,6 +103,16 @@ def test_dispatch_injects_verified_identity_not_model_supplied():
                          lambda: mcp_server.dispatch(
                              fns, "_whoami", {"run_context": {"user_id": "forged@x"}}))
     assert out == "user=real@x"
+
+
+def test_dispatch_injects_real_run_context_for_typed_tools():
+    """Regression: tools annotate `run_context: RunContext`, which Agno pydantic-validates
+    — a SimpleNamespace stand-in was rejected, silently breaking action items, scheduling,
+    channel-map, skill-authoring, and session-search in live chat."""
+    fns = mcp_server.flatten_functions([Function.from_callable(_whoami_typed)])
+    out = _with_identity(Identity("real@x", "sess-1"),
+                         lambda: mcp_server.dispatch(fns, "_whoami_typed", {"note": "hi"}))
+    assert out == "typed-user=real@x"
 
 
 def test_dispatch_without_identity_refuses():

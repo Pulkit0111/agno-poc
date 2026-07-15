@@ -17,7 +17,6 @@ from __future__ import annotations
 import contextvars
 import inspect
 import threading
-from types import SimpleNamespace
 from typing import Iterable, Optional
 
 import anyio
@@ -103,8 +102,17 @@ async def dispatch(functions: dict[str, Function], name: str, arguments: dict) -
     entrypoint = fn.entrypoint
     sig_params = inspect.signature(entrypoint).parameters
     if "run_context" in sig_params:
-        kwargs["run_context"] = SimpleNamespace(
-            user_id=ident.user_id, session_id=ident.session_id
+        # Must be a REAL RunContext: Agno wraps typed entrypoints in a pydantic
+        # validate_call, and many tools annotate `run_context: RunContext`
+        # (action_items, scheduling, channel_map, skill_authoring, session_search) — a
+        # SimpleNamespace fails that validation ("Input should be ... an instance of
+        # RunContext"), silently breaking every one of those tools. run_id is required
+        # by the dataclass; session_id doubles as a synthetic run id.
+        from agno.run import RunContext
+        kwargs["run_context"] = RunContext(
+            run_id=ident.session_id or "mcp",
+            session_id=ident.session_id or "",
+            user_id=ident.user_id,
         )
 
     with workspace_scope(ident.user_id):
