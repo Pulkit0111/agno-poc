@@ -231,11 +231,11 @@ def test_capability_page_tools_returns_callable():
 # ---------------------------------------------------------------------------
 
 def test_build_agent_includes_capability_page():
-    from bott.agents.bott_agent import build_agent
+    # Chat tools are served over MCP now — the surface lives in build_chat_toolkits.
+    from bott.agents.bott_agent import build_chat_toolkits
 
-    agent = build_agent("test@axelerant.com", db=None)
     tool_names = []
-    for t in agent.tools or []:
+    for t in build_chat_toolkits(db=None):
         name = getattr(t, "__name__", None) or getattr(t, "name", None) or str(t)
         tool_names.append(name)
     assert "capability_page" in tool_names

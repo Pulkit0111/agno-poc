@@ -4,16 +4,17 @@ from __future__ import annotations
 
 
 def test_github_tools_present_with_token(monkeypatch):
-    """Agent exposes a GithubTools instance (and thus PR/commit read tools) when a token is set."""
+    """The chat tool surface (served over MCP) exposes GithubTools read tools when a token
+    is set. The Agno agent itself carries no tools — codex exec calls these via MCP."""
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test_token")
     import importlib
 
     from bott.agents import bott_agent
     importlib.reload(bott_agent)
-    a = bott_agent.build_bott_agent()
+    tools = bott_agent.build_chat_toolkits()
     from agno.tools.github import GithubTools
-    github_toolkits = [t for t in (a.tools or []) if isinstance(t, GithubTools)]
-    assert github_toolkits, "Expected a GithubTools instance in agent.tools when GITHUB_TOKEN is set"
+    github_toolkits = [t for t in tools if isinstance(t, GithubTools)]
+    assert github_toolkits, "Expected a GithubTools instance in the chat toolkits when GITHUB_TOKEN is set"
 
     # Allowlist enforcement: a known write tool must be absent; a known read tool must be present.
     gh = github_toolkits[0]

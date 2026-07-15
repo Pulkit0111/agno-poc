@@ -14,10 +14,10 @@ def dbenv(monkeypatch, tmp_path):
 
 
 def test_build_agent_includes_skill_authoring(dbenv, monkeypatch):
+    # Chat tools are served over MCP now — the surface lives in build_chat_toolkits.
     monkeypatch.setattr("bott.shared.config.bott_skills_dir", lambda: str(dbenv / "lib"))
     import bott.agents.bott_agent as ba
-    agent = ba.build_agent("alice@axelerant.com", db=None)
-    names = {getattr(t, "name", getattr(t, "__name__", "")) for t in agent.tools}
+    names = {getattr(t, "name", getattr(t, "__name__", "")) for t in ba.build_chat_toolkits(db=None)}
     assert {"author_skill", "list_skills", "retire_skill"} <= names
 
 

@@ -261,12 +261,12 @@ def test_repo_access_tools_returns_both_callables():
 
 
 def test_build_agent_includes_repo_tools():
-    from bott.agents.bott_agent import build_agent
+    # Chat tools are served over MCP now — the surface lives in build_chat_toolkits.
+    from bott.agents.bott_agent import build_chat_toolkits
 
-    agent = build_agent("alice@axelerant.com", db=None)
     # Collect tool names (handle both plain functions and Tool objects)
     tool_names = set()
-    for t in agent.tools:
+    for t in build_chat_toolkits(db=None):
         tool_names.add(getattr(t, "__name__", None) or getattr(t, "name", None) or "")
-    assert "list_repos" in tool_names, f"list_repos not in agent tools: {tool_names}"
-    assert "inspect_repo" in tool_names, f"inspect_repo not in agent tools: {tool_names}"
+    assert "list_repos" in tool_names, f"list_repos not in chat tools: {tool_names}"
+    assert "inspect_repo" in tool_names, f"inspect_repo not in chat tools: {tool_names}"

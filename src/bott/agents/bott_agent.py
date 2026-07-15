@@ -38,7 +38,7 @@ from bott.skills.skill_authoring import skill_authoring_tools
 from bott.skills.sprint_report import sprint_report_tools
 from bott.skills.system_status import system_status_tools
 from bott.skills.web_publish import web_publish_tools
-from bott.skills.workspace_tools import build_workspace_tools, scope_workspace_to_user
+from bott.skills.workspace_tools import build_workspace_tools
 
 # Explicit allowlist of read-only GithubTools functions exposed to the bot.
 # Using include_tools (allowlist) instead of exclude_tools (denylist) so that any
@@ -74,6 +74,7 @@ def effective_manager_model() -> str:
     return bott_model()
 
 SKILL_INSTRUCTIONS = [
+    "Your tools are served over MCP (the 'bott' server) — call them normally by name.",
     "You have a library of skills (listed for you) plus general tools (files, terminal, code) "
     "fenced to a workspace. BEFORE you pick a tool, scan your skill list: if a skill's name or "
     "description matches the request (e.g. 'client weekly status' → the client-weekly-status "
@@ -211,7 +212,6 @@ def build_agent(user_id: str, db=None) -> Agent:
     user_id = require_user_id(user_id)
     model = build_model("chat")
     skills = build_skills()
-    tools = build_chat_toolkits(db=db, skills=skills)
 
     return Agent(
         id="bott",
@@ -220,11 +220,12 @@ def build_agent(user_id: str, db=None) -> Agent:
         db=db,
         description=get_identity(),
         instructions=[get_voice(), *SKILL_INSTRUCTIONS],
-        tools=tools,
-        # Points the workspace file/shell tools at the calling user's own subdirectory for
-        # the duration of each tool call (see workspace_tools.py) — a no-op for every other
-        # tool, since it only sets a var those toolkits read.
-        tool_hooks=[scope_workspace_to_user],
+        # NO in-process Agno tools: the model is CodexExecChat (codex exec), whose own loop
+        # calls the SAME toolkits over bott's MCP server (interfaces/mcp/) — see
+        # build_chat_toolkits above. Per-user workspace scoping moved with them: the MCP
+        # dispatcher applies workspace_scope(user_id) from the verified bearer ticket, so
+        # the scope_workspace_to_user tool hook has nothing to wrap here anymore.
+        tools=[],
         skills=skills,
         num_history_runs=20,
         add_history_to_context=True,

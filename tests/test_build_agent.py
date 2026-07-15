@@ -9,10 +9,28 @@ def test_build_agent_requires_user_id():
         build_agent("", db=None)
 
 
-def test_build_agent_returns_agent_with_tools():
+def test_build_agent_carries_no_agno_tools():
+    """Chat's model is codex exec (text-only to Agno): tools reach the model through
+    bott's MCP server, never Agno tool-calling. In-process tools on the agent would be
+    dead weight that never runs — their absence is the invariant."""
     agent = build_agent("alice@axelerant.com", db=None)
     assert agent.name == "Bott"
-    assert agent.tools  # toolset attached
+    assert not agent.tools
+
+
+def test_mcp_surface_covers_the_chat_toolkits():
+    """Parity gate: every tool the Agno agent used to carry is served over MCP, plus the
+    Skills access tools Agno used to inject itself."""
+    from bott.agents.bott_agent import build_chat_toolkits
+    from bott.interfaces.mcp.server import flatten_functions
+
+    fns = flatten_functions(build_chat_toolkits(db=None, include_skill_tools=True))
+    names = set(fns)
+    assert len(names) > 30  # the full surface, not a stub
+    assert "get_skill_instructions" in names
+    # A few load-bearing capabilities, one per family:
+    for expected in ("start_review", "publish_web_page"):
+        assert expected in names, f"{expected} missing from MCP surface"
 
 
 def test_memory_is_deterministic_not_discretionary():
