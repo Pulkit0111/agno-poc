@@ -14,7 +14,7 @@ def _force(monkeypatch, **flags):
     monkeypatch.setattr(cp.config, "memra_configured", lambda: flags.get("memra", False))
     monkeypatch.setattr(cp.config, "spin_configured", lambda: flags.get("spin", False))
     monkeypatch.setattr(cp.config, "google_delegation_configured", lambda: flags.get("google", False))
-    monkeypatch.setattr(cp.codex_tokens, "is_connected", lambda: flags.get("codex", False))
+    monkeypatch.setattr(cp.codex_cli, "is_logged_in", lambda *a, **k: flags.get("codex", False))
     if flags.get("slack"):
         monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-x")
         monkeypatch.setenv("SLACK_SIGNING_SECRET", "s")

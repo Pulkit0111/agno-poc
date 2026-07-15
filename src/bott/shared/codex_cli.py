@@ -1,12 +1,10 @@
 """Subprocess bridge to the official `codex` CLI binary (`codex exec`).
 
-Used for the `build`/`review` roles, which need Codex's OWN agentic loop (shell + file
-tools running inside its own sandbox against a repo checkout) — something the direct
-Responses-API adapter (codex_model.py) cannot offer, since that path exists specifically
-so Agno's tool-calling protocol stays in control for the `chat` role. Spawning the real,
-officially-distributed binary also means every request has the same shape/telemetry as a
-human running the CLI interactively — materially lower ban-risk on the shared org
-subscription than hand-built calls to the undocumented Responses backend.
+The ONLY LLM path in bott: chat, build, review, triage, and memory extraction all
+shell out here. Spawning the real, officially-distributed binary means every request has
+the same shape/telemetry as a human running the CLI interactively — materially lower
+ban-risk on the shared org subscription than hand-built calls to the undocumented
+Responses backend (the deleted codex_model.py shim).
 
 TOKEN OWNERSHIP: bott does NOT manage the Codex token here. Every `codex exec` call runs
 against ONE persistent `CODEX_HOME` (config.codex_cli_home() — a mounted volume in prod,

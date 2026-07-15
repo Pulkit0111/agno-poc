@@ -5,7 +5,7 @@ SAME client constructors the read tools already build (no new auth paths, no new
 entry point. An unknown ``name`` raises ``KeyError`` (the console router turns that into a
 404); every KNOWN probe is wrapped so a network/auth failure never raises past this
 module — it comes back as ``{"ok": False, "message": <plain-language text incl. the
-exception>}`` instead. Codex needs no network at all (``codex_tokens.is_connected()``).
+exception>}`` instead. Codex needs no network at all (``codex_cli.is_logged_in()``).
 
 Gmail/Drive/Calendar are domain-delegated: the caller must pass the acting admin's email
 as ``subject_email`` (the console router supplies the signed-in admin's own address) since
@@ -20,7 +20,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
-from bott.shared import codex_tokens, config
+from bott.shared import codex_cli, config
 from bott.shared.observability.logging_setup import get_logger, redact
 
 log = get_logger("bott.connectors.probes")
@@ -126,7 +126,7 @@ def _sentry() -> dict:
 
 
 def _codex() -> dict:
-    if codex_tokens.is_connected():
+    if codex_cli.is_logged_in():
         return {"ok": True, "message": "Codex is connected — using the org's ChatGPT subscription."}
     return {"ok": False, "message": "Codex isn't connected. An admin can connect it from the Models page."}
 

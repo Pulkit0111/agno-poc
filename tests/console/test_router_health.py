@@ -33,12 +33,12 @@ def _as(client, email, is_admin=False):
 def _patch_health(monkeypatch, *, last_received="1234.5"):
     import bott.interfaces.slack_home.connectors_panel as connectors_panel
     import bott.interfaces.slack_home.models as models_mod
-    import bott.shared.codex_tokens as codex_tokens
+    import bott.shared.codex_cli as codex_cli
     import bott.shared.persistence.records as records
     monkeypatch.setattr(router_mod.queue, "job_counts",
                         lambda: {"pending": 2, "running": 1, "done": 4, "failed": 3})
     monkeypatch.setattr(router_mod.queue, "count_failed_since", lambda ts: 1)
-    monkeypatch.setattr(codex_tokens, "is_connected", lambda: True)
+    monkeypatch.setattr(codex_cli, "is_logged_in", lambda *a, **k: True)
     monkeypatch.setattr(models_mod, "_active", lambda: {
         "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5", "review": "gpt-5.4"})
     monkeypatch.setattr(connectors_panel, "connector_statuses",

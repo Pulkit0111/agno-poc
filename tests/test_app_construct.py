@@ -149,10 +149,10 @@ def test_readyz_warns_but_stays_ready_when_codex_disconnected(monkeypatch):
     from fastapi.testclient import TestClient
 
     from bott.interfaces import app
-    from bott.shared import codex_tokens
+    from bott.shared import codex_cli
 
     monkeypatch.setattr(app, "_model_provider", lambda: "codex")
-    monkeypatch.setattr(codex_tokens, "is_connected", lambda: False)
+    monkeypatch.setattr(codex_cli, "is_logged_in", lambda *a, **k: False)
     client = TestClient(app.app)
     r = client.get("/readyz")
     assert r.status_code == 200

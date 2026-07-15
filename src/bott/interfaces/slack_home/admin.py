@@ -26,7 +26,7 @@ def admin_section(is_admin: bool) -> list[dict]:
     # Lazy imports — avoid paying the DB round-trip cost for non-admins.
     from bott.interfaces.slack_home.models import _active
     from bott.shared import approvals as _approvals
-    from bott.shared import codex_tokens
+    from bott.shared import codex_cli
     from bott.shared.persistence import queue as _queue
 
     blocks: list[dict] = [
@@ -81,7 +81,7 @@ def admin_section(is_admin: bool) -> list[dict]:
 
     # --- Model / Codex status ---
     a = _active()
-    codex = "connected" if codex_tokens.is_connected() else "not connected"
+    codex = "connected" if codex_cli.is_logged_in() else "not connected"
     blocks.append({
         "type": "section",
         "text": {

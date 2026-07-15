@@ -65,14 +65,20 @@ def test_override_admin_only(store):
     assert get_setting("model.provider") == "openrouter" and "openrouter" in out.lower()
 
 
-def test_connect_codex_admin_only(store):
+def test_connect_codex_admin_only(store, monkeypatch, tmp_path):
+    """Pasted auth.json lands in the shared CODEX_HOME (the CLI's own store — the only
+    token store), and only for admins."""
     import json
+    import os
+    home = str(tmp_path / "codexhome")
+    monkeypatch.setenv("CODEX_HOME", home)
     bundle = json.dumps({"tokens": {"access_token": "a.b.c", "refresh_token": "r", "account_id": "acc"}})
     assert "not allowed" in m.connect_codex("nobody@x.com", bundle).lower()
-    from bott.shared import codex_tokens as ct
-    assert not ct.is_connected()  # non-admin must NOT have stored a token
+    assert not os.path.exists(os.path.join(home, "auth.json"))  # non-admin wrote nothing
     out = m.connect_codex("admin@axelerant.com", bundle)
-    assert ct.is_connected() and ("connected" in out.lower())
+    assert "connected" in out.lower()
+    written = json.loads(open(os.path.join(home, "auth.json")).read())
+    assert written["tokens"]["access_token"] == "a.b.c"
 
 
 def test_models_section_admin_has_set_models_button(store):

@@ -45,9 +45,6 @@ def test_codex_model_carries_retry_policy(monkeypatch):
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
     monkeypatch.setenv("BOTT_CHAT_MODEL", "gpt-5.5")
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(model_mod, "get_valid_token",
-                        lambda: ct.CodexToken("tok-abc", "acc-1"))
     m = model_mod.build_model("chat")
     assert m.retries >= 3
     assert m.exponential_backoff is True
@@ -96,9 +93,6 @@ def test_anti_affinity_never_picks_codex_suffixed_alternate(monkeypatch):
     for var in ("BOTT_BUILD_MODEL", "BOTT_REVIEW_MODEL", "BOTT_CHAT_MODEL",
                 "BOTT_HEAVY_MODEL", "BOTT_MODEL"):
         monkeypatch.delenv(var, raising=False)   # everything defaults to gpt-5.5
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(model_mod, "get_valid_token",
-                        lambda: ct.CodexToken("tok", "acc"))
     review = model_mod.build_model("review")
     assert review.id != "gpt-5.5"                 # swapped away from build
     assert not review.id.endswith("-codex")       # never onto a backend-rejected id
@@ -112,9 +106,6 @@ def test_review_anti_affinity_swaps_model(monkeypatch):
     for var in ("BOTT_BUILD_MODEL", "BOTT_REVIEW_MODEL", "BOTT_CHAT_MODEL"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("BOTT_HEAVY_MODEL", "gpt-5.5-codex")  # build == review == same id
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(model_mod, "get_valid_token",
-                        lambda: ct.CodexToken("tok", "acc"))
     build = model_mod.build_model("build")
     review = model_mod.build_model("review")
     assert build.id == "gpt-5.5-codex"
@@ -128,9 +119,6 @@ def test_review_no_swap_when_models_differ(monkeypatch):
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
     monkeypatch.setenv("BOTT_BUILD_MODEL", "gpt-5.5-codex")
     monkeypatch.setenv("BOTT_REVIEW_MODEL", "gpt-5.5")
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(model_mod, "get_valid_token",
-                        lambda: ct.CodexToken("tok", "acc"))
     assert model_mod.build_model("review").id == "gpt-5.5"
 
 
@@ -140,11 +128,8 @@ def test_codex_construction_never_touches_auth(monkeypatch):
     auth lives in CODEX_HOME and only the codex CLI reads it, per actual call."""
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
-
-    def boom():
-        raise AssertionError("build_model must not resolve tokens")
-
-    monkeypatch.setattr(model_mod, "get_valid_token", boom)
+    # There is no token layer left to even stub: model.py must not import or expose one.
+    assert not hasattr(model_mod, "get_valid_token")
     m = model_mod.build_model("chat")  # must not raise, must not resolve a token
     assert type(m).__name__ == "CodexExecChat"
 

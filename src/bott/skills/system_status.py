@@ -11,7 +11,7 @@ import os
 from typing import Callable
 
 from bott.interfaces.slack_home.models import _active
-from bott.shared import codex_tokens, config
+from bott.shared import codex_cli, config
 
 
 def system_status() -> str:
@@ -38,7 +38,7 @@ def system_status() -> str:
     except Exception:  # noqa: BLE001
         lines.append("⚠️  Could not read active model settings.")
     try:
-        codex_ok = codex_tokens.is_connected()
+        codex_ok = codex_cli.is_logged_in()
     except Exception:  # noqa: BLE001
         codex_ok = False
     if codex_ok:

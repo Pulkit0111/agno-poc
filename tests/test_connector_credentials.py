@@ -1,7 +1,7 @@
 # tests/test_connector_credentials.py
 """Round-trip + isolation tests for the console-added connector credential store.
 
-Mirrors tests/test_codex_tokens.py's fixture pattern: a fresh SQLite file + BOTT_SECRET_KEY
+Fixture pattern: a fresh SQLite file + BOTT_SECRET_KEY
 per test, schema initialized once via schema.init_schema()."""
 
 from __future__ import annotations
@@ -80,16 +80,12 @@ def test_store_rejects_empty_name(store):
         cc.store("", {"base_url": "https://a.example.com"})
 
 
-def test_isolated_from_codex_org_sentinel(store):
-    """The codex bundle lives under a DIFFERENT user_id sentinel ('codex-org') — this
-    store must never see it, list it, or be able to remove it."""
-    from bott.shared import codex_tokens as ct
-
-    ct.store_bundle({"access_token": "a.b.c", "refresh_token": "rt", "account_id": "acc"})
+def test_codex_is_not_a_store_backed_name(store):
+    """Codex auth lives in CODEX_HOME (the CLI's own store), never in connector_tokens —
+    'codex' must not resolve, list, or delete anything here."""
     assert cc.load("codex") is None
     assert "codex" not in cc.configured_names()
-    cc.remove("codex")  # no-op — must not touch codex_tokens' row
-    assert ct.is_connected() is True
+    cc.remove("codex")  # no-op
 
 
 def test_load_tolerates_missing_table(monkeypatch, tmp_path):

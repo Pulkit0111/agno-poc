@@ -1,7 +1,7 @@
 # src/bott/interfaces/slack_home/connectors_panel.py
 """App Home 'Connectors' section — a live ✓/✗ of everything Bott can reach.
 
-Status is read straight from the same ``config.*_configured()`` / ``codex_tokens`` checks
+Status is read straight from the same ``config.*_configured()`` / ``codex_cli`` checks
 the system-status tool uses, so it can't drift. The Home tab re-publishes on every
 ``app_home_opened``, so a connector flips from ❌ to ✅ the next time the user opens Home —
 no restart needed.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 
-from bott.shared import codex_tokens, config
+from bott.shared import codex_cli, config
 
 
 def _slack_ok() -> bool:
@@ -87,7 +87,7 @@ def connector_statuses() -> list[dict]:
              "Set GOOGLE_SERVICE_ACCOUNT_PATH to the downloaded key file's path on the Bott host, "
              "then restart.",
          ]},
-        {"name": "Codex", "ok": _safe(codex_tokens.is_connected),
+        {"name": "Codex", "ok": _safe(codex_cli.is_logged_in),
          "on": "org ChatGPT subscription", "off": "an admin connects it below",
          "fix": [
              "Open the Models page in this console.",

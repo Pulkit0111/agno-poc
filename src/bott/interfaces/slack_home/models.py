@@ -14,7 +14,7 @@ import os
 
 import httpx
 
-from bott.shared import codex_tokens, config
+from bott.shared import codex_cli, config
 from bott.shared.config import model_provider
 from bott.shared.persistence.records import get_setting, set_setting
 
@@ -62,7 +62,7 @@ def provider_key_status(provider: str) -> tuple[bool, str]:
     """(usable_now, human hint). 'Usable' means the provider has the credentials it needs to
     actually run and to list its models."""
     if provider == "codex":
-        ok = codex_tokens.is_connected()
+        ok = codex_cli.is_logged_in()
         return ok, ("Org Codex connected" if ok else "Org Codex not connected — connect it below")
     if provider == "openrouter":
         ok = bool(config.openrouter_api_key())
@@ -209,12 +209,23 @@ def apply_model_override(actor_email: str, key: str, value: str) -> str:
 
 
 def connect_codex(actor_email: str, auth_json: str) -> str:
+    """Paste-an-auth.json fallback (for hosts where device-auth is awkward): the pasted
+    file is written to the shared CODEX_HOME — the CLI's own store, the ONLY token store —
+    and the CLI refreshes/rotates it in place from there."""
     if not _is_admin(actor_email):
         return "Sorry, that's not allowed — only an admin can connect the org Codex account."
     try:
         data = json.loads(auth_json)
-        bundle = data.get("tokens", data)  # accept the raw auth.json or its tokens dict
-        codex_tokens.store_bundle(bundle)
-    except (json.JSONDecodeError, ValueError) as e:
+        tokens = data.get("tokens", data)  # accept the raw auth.json or its tokens dict
+        if not isinstance(tokens, dict) or not tokens.get("access_token"):
+            raise ValueError("no access_token in that auth.json")
+        home = config.codex_cli_home()
+        os.makedirs(home, exist_ok=True)
+        path = os.path.join(home, "auth.json")
+        payload = data if "tokens" in data else {"tokens": tokens}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        os.chmod(path, 0o600)
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         return f"Couldn't read that auth.json: {e}"
     return "Org Codex connected ✓"

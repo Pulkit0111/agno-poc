@@ -227,13 +227,13 @@ def test_sentry_exception_becomes_ok_false(monkeypatch):
 # ── Codex (no network) ───────────────────────────────────────────────────────────────
 
 def test_codex_connected(monkeypatch):
-    monkeypatch.setattr(probes.codex_tokens, "is_connected", lambda: True)
+    monkeypatch.setattr(probes.codex_cli, "is_logged_in", lambda *a, **k: True)
     out = probes.probe("codex")
     assert out == {"ok": True, "message": "Codex is connected — using the org's ChatGPT subscription."}
 
 
 def test_codex_not_connected(monkeypatch):
-    monkeypatch.setattr(probes.codex_tokens, "is_connected", lambda: False)
+    monkeypatch.setattr(probes.codex_cli, "is_logged_in", lambda *a, **k: False)
     out = probes.probe("codex")
     assert out == {"ok": False, "message": "Codex isn't connected. An admin can connect it from the Models page."}
 

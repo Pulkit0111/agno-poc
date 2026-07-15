@@ -1052,7 +1052,7 @@ def build_console_router(db) -> APIRouter:
         user = current_user(request)
         require_admin(user)
         from bott.interfaces.slack_home import models as models_mod
-        from bott.shared import codex_tokens
+        from bott.shared import codex_cli
         connectors = {
             "jira": config.jira_configured(),
             "confluence": config.confluence_configured(),
@@ -1065,7 +1065,7 @@ def build_console_router(db) -> APIRouter:
             {"name": name, "message": f"{name.capitalize()} isn't configured."}
             for name, ok in connectors.items() if not ok
         ]
-        if not codex_tokens.is_connected():
+        if not codex_cli.is_logged_in():
             advisories.append({"name": "codex", "message": "Codex isn't connected."})
         slack_configured = bool(
             (os.getenv("SLACK_BOT_TOKEN") or os.getenv("SLACK_TOKEN")) and os.getenv("SLACK_SIGNING_SECRET")
@@ -1086,14 +1086,14 @@ def build_console_router(db) -> APIRouter:
         require_admin(current_user(request))
         from bott.interfaces.slack_home import models as models_mod
         from bott.interfaces.slack_home.connectors_panel import connector_statuses
-        from bott.shared import codex_tokens
+        from bott.shared import codex_cli
         from bott.shared.persistence import records
         jobs = _jobs_summary()
         raw = records.get_setting("webhook.github.last_received_at")
         last_received_at = float(raw) if raw else None
         return {
             "model": {
-                "connected": codex_tokens.is_connected(),
+                "connected": codex_cli.is_logged_in(),
                 "provider": models_mod._active()["provider"],
             },
             "jobs": {"running": jobs["running"], "queued": jobs["queued"],

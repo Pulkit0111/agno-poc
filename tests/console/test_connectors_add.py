@@ -289,17 +289,13 @@ def test_delete_unknown_name_404s(client):
 
 
 def test_delete_cannot_remove_codex(client):
-    """codex-org lives under a DIFFERENT sentinel user_id — this endpoint must never be
-    able to touch it, and 'codex-org'/'codex' were never a store-backed name to begin
-    with, so this 404s exactly like any other unknown name."""
-    from bott.shared import codex_tokens as ct
-
-    ct.store_bundle({"access_token": "a.b.c", "refresh_token": "rt", "account_id": "acc"})
+    """Codex auth lives in CODEX_HOME (the CLI's own store), not connector_tokens —
+    'codex-org'/'codex' were never store-backed names, so this 404s exactly like any
+    other unknown name."""
     _as(client)
     for name in ("codex-org", "codex"):
         r = client.delete(f"/api/console/v1/connectors/{name}")
         assert r.status_code == 404
-    assert ct.is_connected() is True  # untouched
 
 
 def test_delete_member_403s_even_for_a_real_stored_connector(client, monkeypatch):

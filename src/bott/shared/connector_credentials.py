@@ -1,10 +1,10 @@
 # src/bott/shared/connector_credentials.py
 """Console-added connector credentials — one encrypted JSON bundle per connector NAME,
-stored in the SAME ``connector_tokens`` table ``codex_tokens.py`` uses, but under a
+stored in the ``connector_tokens`` table, under a
 DIFFERENT sentinel ``user_id`` (``'connector-config'`` vs codex's ``'codex-org'``) so the
 two can never collide, be listed together, or be deleted by each other's code path.
 
-Mirrors ``codex_tokens.py``'s encrypt/store/load pattern (same ``SecretBox`` Fernet
+Uses an encrypt/store/load pattern (``SecretBox`` Fernet
 helper, same upsert-via-delete-then-insert on the ``(user_id, provider)`` primary key).
 
 ``store(name, payload)`` / ``load(name)`` / ``remove(name)`` / ``configured_names()`` are

@@ -1,4 +1,7 @@
-"""Device-auth bridge to the `codex` CLI for the console's admin "Connect ChatGPT" flow."""
+"""Device-auth bridge to the `codex` CLI for the console's admin "Connect ChatGPT" flow.
+
+Codex-only auth: the CLI writes its login into the shared CODEX_HOME itself — there is
+no Postgres import step anymore. is_logged_in/logout are stubbed so no real CLI runs."""
 
 from __future__ import annotations
 
@@ -6,18 +9,17 @@ import time
 
 import pytest
 
-from bott.shared import codex_login, codex_tokens, db
+from bott.shared import codex_cli, codex_login
 
 
 @pytest.fixture
 def store(monkeypatch, tmp_path):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setenv("AGENTOS_DB_PATH", str(tmp_path / "cl.db"))
-    from bott.shared.secrets import generate_key
-    monkeypatch.setenv("BOTT_SECRET_KEY", generate_key())
-    db.get_engine(fresh=True)
-    from bott.shared.schema import init_schema
-    init_schema()
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codexhome"))
+    # No real `codex` subprocesses in tests: default to "not logged in" and a no-op logout.
+    monkeypatch.setattr(codex_login.codex_cli, "is_logged_in", lambda *a, **k: False)
+    monkeypatch.setattr(codex_login.subprocess, "run",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError(
+                            "unexpected real subprocess.run in login tests")))
     codex_login._login_proc = None
     codex_login._reader_thread = None
     yield
@@ -75,7 +77,7 @@ def test_parse_strips_ansi_escapes():
 # ---- start_codex_login --------------------------------------------------------------------
 
 def test_already_connected_returns_error(store, monkeypatch):
-    monkeypatch.setattr(codex_tokens, "is_connected", lambda: True)
+    monkeypatch.setattr(codex_login.codex_cli, "is_logged_in", lambda *a, **k: True)
     assert codex_login.start_codex_login() == {"error": "already connected"}
 
 
@@ -133,37 +135,23 @@ def test_no_code_printed_before_exit_is_an_error(store):
     assert "error" in result
 
 
-def test_successful_login_imports_token_into_postgres(store, tmp_path, monkeypatch):
-    """The whole point of this bridge: once the CLI exits 0, its local auth.json must land
-    in the same Postgres bundle codex_tokens.py serves MODEL_PROVIDER=codex from."""
-    auth_path = tmp_path / "auth.json"
-    auth_path.write_text(
-        '{"tokens": {"access_token": "tok-abc", "refresh_token": "ref-abc", '
-        '"account_id": "acc-1"}}'
-    )
-    monkeypatch.setattr(codex_tokens, "bootstrap_from_local", lambda path="~/.codex/auth.json": (
-        codex_tokens.store_bundle(
-            __import__("json").loads(auth_path.read_text())["tokens"]
-        ) or True
-    ))
-    proc = _FakeProc([
-        "Open https://auth.openai.com/device and enter code ABCD-1234\n",
-        "Approved!\n",
-    ], returncode=0)
-    codex_login.start_codex_login(spawn_fn=lambda *a, **kw: proc)
-    _join_reader()
-    assert codex_tokens.is_connected() is True
+def test_login_child_gets_the_shared_codex_home(store, tmp_path):
+    """The login must land in the SAME persistent CODEX_HOME every codex exec call reads —
+    one login, one store, one refresher (the CLI)."""
+    seen = {}
 
+    def spawn(args, **kw):
+        seen["args"] = args
+        seen["env"] = kw.get("env") or {}
+        return _FakeProc([
+            "Open https://auth.openai.com/device and enter code ABCD-1234\n",
+            "Approved!\n",
+        ], returncode=0)
 
-def test_failed_login_does_not_import_anything(store, monkeypatch):
-    called = []
-    monkeypatch.setattr(codex_tokens, "bootstrap_from_local", lambda **kw: called.append(1))
-    proc = _FakeProc([
-        "Open https://auth.openai.com/device and enter code ABCD-1234\n",
-    ], returncode=1)
-    codex_login.start_codex_login(spawn_fn=lambda *a, **kw: proc)
+    codex_login.start_codex_login(spawn_fn=spawn)
     _join_reader()
-    assert called == []
+    assert seen["args"][1:] == ["login", "--device-auth"]
+    assert seen["env"]["CODEX_HOME"] == str(tmp_path / "codexhome")
 
 
 def test_timeout_waiting_for_code(store, monkeypatch):
@@ -183,24 +171,27 @@ def test_timeout_waiting_for_code(store, monkeypatch):
 
 # ---- codex_login_status / disconnect_codex_login ------------------------------------------
 
-def test_status_reflects_connection(store):
+def test_status_reflects_cli_login(store, monkeypatch):
     assert codex_login.codex_login_status() == {"connected": False}
-    codex_tokens.store_bundle({
-        "access_token": "a", "refresh_token": "r", "account_id": "acc",
-    })
+    monkeypatch.setattr(codex_login.codex_cli, "is_logged_in", lambda *a, **k: True)
     assert codex_login.codex_login_status() == {"connected": True}
 
 
-def test_disconnect_clears_postgres_bundle(store):
-    codex_tokens.store_bundle({
-        "access_token": "a", "refresh_token": "r", "account_id": "acc",
-    })
-    assert codex_tokens.is_connected() is True
+def test_disconnect_runs_codex_logout_against_shared_home(store, tmp_path, monkeypatch):
+    ran = {}
+
+    def fake_run(args, **kw):
+        ran["args"] = args
+        ran["env"] = (kw.get("env") or {})
+
+    monkeypatch.setattr(codex_login.subprocess, "run", fake_run)
     codex_login.disconnect_codex_login()
-    assert codex_tokens.is_connected() is False
+    assert ran["args"][1:] == ["logout"]
+    assert ran["env"]["CODEX_HOME"] == str(tmp_path / "codexhome")
 
 
-def test_disconnect_kills_in_flight_login(store):
+def test_disconnect_kills_in_flight_login(store, monkeypatch):
+    monkeypatch.setattr(codex_login.subprocess, "run", lambda *a, **k: None)
     proc = _FakeProc(["no code yet\n"], returncode=1)
     codex_login._login_proc = proc
     codex_login.disconnect_codex_login()

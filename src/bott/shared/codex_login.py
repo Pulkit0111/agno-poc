@@ -1,23 +1,25 @@
 """Bridge to the official `codex` CLI's device-auth login, for the admin "Connect ChatGPT"
 button in the console.
 
-Bott never speaks OAuth itself — the CLI owns the entire device-auth flow. We spawn
-`codex login --device-auth`, scrape the printed verification URL + code to show the admin,
-and once the CLI exits successfully, import its ~/.codex/auth.json into the SAME encrypted
-Postgres bundle codex_tokens.py already manages (via codex_tokens.bootstrap_from_local()) —
-that Postgres row, not the local file, is what MODEL_PROVIDER=codex actually reads at
-inference time. This bridge only matters on whatever host runs the admin console; the CLI
-is never needed at inference time on any other host/worker.
+Bott never speaks OAuth itself — the CLI owns the entire device-auth flow AND the token
+store. We spawn `codex login --device-auth` with CODEX_HOME pointed at the persistent
+shared home (config.codex_cli_home() — a mounted volume in prod), scrape the printed
+verification URL + code to show the admin, and that's it: the CLI writes its login into
+CODEX_HOME and refreshes/rotates it in place with its own file locking on every
+`codex exec`. There is deliberately NO second copy of the token anywhere (the old
+Postgres bundle + local-file dual-store is what raced the single-use refresh token and
+kept invalidating the org login).
 """
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import threading
 from typing import Callable, Optional
 
-from bott.shared import codex_tokens
+from bott.shared import codex_cli, config
 from bott.shared.observability.logging_setup import get_logger
 
 log = get_logger("bott.codex_login")
@@ -29,8 +31,8 @@ _START_TIMEOUT_S = 25
 
 # The in-flight login child + its background reader thread. The console API is a
 # long-lived process, so these module-level refs survive between the start/status/
-# disconnect calls; the reader thread keeps draining the child's output (and, on exit,
-# importing the result) after start_codex_login() has already returned to its caller.
+# disconnect calls; the reader thread keeps draining the child's output after
+# start_codex_login() has already returned to its caller.
 _login_proc: Optional[subprocess.Popen] = None
 _reader_thread: Optional[threading.Thread] = None
 _lock = threading.Lock()
@@ -38,6 +40,14 @@ _lock = threading.Lock()
 
 def _strip_ansi(s: str) -> str:
     return _ANSI_RE.sub("", s)
+
+
+def _login_env() -> dict:
+    """The login child gets the SAME persistent CODEX_HOME every codex exec call uses —
+    one login, one store, one refresher (the CLI)."""
+    env = dict(os.environ)
+    env["CODEX_HOME"] = config.codex_cli_home()
+    return env
 
 
 def parse_device_login(raw: str) -> dict:
@@ -54,21 +64,19 @@ def parse_device_login(raw: str) -> dict:
     return out
 
 
-def _import_result(proc) -> None:
-    """Once the login child exits, import ~/.codex/auth.json into Postgres on success."""
+def _log_result(proc) -> None:
+    """Once the login child exits, log the outcome. Nothing to import: the CLI already
+    wrote the login into CODEX_HOME."""
     proc.wait()
     global _login_proc
     with _lock:
         if _login_proc is proc:
             _login_proc = None
     if proc.returncode == 0:
-        try:
-            if codex_tokens.bootstrap_from_local():
-                log.info("codex device login succeeded — org token imported.")
-            else:
-                log.warning("codex login exited 0 but no usable ~/.codex/auth.json was found.")
-        except Exception as e:  # noqa: BLE001 — best-effort import, never crash the reader
-            log.error("codex login import failed: %s", e)
+        if codex_cli.is_logged_in():
+            log.info("codex device login succeeded — CODEX_HOME=%s.", config.codex_cli_home())
+        else:
+            log.warning("codex login exited 0 but the CLI still reports not logged in.")
     else:
         log.warning("codex login exited %s — not connected.", proc.returncode)
 
@@ -76,12 +84,12 @@ def _import_result(proc) -> None:
 def start_codex_login(spawn_fn: Callable[..., subprocess.Popen] = subprocess.Popen) -> dict:
     """Spawn `codex login --device-auth`; return {url, code, raw} once the CLI has printed
     the verification URL (or {"raw": ...} / {"error": ...}). The child keeps polling OpenAI
-    in the background after this returns — a daemon thread drains its output and imports
-    the result into Postgres once it exits, so the caller doesn't have to wait for approval.
-    `spawn_fn` is injectable for tests."""
+    in the background after this returns — a daemon thread drains its output; on success
+    the CLI itself writes the login into the shared CODEX_HOME. `spawn_fn` is injectable
+    for tests."""
     global _login_proc, _reader_thread
 
-    if codex_tokens.is_connected():
+    if codex_cli.is_logged_in():
         return {"error": "already connected"}
 
     with _lock:
@@ -92,8 +100,9 @@ def start_codex_login(spawn_fn: Callable[..., subprocess.Popen] = subprocess.Pop
                 pass
         try:
             proc = spawn_fn(
-                ["codex", "login", "--device-auth"],
+                [config.codex_cli_binary(), "login", "--device-auth"],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                env=_login_env(),
             )
         except OSError as e:
             return {"error": f"could not start `codex login` — is the CLI installed? ({e})"}
@@ -128,7 +137,7 @@ def start_codex_login(spawn_fn: Callable[..., subprocess.Popen] = subprocess.Pop
             result.update(parse_device_login(buf))
             result["raw"] = _strip_ansi(buf).strip()
             found.set()
-        _import_result(proc)
+        _log_result(proc)
 
     _reader_thread = threading.Thread(target=reader, daemon=True)
     _reader_thread.start()
@@ -143,12 +152,12 @@ def start_codex_login(spawn_fn: Callable[..., subprocess.Popen] = subprocess.Pop
 
 
 def codex_login_status() -> dict:
-    return {"connected": codex_tokens.is_connected()}
+    return {"connected": codex_cli.is_logged_in()}
 
 
 def disconnect_codex_login() -> None:
-    """Forget the login: kill any in-flight child, best-effort `codex logout`, then clear
-    the org token from Postgres."""
+    """Forget the login: kill any in-flight child, then `codex logout` against the shared
+    CODEX_HOME (the CLI removes its own credential store — the only copy that exists)."""
     global _login_proc
     with _lock:
         proc, _login_proc = _login_proc, None
@@ -158,7 +167,7 @@ def disconnect_codex_login() -> None:
         except Exception:  # noqa: BLE001
             pass
     try:
-        subprocess.run(["codex", "logout"], timeout=15, capture_output=True)
+        subprocess.run([config.codex_cli_binary(), "logout"], timeout=15,
+                       capture_output=True, env=_login_env())
     except Exception:  # noqa: BLE001 — best-effort, CLI may not be installed on this host
         pass
-    codex_tokens.disconnect()

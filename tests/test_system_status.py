@@ -17,7 +17,7 @@ def _patch_all(monkeypatch, *, provider="openai", chat="gpt-4o", build="gpt-4o",
     monkeypatch.setattr(ss_mod, "_active",
                         lambda: {"provider": provider, "chat": chat, "build": build,
                                  "review": review})
-    monkeypatch.setattr(ss_mod.codex_tokens, "is_connected", lambda: codex)
+    monkeypatch.setattr(ss_mod.codex_cli, "is_logged_in", lambda *a, **k: codex)
     monkeypatch.setattr(ss_mod.config, "database_url", lambda: database_url)
     monkeypatch.setattr(ss_mod.config, "jira_configured", lambda: jira)
     monkeypatch.setattr(ss_mod.config, "confluence_configured", lambda: confluence)

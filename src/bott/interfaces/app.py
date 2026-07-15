@@ -52,17 +52,9 @@ from bott.shared.schema import init_schema as _init_schema
 
 _init_schema()
 
-# When MODEL_PROVIDER=codex, the shared agent's model is built now and needs the org Codex
-# token. Seed it from the host's `~/.codex/auth.json` (dev/single-host convenience) if the
-# org account hasn't been connected via App Home yet. Never let this crash startup.
-if _model_provider() == "codex":
-    try:
-        from bott.shared import codex_tokens
-        if not codex_tokens.is_connected():
-            if codex_tokens.bootstrap_from_local():
-                log.info("Seeded org Codex token from ~/.codex/auth.json.")
-    except Exception as e:  # noqa: BLE001 — bootstrap is best-effort; don't crash import
-        log.warning("Codex bootstrap skipped: %s", e)
+# Auth is single-store: the codex CLI owns its login in CODEX_HOME (config.codex_cli_home())
+# — bott never reads, copies, or seeds tokens. A missing login surfaces per-request with an
+# admin alert, so nothing to check at import time.
 
 try:
     from bott.shared.persistence import skills_store
@@ -189,8 +181,8 @@ def readyz():
         problems.append("background job worker is not running")
     if _model_provider() == "codex":
         try:
-            from bott.shared import codex_tokens
-            if not codex_tokens.is_connected():
+            from bott.shared import codex_cli
+            if not codex_cli.is_logged_in():
                 warnings.append("codex not connected — chat/build/review will fail until reconnected")
         except Exception:  # noqa: BLE001 — a broken check must not itself fail readiness
             pass

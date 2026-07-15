@@ -180,7 +180,7 @@ def test_admin_section_non_admin_returns_empty():
 def test_admin_section_admin_contains_job_info(monkeypatch, store):
     from bott.interfaces.slack_home import models as _m_mod
     from bott.shared import approvals as _apr_mod
-    from bott.shared import codex_tokens as _ct_mod
+    from bott.shared import codex_cli as _cli_mod
     from bott.shared.persistence import queue as _q_mod
 
     monkeypatch.setattr(_q_mod, "recent_jobs", lambda limit=8: [
@@ -193,7 +193,7 @@ def test_admin_section_admin_contains_job_info(monkeypatch, store):
         {"id": 2, "action": "open_pr", "summary": "Open PR #42", "created": 2.0},
         {"id": 1, "action": "send_email", "summary": "Email client", "created": 1.0},
     ])
-    monkeypatch.setattr(_ct_mod, "is_connected", lambda: True)
+    monkeypatch.setattr(_cli_mod, "is_logged_in", lambda *a, **k: True)
     monkeypatch.setattr(_m_mod, "_active", lambda: {
         "provider": "codex", "chat": "gpt-4o", "build": "gpt-4o", "review": "gpt-4o-mini"
     })
@@ -223,14 +223,14 @@ def test_admin_section_admin_header_present(monkeypatch, store):
     """The first block must be the admin header."""
     from bott.interfaces.slack_home import models as _m_mod
     from bott.shared import approvals as _apr_mod
-    from bott.shared import codex_tokens as _ct_mod
+    from bott.shared import codex_cli as _cli_mod
     from bott.shared.persistence import queue as _q_mod
 
     monkeypatch.setattr(_q_mod, "recent_jobs", lambda limit=8: [])
     monkeypatch.setattr(_q_mod, "job_counts", lambda: {})
     monkeypatch.setattr(_apr_mod, "pending_count", lambda: 0)
     monkeypatch.setattr(_apr_mod, "pending", lambda limit=8: [])
-    monkeypatch.setattr(_ct_mod, "is_connected", lambda: False)
+    monkeypatch.setattr(_cli_mod, "is_logged_in", lambda *a, **k: False)
     monkeypatch.setattr(_m_mod, "_active", lambda: {
         "provider": "bedrock", "chat": "claude-3", "build": "claude-3", "review": "claude-3-haiku"
     })
@@ -247,7 +247,7 @@ def test_admin_section_admin_job_counts_summary(monkeypatch, store):
     """Failed/pending counts must surface in the text (not just done)."""
     from bott.interfaces.slack_home import models as _m_mod
     from bott.shared import approvals as _apr_mod
-    from bott.shared import codex_tokens as _ct_mod
+    from bott.shared import codex_cli as _cli_mod
     from bott.shared.persistence import queue as _q_mod
 
     monkeypatch.setattr(_q_mod, "recent_jobs", lambda limit=8: [
@@ -256,7 +256,7 @@ def test_admin_section_admin_job_counts_summary(monkeypatch, store):
     monkeypatch.setattr(_q_mod, "job_counts", lambda: {"failed": 3, "pending": 1})
     monkeypatch.setattr(_apr_mod, "pending_count", lambda: 0)
     monkeypatch.setattr(_apr_mod, "pending", lambda limit=8: [])
-    monkeypatch.setattr(_ct_mod, "is_connected", lambda: False)
+    monkeypatch.setattr(_cli_mod, "is_logged_in", lambda *a, **k: False)
     monkeypatch.setattr(_m_mod, "_active", lambda: {
         "provider": "openrouter", "chat": "llama", "build": "llama", "review": "llama-mini"
     })

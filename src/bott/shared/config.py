@@ -609,7 +609,7 @@ def codex_refresh_margin_s() -> int:
 
 def codex_timeout_s() -> float:
     """Total per-request ceiling (read/write/pool) for one Codex backend call; connect is
-    capped separately (~10s) in codex_model. Without this the OpenAI client runs with NO
+    capped separately (~10s). Without this an HTTP client would run with NO
     timeout — a single hung upstream stream hangs forever while holding one of the few
     org-wide concurrency slots (codex_max_concurrent_requests), so a handful of hung calls
     freezes chat for the whole org. Generous by default: heavy build/review responses
