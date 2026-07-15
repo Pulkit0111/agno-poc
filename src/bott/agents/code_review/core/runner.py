@@ -16,7 +16,7 @@ from bott.shared.config import (
     codex_cli_binary,
     codex_cli_timeout_s,
 )
-from bott.shared.model import _review_anti_affinity, resolve_model_id, resolve_provider
+from bott.shared.model import resolve_model_id
 
 from ..agent.prompt import PROMPT_VERSION
 from ..github.fetch_essentials import PrEssentials
@@ -53,16 +53,14 @@ def _run_review_agent_cli(
     engagement_observable=False — the verdict gate (verdict_gate.py) relaxes its
     tool-call-cross-check preconditions accordingly.
 
-    The model is resolved the SAME way the Agno path resolves it (resolve_model_id +
-    anti-affinity), NOT taken from the caller's `model_id` argument — that argument is only
-    a cost-calculation label upstream (see slack_app.py's `review_model = a.get("model_id")
-    or bott_model()`), never the actual selector. Skipping this resolution would silently
-    let every CLI-exec review run on the CLI's own default model, defeating both bott's
-    per-role model config AND the anti-affinity invariant (reviewer != author model)."""
+    The model is resolved the SAME way build_model resolves it (resolve_model_id), NOT
+    taken from the caller's `model_id` argument — that argument is only a cost-calculation
+    label upstream (see slack_app.py's `review_model = a.get("model_id") or bott_model()`),
+    never the actual selector. Skipping this resolution would silently let every CLI-exec
+    review run on the CLI's own default model, defeating bott's per-role model config."""
     from bott.agents.code_review.agent.prompt import build_cli_review_prompt
 
-    provider = resolve_provider("review")
-    resolved_model_id = _review_anti_affinity(resolve_model_id("review"), provider)
+    resolved_model_id = resolve_model_id("review")
 
     prompt = build_cli_review_prompt(essentials, project_addendum, prior_review)
     schema = ReviewOutput.model_json_schema()

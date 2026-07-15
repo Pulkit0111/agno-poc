@@ -865,7 +865,6 @@ def build_console_router(db) -> APIRouter:
     def get_models(request: Request) -> dict:
         user = current_user(request)
         from bott.interfaces.slack_home import models as models_mod
-        from bott.shared.model import _review_anti_affinity
         active = models_mod._active()
         if not user["is_admin"]:
             # Members get the task->model matrix (ids only, for the Home-page model card)
@@ -877,12 +876,11 @@ def build_console_router(db) -> APIRouter:
                 "providers": [{"name": "codex", "usable": usable, "hint": None, "models": []}],
             }
         provider = active["provider"]
-        conflict = active["review"] == active["build"]
+        # Anti-affinity removed: review and build sharing a model is fine (and desirable —
+        # both get the strongest model). `conflict`/`swap_preview` kept in the payload for
+        # client back-compat, always false/None now.
+        conflict = False
         swap_preview = None
-        if conflict:
-            # Anti-affinity previews the swap review would actually get at run time.
-            alt = _review_anti_affinity(active["review"])
-            swap_preview = alt if alt != active["review"] else None
         # Codex-only: one provider entry (shape kept for the console client).
         usable, hint = models_mod.provider_key_status("codex")
         providers = [{

@@ -116,10 +116,13 @@ def test_set_models_matrix_keys_written(store):
     assert "gpt-5.5-codex" in r2 and "gpt-5.5" in r3
 
 
-def test_set_models_warns_on_review_equals_build(store):
+def test_set_models_allows_review_equals_build(store):
+    """Anti-affinity removed: review == build is intentional (both on the top model), so
+    setting them equal must NOT warn."""
     m.apply_model_override("admin@axelerant.com", "model.build", "gpt-5.5")
     out = m.apply_model_override("admin@axelerant.com", "model.review", "gpt-5.5")
-    assert "review = build" in out  # visible conflict warning (runtime auto-swap covers it)
+    assert "review = build" not in out
+    assert "review=`gpt-5.5`" in out
 
 
 def test_app_home_models_panel_is_codex_only(store):

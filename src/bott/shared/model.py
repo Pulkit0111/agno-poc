@@ -2,8 +2,9 @@
 subscription through the official codex CLI (CodexExecChat / codex_cli.run_codex_exec).
 
 Roles: 'chat' (everyday) vs 'build'/'review' ('heavy' legacy tier as fallback). The
-per-role PROVIDER switching layer (OpenRouter/Bedrock) is gone; per-role MODEL IDS
-remain (resolve_model_id + review anti-affinity)."""
+per-role PROVIDER switching layer (OpenRouter/Bedrock) is gone; per-role MODEL IDS remain
+(resolve_model_id). Review and build may share the strongest model — anti-affinity was
+removed (see _review_anti_affinity)."""
 
 from __future__ import annotations
 
@@ -72,26 +73,13 @@ def resolve_provider(role: str) -> str:
 
 
 def _review_anti_affinity(model_id: str, provider: str = "codex") -> str:
-    """The reviewer must not be the model that wrote the code. If the review role resolves
-    to the SAME id as the build role, swap to the first different codex catalog model so
-    implement and review never share weights (same blind spots while writing = same blind
-    spots while reviewing)."""
-    del provider  # codex-only; kept for caller compat
-    build_id = resolve_model_id("build")
-    if model_id != build_id:
-        return model_id
-    from .config import FALLBACK_CODEX_MODELS
-    # Skip '-codex'-suffixed ids: the ChatGPT-account backend rejects them ("model is
-    # not supported when using Codex with a ChatGPT account") — swapping onto one would
-    # break every review, which is worse than the bias we're avoiding.
-    for alt in FALLBACK_CODEX_MODELS:
-        if alt != build_id and not alt.endswith("-codex"):
-            log.warning("review model == build model (%s) — swapping review to %s "
-                        "(anti-affinity)", build_id, alt)
-            return alt
-    log.warning("review model == build model (%s) and no safe alternate available — "
-                "keeping it (same-model review beats no review); set model.review to "
-                "choose the reviewer explicitly.", build_id)
+    """DEPRECATED no-op. Anti-affinity (forcing review ≠ build) was removed on purpose:
+    it only guards PRs bott ITSELF authored (rare), and to enforce it the reviewer was
+    pushed off the strongest model onto a weaker one — which made the review bot miss real
+    SQL/command injection (caught by the eval: gpt-5.4 called it a suggestion, gpt-5.5
+    called it merge-blocking). The reviewer now runs on the same top model as build.
+    Kept as an identity function so external call sites don't break."""
+    del provider
     return model_id
 
 
@@ -104,8 +92,5 @@ def build_model(role: str = "chat", **overrides):
     surfaced to the user as "error, try again later"."""
     resolve_provider(role)  # logs if a stale non-codex override is still configured
     model_id = resolve_model_id(role)
-    if role == "review":
-        model_id = _review_anti_affinity(model_id)
-
     from bott.shared.codex_exec_model import CodexExecChat
     return CodexExecChat(id=model_id, **{**_COMMON, **overrides})

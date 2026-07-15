@@ -61,14 +61,11 @@ def models_section(is_admin: bool) -> list[dict]:
     a = _active()
     ok, hint = provider_key_status("codex")
     icon = "✅" if ok else "⚠️"
-    # The reviewer must differ from the builder — same model = same blind spots. The gateway
-    # auto-swaps at run time, but surface the conflict so the admin can set it deliberately.
-    affinity = ("✅ review differs from build" if a["review"] != a["build"]
-                else "⚠️ review = build — I'll auto-swap the reviewer at run time; set a "
-                     "distinct review model to choose which")
+    # Review and build may share the strongest model (anti-affinity removed) — no conflict
+    # to warn about.
     text = (f"*Task → model matrix* (codex)\n"
             f"chat `{a['chat']}`  ·  build `{a['build']}`  ·  review `{a['review']}`\n"
-            f"{affinity}\n{icon} {hint}")
+            f"{icon} {hint}")
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     # CODEX-ONLY surface (product decision): App Home offers Codex connect/status and the
     # model picker only. The Bedrock/OpenRouter connect flows and the provider switcher are
@@ -103,11 +100,8 @@ def apply_model_override(actor_email: str, key: str, value: str) -> str:
         return "Sorry, that's not allowed — only an admin can change the model."
     set_setting(key, value)
     a = _active()
-    note = ("" if a["review"] != a["build"]
-            else "\n⚠️ review = build — the reviewer would share the author's blind spots; "
-                 "I'll auto-swap at run time, but consider a distinct review model.")
     return (f"Updated. Now provider=`{a['provider']}` · chat=`{a['chat']}` · "
-            f"build=`{a['build']}` · review=`{a['review']}`.{note}\n"
+            f"build=`{a['build']}` · review=`{a['review']}`.\n"
             "Reports, builds, reviews, and App-Home asks pick this up immediately. The "
             "always-on Slack chat assistant (the one that answers @-mentions/DMs) is built "
             "once at startup — it switches on Bott's next restart.")

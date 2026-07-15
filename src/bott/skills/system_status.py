@@ -32,9 +32,6 @@ def system_status() -> str:
         build = active.get("build", "?")
         review = active.get("review", "?")
         lines.append(f"✅ Provider: `{provider}`  ·  chat: `{chat}`  ·  build: `{build}`  ·  review: `{review}`")
-        if build == review:
-            lines.append("⚠️  review = build — the reviewer is auto-swapped at run time "
-                         "(anti-affinity); set model.review to choose it explicitly.")
     except Exception:  # noqa: BLE001
         lines.append("⚠️  Could not read active model settings.")
     try:

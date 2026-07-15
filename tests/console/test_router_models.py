@@ -69,21 +69,20 @@ def test_get_models_no_conflict(client, monkeypatch):
     assert body["swap_preview"] is None
 
 
-def test_get_models_conflict_shows_swap_preview(client, monkeypatch):
+def test_get_models_no_conflict_when_review_equals_build(client, monkeypatch):
+    """Anti-affinity removed: review == build is fine (both get the top model), so the
+    payload reports no conflict and no swap preview."""
     import bott.interfaces.slack_home.models as models_mod
-    import bott.shared.model as model_mod
     monkeypatch.setattr(models_mod, "_active", lambda: {
-        "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5-codex", "review": "gpt-5.5-codex",
+        "provider": "codex", "chat": "gpt-5.5", "build": "gpt-5.5", "review": "gpt-5.5",
         "providers_by_role": {"chat": "codex", "build": "codex", "review": "codex"},
     })
     monkeypatch.setattr(models_mod, "provider_key_status", lambda p: (True, "healthy"))
     monkeypatch.setattr(models_mod, "available_models", lambda p: ["gpt-5.5", "gpt-5.5-codex"])
-    monkeypatch.setattr(model_mod, "_review_anti_affinity",
-                        lambda model_id, provider="codex": "gpt-5.5")
     _as(client, admin=True)
     body = client.get("/api/console/v1/models").json()
-    assert body["conflict"] is True
-    assert body["swap_preview"] == "gpt-5.5"
+    assert body["conflict"] is False
+    assert body["swap_preview"] is None
 
 
 def test_override_requires_admin(client):

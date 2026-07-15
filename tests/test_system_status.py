@@ -42,9 +42,12 @@ def test_model_matrix_shown(monkeypatch):
     assert "claude-3-opus" in out
 
 
-def test_model_matrix_warns_when_review_equals_build(monkeypatch):
+def test_model_matrix_does_not_warn_when_review_equals_build(monkeypatch):
+    """Anti-affinity removed: review == build no longer warrants a warning."""
     _patch_all(monkeypatch, build="same-model", review="same-model")
-    assert "review = build" in system_status()
+    out = system_status()
+    assert "review = build" not in out
+    assert "review: `same-model`" in out
 
 
 def test_codex_connected(monkeypatch):

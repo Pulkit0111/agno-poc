@@ -66,42 +66,32 @@ def test_role_fallback_chain(monkeypatch):
     assert role_model_id("review") == "review-z"
 
 
-def test_anti_affinity_never_picks_codex_suffixed_alternate(monkeypatch):
-    """The ChatGPT-account Codex backend rejects '-codex' model ids ("not supported when
-    using Codex with a ChatGPT account") — the swap must skip them, or the 'fix' breaks
-    every review. build=gpt-5.5 → alternate must be gpt-5.4, NOT gpt-5.5-codex."""
+def test_review_uses_its_configured_model_no_swap(monkeypatch):
+    """Anti-affinity removed: review is NEVER swapped off its resolved model. review==build
+    is intentional — a weak reviewer under-calls real vulns, so both run the top model."""
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
     for var in ("BOTT_BUILD_MODEL", "BOTT_REVIEW_MODEL", "BOTT_CHAT_MODEL",
                 "BOTT_HEAVY_MODEL", "BOTT_MODEL"):
         monkeypatch.delenv(var, raising=False)   # everything defaults to gpt-5.5
-    review = model_mod.build_model("review")
-    assert review.id != "gpt-5.5"                 # swapped away from build
-    assert not review.id.endswith("-codex")       # never onto a backend-rejected id
-
-
-def test_review_anti_affinity_swaps_model(monkeypatch):
-    """The reviewer must not be the model that wrote the code: when review resolves to the
-    same id as build, build_model('review') swaps to an alternate (codex catalog)."""
-    _no_setting_override(monkeypatch)
-    monkeypatch.setenv("MODEL_PROVIDER", "codex")
-    for var in ("BOTT_BUILD_MODEL", "BOTT_REVIEW_MODEL", "BOTT_CHAT_MODEL"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("BOTT_HEAVY_MODEL", "gpt-5.5-codex")  # build == review == same id
     build = model_mod.build_model("build")
     review = model_mod.build_model("review")
-    assert build.id == "gpt-5.5-codex"
-    assert review.id != build.id                     # swapped
-    from bott.shared.config import FALLBACK_CODEX_MODELS
-    assert review.id in FALLBACK_CODEX_MODELS
+    assert build.id == "gpt-5.5"
+    assert review.id == "gpt-5.5"  # same top model as build — no downgrade swap
 
 
-def test_review_no_swap_when_models_differ(monkeypatch):
+def test_review_honors_explicit_review_model(monkeypatch):
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
-    monkeypatch.setenv("BOTT_BUILD_MODEL", "gpt-5.5-codex")
-    monkeypatch.setenv("BOTT_REVIEW_MODEL", "gpt-5.5")
-    assert model_mod.build_model("review").id == "gpt-5.5"
+    monkeypatch.setenv("BOTT_BUILD_MODEL", "gpt-5.5")
+    monkeypatch.setenv("BOTT_REVIEW_MODEL", "gpt-5.4")
+    assert model_mod.build_model("review").id == "gpt-5.4"
+
+
+def test_anti_affinity_shim_is_identity(monkeypatch):
+    """The kept _review_anti_affinity shim must not swap anything (external callers)."""
+    assert model_mod._review_anti_affinity("gpt-5.5") == "gpt-5.5"
+    assert model_mod._review_anti_affinity("gpt-5.5", "codex") == "gpt-5.5"
 
 
 def test_codex_construction_never_touches_auth(monkeypatch):

@@ -53,24 +53,22 @@ def test_run_review_agent_uses_cli(monkeypatch):
 
     def fake_run_codex_exec(prompt, **kw):
         assert kw["output_schema"] is not None
-        assert kw["model_id"] == "gpt-5.5-review-alt"  # resolved + anti-affinity applied
+        assert kw["model_id"] == "gpt-5.5"  # straight from resolve_model_id (no swap)
         return codex_cli.CodexExecResult(text="", data=good_output, tokens_used=99)
 
     monkeypatch.setattr(r, "run_codex_exec", fake_run_codex_exec)
     monkeypatch.setattr(r, "resolve_model_id", lambda role: "gpt-5.5")
-    monkeypatch.setattr(r, "_review_anti_affinity", lambda model_id, provider: "gpt-5.5-review-alt")
     result = r.run_review_agent(_FakeEssentials(), "/tmp/clone", model_id="codex:gpt-5.5")
     assert result.output.verdict == "approve"
     assert result.engagement_observable is False
     assert result.tool_calls == []
     assert result.termination == "natural"
     assert result.total_tokens == 99
-    assert result.model_id == "gpt-5.5-review-alt"  # AgentRunResult labeled with what actually ran
+    assert result.model_id == "gpt-5.5"  # labeled with what actually ran
 
 
 def test_run_review_agent_cli_bad_output_is_no_submission(monkeypatch):
     monkeypatch.setattr(r, "resolve_model_id", lambda role: "gpt-5.5")
-    monkeypatch.setattr(r, "_review_anti_affinity", lambda model_id, provider: model_id)
 
     def fake_run_codex_exec(prompt, **kw):
         return codex_cli.CodexExecResult(text="", data={"nonsense": True}, tokens_used=1)
@@ -83,7 +81,6 @@ def test_run_review_agent_cli_bad_output_is_no_submission(monkeypatch):
 
 def test_run_review_agent_cli_error_is_model_error(monkeypatch):
     monkeypatch.setattr(r, "resolve_model_id", lambda role: "gpt-5.5")
-    monkeypatch.setattr(r, "_review_anti_affinity", lambda model_id, provider: model_id)
 
     def fake_run_codex_exec(prompt, **kw):
         raise codex_cli.CodexCliError("boom")
@@ -100,7 +97,6 @@ def test_run_review_agent_always_uses_cli_regardless_of_env(monkeypatch):
     the removed Agno branch."""
     monkeypatch.setenv("CODEX_CLI_EXEC", "0")
     monkeypatch.setattr(r, "resolve_model_id", lambda role: "gpt-5.5")
-    monkeypatch.setattr(r, "_review_anti_affinity", lambda model_id, provider: model_id)
     called = []
 
     def fake_run_codex_exec(prompt, **kw):
