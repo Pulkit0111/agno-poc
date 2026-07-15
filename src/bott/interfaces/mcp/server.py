@@ -117,7 +117,10 @@ async def dispatch(functions: dict[str, Function], name: str, arguments: dict) -
     return result if isinstance(result, str) else str(result)
 
 
-def build_mcp_server(functions: dict[str, Function]) -> Server:
+def build_mcp_server(functions: dict[str, Function], on_call=None) -> Server:
+    """`on_call(tool_name, identity)`, when given, fires before every dispatch — the
+    observability seam Agno's in-process tool traces used to provide (the eval harness's
+    routing suite records calls through it; production can hang auditing on it)."""
     server: Server = Server("bott")
 
     @server.list_tools()
@@ -134,6 +137,11 @@ def build_mcp_server(functions: dict[str, Function]) -> Server:
 
     @server.call_tool()
     async def _call_tool(name: str, arguments: dict) -> list[mcp_types.TextContent]:
+        if on_call is not None:
+            try:
+                on_call(name, _identity_var.get())
+            except Exception:  # noqa: BLE001 — an observer must never break the call
+                pass
         try:
             text = await dispatch(functions, name, arguments)
         except Exception as e:  # noqa: BLE001 — tool errors go back to the model as text
@@ -150,14 +158,14 @@ async def _unauthorized(send) -> None:
     await send({"type": "http.response.body", "body": b"unauthorized"})
 
 
-def build_mcp_asgi_app(functions: dict[str, Function]):
+def build_mcp_asgi_app(functions: dict[str, Function], on_call=None):
     """Streamable-HTTP ASGI app: bearer-ticket auth wrapper around the MCP session
     manager. Stateless + JSON responses — each codex exec invocation initializes its own
-    short-lived MCP session."""
+    short-lived MCP session. `on_call` is forwarded to build_mcp_server."""
     from starlette.applications import Starlette
     from starlette.routing import Mount
 
-    server = build_mcp_server(functions)
+    server = build_mcp_server(functions, on_call=on_call)
     manager = StreamableHTTPSessionManager(app=server, json_response=True, stateless=True)
 
     async def endpoint(scope, receive, send):

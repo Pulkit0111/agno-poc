@@ -151,3 +151,55 @@ def test_asgi_accepts_valid_ticket():
     code = _asgi_call(app, [(b"authorization", f"Bearer {tok}".encode()),
                             (b"content-type", b"application/json")])
     assert code is not None and code != 401
+
+
+def test_on_call_observer_fires_with_identity():
+    """The on_call seam replaces Agno's in-process tool traces for observability — the
+    eval harness's routing suite depends on it."""
+    import mcp.types as mcp_types
+
+    recorded = []
+    fns = mcp_server.flatten_functions([_StubToolkit()])
+    server = mcp_server.build_mcp_server(fns, on_call=lambda name, ident: recorded.append(
+        (name, getattr(ident, "user_id", None))))
+    handler = server.request_handlers[mcp_types.CallToolRequest]
+
+    async def run():
+        token = mcp_server._identity_var.set(Identity("obs@x", "s"))
+        try:
+            req = mcp_types.CallToolRequest(
+                method="tools/call",
+                params=mcp_types.CallToolRequestParams(name="_greet",
+                                                       arguments={"name": "bob"}))
+            return await handler(req)
+        finally:
+            mcp_server._identity_var.reset(token)
+
+    anyio.run(run)
+    assert recorded == [("_greet", "obs@x")]
+
+
+def test_on_call_observer_errors_never_break_the_call():
+    import mcp.types as mcp_types
+
+    def boom(name, ident):
+        raise RuntimeError("observer exploded")
+
+    fns = mcp_server.flatten_functions([_StubToolkit()])
+    server = mcp_server.build_mcp_server(fns, on_call=boom)
+    handler = server.request_handlers[mcp_types.CallToolRequest]
+
+    async def run():
+        token = mcp_server._identity_var.set(Identity("obs@x", "s"))
+        try:
+            req = mcp_types.CallToolRequest(
+                method="tools/call",
+                params=mcp_types.CallToolRequestParams(name="_greet",
+                                                       arguments={"name": "bob"}))
+            return await handler(req)
+        finally:
+            mcp_server._identity_var.reset(token)
+
+    result = anyio.run(run)
+    text = result.root.content[0].text if hasattr(result, "root") else str(result)
+    assert "hello bob" in str(text)
