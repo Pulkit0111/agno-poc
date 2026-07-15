@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 
 from agno.agent import Agent
+from agno.memory import MemoryManager
 from agno.skills import LocalSkills, Skills
 
 from bott.agents.build_fix import build_tools
@@ -114,6 +115,38 @@ def build_skills() -> Skills:
     return Skills(loaders=[LocalSkills(config.bott_skills_dir())])
 
 
+# What the memory manager is allowed to keep. Scoped deliberately: durable facts that
+# personalize future conversations (identity, how to be addressed, location, role, stable
+# preferences) — NOT transient task chatter or one-off questions. This is the policy that
+# replaces the old "only remember when explicitly asked" instruction: a plain declarative
+# ("I live in Srinagar", "you can call me skippednote") IS a durable fact and must be kept.
+MEMORY_CAPTURE_INSTRUCTIONS = """\
+Capture only durable facts about this user that will personalize future conversations:
+- Their name and how they want to be addressed.
+- Where they are based / their location, timezone, or working hours.
+- Their role, team, or the engagements they own.
+- Stable preferences about how they want you to work (formatting, defaults, what to avoid).
+
+A plain declarative statement counts — "I live in Srinagar" or "you can call me skippednote"
+is a durable fact and MUST be captured even without the words "remember this".
+
+Do NOT capture: transient task requests, one-off questions, the content of a report you just
+produced, or anything specific to a single conversation that won't matter next time."""
+
+
+def build_memory_manager(db=None) -> MemoryManager:
+    """Deterministic user-memory capture. Runs after every turn (via update_memory_on_run)
+    and extracts durable facts per MEMORY_CAPTURE_INSTRUCTIONS — so a fact the user states in
+    one Slack thread is reliably recalled in the next (memory is keyed by user_id; each Slack
+    thread is a separate session_id). Replaces the old discretionary agentic-memory path,
+    which silently dropped declarative facts while still replying "I've noted that.\""""
+    return MemoryManager(
+        model=build_model("chat"),
+        memory_capture_instructions=MEMORY_CAPTURE_INSTRUCTIONS,
+        db=db,
+    )
+
+
 def build_agent(user_id: str, db=None) -> Agent:
     user_id = require_user_id(user_id)
     model = build_model("chat")
@@ -180,11 +213,20 @@ def build_agent(user_id: str, db=None) -> Agent:
         skills=skills,
         num_history_runs=20,
         add_history_to_context=True,
-        # Agentic memory (keyed by user_id): the agent stores/recalls memory only when it
-        # decides to — so a trivial "Hi" runs no memory step and shows NO thinking pill,
-        # while a message that uses tools/memory still shows the trace. Isolation enforced
+        # Deterministic user memory (keyed by user_id). The memory manager runs after every
+        # turn and captures durable facts per MEMORY_CAPTURE_INSTRUCTIONS — guaranteed capture,
+        # unlike the old enable_agentic_memory path, where the write was discretionary and
+        # silently skipped plain declaratives ("I live in Srinagar") while the reply still
+        # claimed "I've noted that". Recall stays automatic: stored memories for this user_id
+        # are injected into context on every run (add_memories_to_context defaults True), so a
+        # fact stated in one Slack thread surfaces in the next. update_memory_on_run and
+        # enable_agentic_memory are mutually exclusive — do NOT set both. Isolation is enforced
         # by always passing user_id per run (scripts/isolation_test.py).
-        enable_agentic_memory=True,
+        update_memory_on_run=True,
+        memory_manager=build_memory_manager(db),
+        # Explicit (Agno would infer True from the above anyway): recall this user's stored
+        # memories into context on every run, so cross-thread facts actually surface.
+        add_memories_to_context=True,
         telemetry=False,
         markdown=False,
     )
