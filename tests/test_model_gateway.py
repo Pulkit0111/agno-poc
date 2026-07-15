@@ -27,19 +27,15 @@ def test_unknown_provider_raises(monkeypatch):
         build_model("chat")
 
 
-def test_codex_provider_builds_adapter(monkeypatch):
+def test_codex_provider_builds_exec_model(monkeypatch):
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
     monkeypatch.setenv("BOTT_CHAT_MODEL", "gpt-5.5")
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(model_mod, "get_valid_token",
-                        lambda: ct.CodexToken("tok-abc", "acc-1"))
     m = model_mod.build_model("chat")
     assert m.id == "gpt-5.5"
-    assert "backend-api/codex" in (m.base_url or "")
-    # must be the token-re-resolving CodexModel, not a plain OpenAIResponses (which would
-    # freeze the token on the long-lived shared chat agent) — regression guard
-    assert type(m).__name__ == "CodexModel"
+    # codex-only architecture: the model shells out to `codex exec` — no base_url, no
+    # token machinery, construction NEVER touches auth (the CLI owns CODEX_HOME).
+    assert type(m).__name__ == "CodexExecChat"
 
 
 def test_codex_model_carries_retry_policy(monkeypatch):
@@ -138,65 +134,45 @@ def test_review_no_swap_when_models_differ(monkeypatch):
     assert model_mod.build_model("review").id == "gpt-5.5"
 
 
-def test_codex_not_connected_does_not_crash_construction(monkeypatch):
-    """Regression: build_model("chat") runs once at agent-construction time, at app import —
-    it used to re-raise CodexNotConnected there, which crashed the ENTIRE app (Slack AND the
-    admin console) before an admin could ever reach the Connect-Codex button to fix it. It
-    must instead return a usable model object (with placeholder credentials the underlying
-    CodexModel re-checks on every actual call), so the app/console stay reachable."""
+def test_codex_construction_never_touches_auth(monkeypatch):
+    """The old shim resolved the org token at build_model() time — a broken login at app
+    import used to crash Slack AND the console. CodexExecChat construction touches nothing:
+    auth lives in CODEX_HOME and only the codex CLI reads it, per actual call."""
     _no_setting_override(monkeypatch)
     monkeypatch.setenv("MODEL_PROVIDER", "codex")
-    monkeypatch.delenv("FALLBACK_MODEL_PROVIDER", raising=False)
-    from bott.shared import alerts
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(alerts, "alert_admins", lambda text: None)
-    alerts._last_sent.clear()
 
-    def boom(): raise ct.CodexNotConnected("nope")
+    def boom():
+        raise AssertionError("build_model must not resolve tokens")
 
     monkeypatch.setattr(model_mod, "get_valid_token", boom)
-    m = model_mod.build_model("chat")  # must not raise
-    assert type(m).__name__ == "CodexModel"
+    m = model_mod.build_model("chat")  # must not raise, must not resolve a token
+    assert type(m).__name__ == "CodexExecChat"
 
 
-def test_codex_not_connected_alerts_admins(monkeypatch):
-    """Regression: a broken shared Codex login used to fail silently — nobody found out
-    until a user noticed Bott stopped responding to every single request."""
-    _no_setting_override(monkeypatch)
-    monkeypatch.setenv("MODEL_PROVIDER", "codex")
-    monkeypatch.delenv("FALLBACK_MODEL_PROVIDER", raising=False)
+def test_codex_broken_login_alerts_admins_on_call(monkeypatch):
+    """A broken shared login must not fail silently: the first actual call alerts admins
+    (throttled) and surfaces a non-retryable auth error."""
+    from agno.exceptions import ModelProviderError
+    from agno.models.message import Message
+
     from bott.shared import alerts
-    from bott.shared import codex_tokens as ct
+    from bott.shared import codex_exec_model as cem
+    from bott.shared.codex_cli import CodexCliError
+
     alerted = []
     monkeypatch.setattr(alerts, "alert_admins", lambda text: alerted.append(text))
     alerts._last_sent.clear()
 
-    def boom(): raise ct.CodexNotConnected("refresh failed")
+    def fake(prompt, **kw):
+        raise CodexCliError("codex exec failed (exit 1): Not logged in")
 
-    monkeypatch.setattr(model_mod, "get_valid_token", boom)
-    model_mod.build_model("chat")
-    assert alerted and "refresh failed" in alerted[0]
-
-
-def test_codex_not_connected_falls_back_when_configured(monkeypatch):
-    """When an admin has opted a secondary provider in, a broken Codex login degrades to it
-    instead of taking every single one of Bott's LLM calls down at once."""
-    _no_setting_override(monkeypatch)
-    monkeypatch.setenv("MODEL_PROVIDER", "codex")
-    monkeypatch.setenv("FALLBACK_MODEL_PROVIDER", "openrouter")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    monkeypatch.setenv("FALLBACK_MODEL_ID", "anthropic/claude-sonnet-4.6")
-    from bott.shared import alerts
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(alerts, "alert_admins", lambda text: None)
-    alerts._last_sent.clear()
-
-    def boom(): raise ct.CodexNotConnected("nope")
-
-    monkeypatch.setattr(model_mod, "get_valid_token", boom)
-    m = model_mod.build_model("chat")
-    assert m.id == "anthropic/claude-sonnet-4.6"
-    assert type(m).__name__ == "OpenRouter"
+    monkeypatch.setattr(cem, "run_codex_exec", fake)
+    with pytest.raises(ModelProviderError) as ei:
+        cem.CodexExecChat(id="gpt-5.5").invoke(
+            messages=[Message(role="user", content="hi")],
+            assistant_message=Message(role="assistant"))
+    assert ei.value.status_code == 401
+    assert alerted and "login is broken" in alerted[0]
 
 
 def test_settings_override_beats_env(monkeypatch):

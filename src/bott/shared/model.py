@@ -104,7 +104,11 @@ def build_model(role: str = "chat", **overrides):
     # 5xx must be retried, not surfaced to the user as "error, try again later". Callers can
     # still override via `overrides`.
     if provider == "codex":
-        return _build_codex_model(model_id, overrides)
+        # Everything runs through the official codex CLI now. CodexExecChat is text-only
+        # (chat tools ride bott's MCP server, not Agno tool-calling) — build/review/triage
+        # call codex_cli.run_codex_exec directly and never come through here.
+        from bott.shared.codex_exec_model import CodexExecChat
+        return CodexExecChat(id=model_id, **{**_COMMON, **overrides})
     return _build_for_provider(provider, model_id, overrides)
 
 

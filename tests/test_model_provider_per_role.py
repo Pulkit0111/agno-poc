@@ -63,12 +63,10 @@ def test_build_model_chat_openrouter_build_codex_mixed_roles(monkeypatch):
     # chain-of-thought block before the answer (reasoning.exclude keeps reasoning_content empty).
     assert chat.extra_body == {"reasoning": {"exclude": True}}
 
-    from bott.shared import codex_tokens as ct
-    monkeypatch.setattr(model_mod, "get_valid_token", lambda: ct.CodexToken("tok", "acc"))
     monkeypatch.setenv("BOTT_BUILD_MODEL", "gpt-5.5")
     build = model_mod.build_model("build")
     assert type(build).__name__ != "OpenRouter"
-    assert type(build).__name__ == "CodexModel"
+    assert type(build).__name__ == "CodexExecChat"  # codex provider = the CLI-exec model
 
 
 def test_openrouter_model_can_override_extra_body(monkeypatch):
