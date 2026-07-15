@@ -11,10 +11,11 @@ FROM python:3.12-slim AS base
 # no extra system packages needed beyond what the slim base already has.
 RUN pip install --no-cache-dir uv
 
-# The `codex` CLI is baked into the image for exactly one reason: the console's admin
-# "Connect ChatGPT" flow (src/bott/shared/codex_login.py) spawns `codex login --device-auth`
-# INSIDE this container, then imports the resulting ~/.codex/auth.json into Postgres.
-# Inference never shells out to the CLI — only that one-time login handshake does.
+# The `codex` CLI is THE model backend: every LLM call in bott (chat/build/review/triage/
+# memory) shells out to `codex exec` on the org ChatGPT subscription, and the console's
+# admin "Connect ChatGPT" flow (src/bott/shared/codex_login.py) runs `codex login
+# --device-auth` in this same container. Auth lives solely in CODEX_HOME (a mounted
+# volume — see docker-compose.prod.yml); the CLI owns and refreshes it.
 # Pinned standalone musl binary from the official releases (no Node runtime needed).
 ARG CODEX_VERSION=0.142.5
 RUN set -eux; \

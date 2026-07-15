@@ -49,6 +49,16 @@ services:
     environment:
       DATABASE_URL: postgresql://bott:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/bott
       BOTT_PORT: ${BOTT_PORT:-7777}
+      # The ONE codex auth store: the CLI keeps (and refreshes) the org ChatGPT login here.
+      # A named volume so `codex login` survives image rebuilds/redeploys — log in once via
+      # the console's Connect ChatGPT button (device auth) and every codex exec call
+      # (chat/build/review/triage/memory) shares it.
+      CODEX_HOME: /var/lib/bott/codex
+      # codex's bubblewrap sandbox needs unprivileged user namespaces, generally unavailable
+      # in containers — the container itself is the isolation boundary here.
+      BOTT_CODEX_DISABLE_SANDBOX: "1"
+    volumes:
+      - bott_codex:/var/lib/bott/codex
     # No ports: — deliberately NOT published to the host. The AgentOS API's native auth
     # is weak; all external traffic enters through the console, which proxies to
     # http://bott:${BOTT_PORT} over the internal network.
@@ -86,3 +96,4 @@ services:
 
 volumes:
   bott_pgdata:
+  bott_codex:
