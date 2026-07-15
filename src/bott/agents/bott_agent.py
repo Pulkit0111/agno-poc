@@ -138,10 +138,12 @@ def build_memory_manager(db=None) -> MemoryManager:
     """Deterministic user-memory capture. Runs after every turn (via update_memory_on_run)
     and extracts durable facts per MEMORY_CAPTURE_INSTRUCTIONS — so a fact the user states in
     one Slack thread is reliably recalled in the next (memory is keyed by user_id; each Slack
-    thread is a separate session_id). Replaces the old discretionary agentic-memory path,
-    which silently dropped declarative facts while still replying "I've noted that.\""""
-    return MemoryManager(
-        model=build_model("chat"),
+    thread is a separate session_id). The extraction pass is one codex exec structured-output
+    call (CodexExecMemoryManager) — the tool-calling MemoryManager needs a function-calling
+    model, and bott's only LLM path is the codex CLI."""
+    from bott.shared.codex_memory import CodexExecMemoryManager
+
+    return CodexExecMemoryManager(
         memory_capture_instructions=MEMORY_CAPTURE_INSTRUCTIONS,
         db=db,
     )
