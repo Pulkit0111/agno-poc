@@ -1,0 +1,57 @@
+name: Sync to axelerant/bott (deploy POC)
+
+# On every push to main, mirror this repo into apps/agno-poc/ in axelerant/bott.
+# Pushing there triggers axelerant/bott's own deploy.yml, so a push here ships to prod.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two syncs race each other onto axelerant/bott main.
+concurrency:
+  group: sync-to-bott
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repo (source of truth)
+        uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout axelerant/bott (deploy target)
+        uses: actions/checkout@v4
+        with:
+          repository: axelerant/bott
+          ref: main
+          token: ${{ secrets.BOTT_SYNC_TOKEN }}
+          path: bott
+          fetch-depth: 1
+
+      - name: Mirror source into apps/agno-poc/
+        run: |
+          set -euo pipefail
+          mkdir -p bott/apps/agno-poc
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/workflows/sync-to-bott.yml' \
+            source/ bott/apps/agno-poc/
+
+      - name: Commit and push (fires deploy)
+        working-directory: bott
+        run: |
+          set -euo pipefail
+          git config user.name "agno-poc-sync[bot]"
+          git config user.email "actions@github.com"
+          git add apps/agno-poc
+          if git diff --cached --quiet; then
+            echo "No changes to sync — apps/agno-poc/ already matches this repo."
+            exit 0
+          fi
+          SHA='${{ github.sha }}'
+          git commit -m "sync: agno-poc @ ${SHA:0:7} from Pulkit0111/agno-poc"
+          git push origin main
+          echo "Synced and pushed to axelerant/bott main — deploy will trigger."
