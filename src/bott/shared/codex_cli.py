@@ -133,6 +133,38 @@ def is_logged_in(codex_home: Optional[str] = None, binary: Optional[str] = None)
     return "not logged in" not in out and "logged in" in out
 
 
+def available_codex_models(codex_home: Optional[str] = None) -> list[str]:
+    """The model slugs the connected ChatGPT/Codex account can use, read from the codex
+    CLI's own ``models_cache.json`` — the SAME roster the CLI shows in its `/model` picker,
+    and the SAME store (CODEX_HOME) our `codex exec` calls run against. The CLI fetches and
+    refreshes this cache (with an etag) on its own, so this stays current with no work from
+    us — and it works in the deployed `codex exec` path (the old proxy `/v1/models` route
+    is dev-only). We keep only ``visibility == "list"`` models (the CLI hides the rest, e.g.
+    ``codex-auto-review``) and order them by ``priority`` ascending, exactly like the CLI.
+
+    Falls back to ``config.FALLBACK_CODEX_MODELS`` whenever the cache is missing, malformed,
+    or exposes no listable model (e.g. bott has never run `codex exec` yet, so the CLI hasn't
+    written the cache) — a stale-but-usable picker beats an empty one."""
+    home = codex_home or config.codex_cli_home()
+    path = os.path.join(home, "models_cache.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            models = json.load(f).get("models")
+        if not isinstance(models, list):
+            raise ValueError("no models array")
+        listed = [m for m in models
+                  if isinstance(m, dict) and m.get("visibility") == "list" and m.get("slug")]
+        # Missing priority sorts last (float('inf')) but stays after the prioritized ones.
+        listed.sort(key=lambda m: m.get("priority") if isinstance(m.get("priority"), (int, float))
+                    else float("inf"))
+        slugs = [str(m["slug"]) for m in listed]
+        if slugs:
+            return slugs
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        log.debug("codex models_cache unusable (%s) — using fallback list", e)
+    return list(config.FALLBACK_CODEX_MODELS)
+
+
 def run_codex_exec(
     prompt: str,
     *,

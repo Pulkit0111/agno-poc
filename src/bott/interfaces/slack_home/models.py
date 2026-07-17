@@ -39,9 +39,12 @@ def provider_key_status(provider: str) -> tuple[bool, str]:
 
 
 def available_models(provider: str = "codex") -> list[str]:
-    """Models the admin can choose for a task (the codex account catalog)."""
+    """Models the admin can choose for a task — the live roster from the connected Codex
+    account (codex_cli.available_codex_models reads the CLI's own models_cache.json, so the
+    picker matches what `codex` itself lists), falling back to the static list only when the
+    cache isn't available yet."""
     if provider == "codex":
-        return list(config.FALLBACK_CODEX_MODELS)
+        return codex_cli.available_codex_models()
     return []
 
 
@@ -49,8 +52,8 @@ _VALID_PROVIDERS = ("codex",)
 
 
 def catalogs() -> dict:
-    """Model-id catalogs for the console's picker — codex only."""
-    return {"codex": list(config.FALLBACK_CODEX_MODELS)}
+    """Model-id catalogs for the console's picker — codex only, live from the account."""
+    return {"codex": available_models("codex")}
 
 
 def models_section(is_admin: bool) -> list[dict]:

@@ -362,3 +362,53 @@ def test_run_codex_exec_bypass_sandbox_param(monkeypatch, tmp_path):
                       runner=runner)
     assert "--dangerously-bypass-approvals-and-sandbox" in seen["args"]
     assert "-s" not in seen["args"]
+
+
+# --- available_codex_models: read codex's own models_cache.json --------------------
+def _write_cache(home, models):
+    os.makedirs(home, exist_ok=True)
+    with open(os.path.join(home, "models_cache.json"), "w", encoding="utf-8") as f:
+        json.dump({"fetched_at": "2026-07-17T00:00:00Z", "etag": "x",
+                   "client_version": "0.144.5", "models": models}, f)
+
+
+def test_available_codex_models_reads_cache_filtered_and_ordered(tmp_path):
+    home = str(tmp_path / "codexhome")
+    _write_cache(home, [
+        {"slug": "gpt-5.4", "visibility": "list", "priority": 16},
+        {"slug": "gpt-5.6-sol", "visibility": "list", "priority": 1},
+        {"slug": "codex-auto-review", "visibility": "hide", "priority": 43},
+        {"slug": "gpt-5.5", "visibility": "list", "priority": 7},
+    ])
+    got = cc.available_codex_models(codex_home=home)
+    # hidden model dropped; the rest ordered by priority ascending.
+    assert got == ["gpt-5.6-sol", "gpt-5.5", "gpt-5.4"]
+
+
+def test_available_codex_models_falls_back_when_cache_missing(tmp_path):
+    got = cc.available_codex_models(codex_home=str(tmp_path / "nope"))
+    assert got == list(config.FALLBACK_CODEX_MODELS)
+
+
+def test_available_codex_models_falls_back_on_malformed_cache(tmp_path):
+    home = str(tmp_path / "codexhome")
+    os.makedirs(home, exist_ok=True)
+    with open(os.path.join(home, "models_cache.json"), "w", encoding="utf-8") as f:
+        f.write("{ not json")
+    assert cc.available_codex_models(codex_home=home) == list(config.FALLBACK_CODEX_MODELS)
+
+
+def test_available_codex_models_falls_back_when_no_listed_models(tmp_path):
+    # A cache that parses but exposes nothing listable must fall back, not return [].
+    home = str(tmp_path / "codexhome")
+    _write_cache(home, [{"slug": "codex-auto-review", "visibility": "hide", "priority": 43}])
+    assert cc.available_codex_models(codex_home=home) == list(config.FALLBACK_CODEX_MODELS)
+
+
+def test_available_codex_models_missing_priority_sorts_last(tmp_path):
+    home = str(tmp_path / "codexhome")
+    _write_cache(home, [
+        {"slug": "no-prio", "visibility": "list"},
+        {"slug": "gpt-5.6-sol", "visibility": "list", "priority": 1},
+    ])
+    assert cc.available_codex_models(codex_home=home) == ["gpt-5.6-sol", "no-prio"]

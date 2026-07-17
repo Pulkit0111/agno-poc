@@ -24,8 +24,9 @@ def bott_model() -> str:
 # Back-compat alias (used as a default arg in the review engine); resolves to the single model.
 DEFAULT_MODEL = bott_model()
 
-# Fallback model list for the dashboard picker when the Codex proxy can't be queried.
-# These are the models the Codex-subscription proxy typically exposes.
+# Fallback model list for the dashboard/App-Home picker, used ONLY when the codex CLI's own
+# models_cache.json isn't readable yet (see codex_cli.available_codex_models — the live path
+# that reads the real account roster). Kept intentionally short/stable; may lag the true roster.
 FALLBACK_CODEX_MODELS = [
     "gpt-5.5",
     "gpt-5.5-codex",
